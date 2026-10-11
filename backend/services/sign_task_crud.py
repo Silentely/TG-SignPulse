@@ -25,18 +25,66 @@ _logger = logging.getLogger("backend.sign_task_crud")
 
 
 def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
-    """写入前校验 chats 内全部动作的正则关键词，阻断灾难性回溯正则落盘。
+    """写入前校验 chats 内全部动作与图节点正则，阻断灾难性回溯正则落盘。
 
     判据与运行时一致（validate_action_regex_safety），保证「能写入即可加载」。
     """
     if not chats:
         return
+    from backend.services.keyword_monitor.rules import is_unsafe_keyword_regex
+
+    def _check_pattern(pattern: Optional[str], context: str) -> None:
+        if pattern and isinstance(pattern, str):
+            if is_unsafe_keyword_regex(pattern):
+                raise ValueError(
+                    f"{context} 正则存在灾难性回溯风险（可能导致服务无响应），请避免 "
+                    f"「组内含可变长度且整体被重复」的写法: {pattern}"
+                )
+
+    def _check_graph_regex(graph_dict: Dict[str, Any], visited: set) -> None:
+        if not isinstance(graph_dict, dict):
+            return
+        gid = id(graph_dict)
+        if gid in visited:
+            return
+        visited.add(gid)
+        nodes = graph_dict.get("nodes") or {}
+        node_list = nodes.values() if isinstance(nodes, dict) else (nodes if isinstance(nodes, (list, tuple)) else [])
+        for node in node_list:
+            if not isinstance(node, dict):
+                continue
+            _check_pattern(node.get("regex"), f"节点 '{node.get('id', 'unknown')}' regex")
+            params = node.get("params")
+            if isinstance(params, dict):
+                _check_pattern(params.get("regex"), f"节点 '{node.get('id', 'unknown')}' params.regex")
+                validate_action_regex_safety(params)
+            sub = node.get("subflow_graph")
+            if isinstance(sub, dict):
+                _check_graph_regex(sub, visited)
+
     for chat in chats:
         if not isinstance(chat, dict):
             continue
         for action in chat.get("actions") or []:
             if isinstance(action, dict):
                 validate_action_regex_safety(action)
+
+        for step in chat.get("steps") or []:
+            if isinstance(step, dict):
+                _check_pattern(step.get("regex"), f"步骤 '{step.get('step_id', 'unknown')}' regex")
+                params = step.get("params")
+                if isinstance(params, dict):
+                    _check_pattern(params.get("regex"), f"步骤 '{step.get('step_id', 'unknown')}' params.regex")
+                config = step.get("config")
+                if isinstance(config, dict):
+                    validate_action_regex_safety(config)
+                sub = step.get("subflow_graph")
+                if isinstance(sub, dict):
+                    _check_graph_regex(sub, set())
+
+        flow_graph = chat.get("flow_graph")
+        if isinstance(flow_graph, dict):
+            _check_graph_regex(flow_graph, set())
 
 
 def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:

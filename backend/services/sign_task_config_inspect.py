@@ -13,13 +13,42 @@ _RESPONSE_ACTION_IDS = frozenset({3, 4, 5, 6, 7, 8})
 _KEYWORD_MONITOR_ACTION_ID = 8
 
 
+def _iter_graph_items(graph_dict: Any, visited: Optional[set] = None):
+    """递归遍历执行图节点，使用 visited 防止环形引用导致的 RecursionError。"""
+    if not isinstance(graph_dict, dict):
+        return
+    if visited is None:
+        visited = set()
+    graph_id = id(graph_dict)
+    if graph_id in visited:
+        return
+    visited.add(graph_id)
+
+    nodes = graph_dict.get("nodes")
+    if isinstance(nodes, dict):
+        node_iterable = nodes.values()
+    elif isinstance(nodes, (list, tuple)):
+        node_iterable = nodes
+    else:
+        node_iterable = []
+
+    for node in node_iterable:
+        if not isinstance(node, dict):
+            continue
+        yield node
+        subflow = node.get("subflow_graph")
+        if isinstance(subflow, dict):
+            yield from _iter_graph_items(subflow, visited)
+
+
 def _iter_chat_actions(task_config: Optional[Dict[str, Any]]):
-    """遍历旧 actions 与 workflow steps 的统一动作描述。"""
+    """遍历 actions、workflow steps 与 flow_graph 的统一动作/节点描述。"""
     if not isinstance(task_config, dict):
         return
     chats = task_config.get("chats")
     if not isinstance(chats, (list, tuple)):
         return
+    visited: set = set()
     for chat in chats:
         if not isinstance(chat, dict):
             continue
@@ -36,10 +65,19 @@ def _iter_chat_actions(task_config: Optional[Dict[str, Any]]):
                     continue
                 config = step.get("config")
                 config = config if isinstance(config, dict) else {}
-                yield {
+                item = {
                     "action": step.get("action_type"),
                     "mode": config.get("mode"),
+                    "node_type": step.get("node_type"),
                 }
+                yield item
+                subflow = step.get("subflow_graph")
+                if isinstance(subflow, dict):
+                    yield from _iter_graph_items(subflow, visited)
+
+        flow_graph = chat.get("flow_graph")
+        if isinstance(flow_graph, dict):
+            yield from _iter_graph_items(flow_graph, visited)
 
 
 def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
@@ -52,23 +90,42 @@ def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
         return True
     if not isinstance(task_config.get("chats"), list):
         return True
-    for action in _iter_chat_actions(task_config):
+    for item in _iter_chat_actions(task_config):
+        node_type = str(
+            (item.get("node_type") if isinstance(item, dict) else getattr(item, "node_type", None))
+            or (item.get("type") if isinstance(item, dict) else getattr(item, "type", None))
+            or ""
+        ).strip().lower()
+        if node_type == "wait_event":
+            return True
+
         raw_act = (
-            action.get("action")
-            if isinstance(action, dict)
-            else getattr(action, "action", None)
+            item.get("action")
+            if isinstance(item, dict) and "action" in item
+            else (item.get("action_type") if isinstance(item, dict) else getattr(item, "action", None))
         )
+        if raw_act is None and hasattr(item, "action_type"):
+            raw_act = getattr(item, "action_type", None)
+
         try:
-            action_id = int(raw_act)
+            if isinstance(raw_act, str):
+                from tg_signer.config import SupportAction
+
+                try:
+                    action_id = int(SupportAction[raw_act].value)
+                except KeyError:
+                    action_id = int(raw_act)
+            else:
+                action_id = int(raw_act)
         except (TypeError, ValueError):
             continue
         if action_id in _RESPONSE_ACTION_IDS:
             return True
         if action_id == 99:
             mode = (
-                action.get("mode")
-                if isinstance(action, dict)
-                else getattr(action, "mode", "reactive")
+                item.get("mode")
+                if isinstance(item, dict)
+                else getattr(item, "mode", "reactive")
             )
             if (mode or "reactive") == "reactive":
                 return True
@@ -80,11 +137,20 @@ def task_has_keyword_monitor(task_config: Optional[Dict[str, Any]]) -> bool:
     for action in _iter_chat_actions(task_config):
         raw_act = (
             action.get("action")
-            if isinstance(action, dict)
-            else getattr(action, "action", None)
+            if isinstance(action, dict) and "action" in action
+            else (action.get("action_type") if isinstance(action, dict) else getattr(action, "action", None))
         )
         try:
-            if int(raw_act) == _KEYWORD_MONITOR_ACTION_ID:
+            if isinstance(raw_act, str):
+                from tg_signer.config import SupportAction
+
+                try:
+                    act_int = int(SupportAction[raw_act].value)
+                except KeyError:
+                    act_int = int(raw_act)
+            else:
+                act_int = int(raw_act)
+            if act_int == _KEYWORD_MONITOR_ACTION_ID:
                 return True
         except (TypeError, ValueError):
             continue

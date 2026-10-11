@@ -724,10 +724,53 @@ class SignChatV3(BaseJSONConfig):
             SupportAction.REPLY_BY_IMAGE_RECOGNITION,
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM,
         }
+        ai_action_vals = {a.value for a in ai_actions}
+        ai_action_names = {a.name for a in ai_actions}
+
+        def _is_ai(action_val: Any) -> bool:
+            if action_val in ai_actions or action_val in ai_action_vals or action_val in ai_action_names:
+                return True
+            try:
+                return int(action_val) in ai_action_vals
+            except (ValueError, TypeError):
+                return False
+
         if self.steps is not None:
-            return any(s.action_type in ai_actions for s in self.steps)
+            for s in self.steps:
+                if _is_ai(getattr(s, "action_type", None)):
+                    return True
+                sub = getattr(s, "subflow_graph", None)
+                if isinstance(sub, dict) and self._graph_has_ai(sub, _is_ai, set()):
+                    return True
+            return False
+
         if self.actions is not None:
-            return any(action.action in ai_actions for action in self.actions)
+            return any(_is_ai(action.action) for action in self.actions)
+
+        if self.flow_graph is not None:
+            return self._graph_has_ai(self.flow_graph, _is_ai, set())
+
+        return False
+
+    @classmethod
+    def _graph_has_ai(cls, graph_dict: Dict[str, Any], is_ai_fn, visited: set) -> bool:
+        if not isinstance(graph_dict, dict):
+            return False
+        gid = id(graph_dict)
+        if gid in visited:
+            return False
+        visited.add(gid)
+        nodes = graph_dict.get("nodes") or {}
+        node_list = nodes.values() if isinstance(nodes, dict) else (nodes if isinstance(nodes, (list, tuple)) else [])
+        for node in node_list:
+            if not isinstance(node, dict):
+                continue
+            act = node.get("action_type") or node.get("action")
+            if is_ai_fn(act):
+                return True
+            sub = node.get("subflow_graph")
+            if isinstance(sub, dict) and cls._graph_has_ai(sub, is_ai_fn, visited):
+                return True
         return False
 
     @property
@@ -740,26 +783,79 @@ class SignChatV3(BaseJSONConfig):
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM,
             SupportAction.KEYWORD_NOTIFY,
         }
+        resp_vals = {a.value for a in response_actions}
+        resp_names = {a.name for a in response_actions}
+
+        def _is_resp_act(action_val: Any) -> bool:
+            if action_val in response_actions or action_val in resp_vals or action_val in resp_names:
+                return True
+            try:
+                return int(action_val) in resp_vals
+            except (ValueError, TypeError):
+                return False
+
         if self.steps is not None:
             for s in self.steps:
-                if s.action_type in response_actions:
+                nt = getattr(s, "node_type", None)
+                if nt == FlowNodeType.WAIT_EVENT or str(nt).strip().lower() == "wait_event":
                     return True
+                if _is_resp_act(getattr(s, "action_type", None)):
+                    return True
+                cfg = getattr(s, "config", None) or {}
                 if (
-                    s.action_type == SupportAction.CUSTOM_PLUGIN
-                    and (s.config or {}).get("mode", "reactive") == "reactive"
+                    getattr(s, "action_type", None) == SupportAction.CUSTOM_PLUGIN
+                    and cfg.get("mode", "reactive") == "reactive"
                 ):
+                    return True
+                sub = getattr(s, "subflow_graph", None)
+                if isinstance(sub, dict) and self._graph_has_updates(sub, _is_resp_act, set()):
                     return True
             return False
 
         if self.actions is not None:
             for action in self.actions:
-                if action.action in response_actions:
+                if _is_resp_act(action.action):
                     return True
                 if (
                     action.action == SupportAction.CUSTOM_PLUGIN
                     and getattr(action, "mode", "reactive") == "reactive"
                 ):
                     return True
+            return False
+
+        if self.flow_graph is not None:
+            return self._graph_has_updates(self.flow_graph, _is_resp_act, set())
+
+        return False
+
+    @classmethod
+    def _graph_has_updates(cls, graph_dict: Dict[str, Any], is_resp_fn, visited: set) -> bool:
+        if not isinstance(graph_dict, dict):
+            return False
+        gid = id(graph_dict)
+        if gid in visited:
+            return False
+        visited.add(gid)
+        nodes = graph_dict.get("nodes") or {}
+        node_list = nodes.values() if isinstance(nodes, dict) else (nodes if isinstance(nodes, (list, tuple)) else [])
+        for node in node_list:
+            if not isinstance(node, dict):
+                continue
+            nt = str(node.get("node_type") or node.get("type") or "").strip().lower()
+            if nt == "wait_event":
+                return True
+            act = node.get("action_type") or node.get("action")
+            if is_resp_fn(act):
+                return True
+            params = node.get("params") or {}
+            if (
+                act in (SupportAction.CUSTOM_PLUGIN, 99, "CUSTOM_PLUGIN")
+                and params.get("mode", "reactive") == "reactive"
+            ):
+                return True
+            sub = node.get("subflow_graph")
+            if isinstance(sub, dict) and cls._graph_has_updates(sub, is_resp_fn, visited):
+                return True
         return False
 
 
