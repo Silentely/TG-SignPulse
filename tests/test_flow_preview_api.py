@@ -1,17 +1,26 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.core.auth import get_current_user
 from backend.main import app
 
-# Mock auth dependency
-app.dependency_overrides[get_current_user] = lambda: {
-    "username": "admin",
-    "role": "admin",
-}
-client = TestClient(app)
+
+@pytest.fixture(autouse=True)
+def override_auth_for_preview():
+    app.dependency_overrides[get_current_user] = lambda: {
+        "username": "admin",
+        "role": "admin",
+    }
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
-def test_preview_flow_success_valid_graph():
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+def test_preview_flow_success_valid_graph(client):
     payload = {
         "chat_id": 12345,
         "name": "Test Flow",
@@ -37,7 +46,7 @@ def test_preview_flow_success_valid_graph():
     assert len(data["errors"]) == 0
 
 
-def test_preview_flow_failure_dangling_edge():
+def test_preview_flow_failure_dangling_edge(client):
     payload = {
         "chat_id": 12345,
         "name": "Invalid Flow",
