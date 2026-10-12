@@ -2,12 +2,15 @@
  * 签到任务管理 API：CRUD、执行、运行状态、历史、批量操作、聊天查询。
  */
 import { MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
-import type { RawTaskAction } from "../types";
+import type { RawTaskAction, PreviewFlowResponse } from "../types";
 
 export interface SignTaskChat {
   chat_id: number;
   name: string;
-  actions: RawTaskAction[];
+  actions?: RawTaskAction[];
+  steps?: any[];
+  flow_graph?: Record<string, any>;
+  initial_step_id?: string;
   delete_after?: number;
   action_interval: number;
   message_thread_id?: number;
@@ -349,3 +352,11 @@ export const fetchChatAvatar = (
     {},
     token,
   );
+
+
+export async function previewFlow(chat: Partial<SignTaskChat>): Promise<PreviewFlowResponse> {
+  return request<PreviewFlowResponse>("/api/sign-tasks/preview-flow", {
+    method: "POST",
+    body: JSON.stringify(chat),
+  });
+}

@@ -12,6 +12,9 @@ export type TargetChatDraftLike = {
   messageThreadId: string
   senderFilter: string
   sourceAccount: string
+  steps?: any[]
+  flow_graph?: Record<string, any>
+  initial_step_id?: string
 }
 
 export type TaskFormPayloadInput = {
@@ -49,6 +52,9 @@ export type TaskFormPayloadInput = {
   nextTaskOnSuccess?: string
   nextTaskDelaySeconds?: number
   executionEngine?: string | null
+  flowMode?: "basic" | "advanced"
+  flowSteps?: any[]
+  flowGraph?: Record<string, any>
 }
 
 function normalizeTimeHm(v: string): string {
@@ -142,43 +148,78 @@ export function buildTaskFormPayload(
     ca = [buildListenAction(input, ba)]
   }
 
+  const isAdvanced = input.flowMode === "advanced"
+  const defaultEngine = isAdvanced ? "v4" : undefined
+  const effectiveEngine = input.executionEngine?.trim() || defaultEngine
+
   const seenChatTargets = new Set<string>()
   const chats = input.targetChats
     .filter((c) => {
       const id = Number(c.chatId)
       if (!Number.isFinite(id) || id === 0) return false
-      const threadId = c.messageThreadId ? Number(c.messageThreadId) : ''
+      const threadId = c.messageThreadId ? Number(c.messageThreadId) : ""
       const targetKey = `${id}:${threadId}`
       if (seenChatTargets.has(targetKey)) return false
       seenChatTargets.add(targetKey)
       return true
     })
-    .map((c) => ({
-      chat_id: c.chatId,
-      name: c.chatName,
-      actions: ca as RawTaskAction[],
-      action_interval: 1,
-      message_thread_id: c.messageThreadId ? Number(c.messageThreadId) : undefined,
-      sender_filter: c.senderFilter.trim() || undefined,
-      source_account: c.sourceAccount || undefined,
-      execution_engine: input.executionEngine?.trim() || undefined,
-    }))
+    .map((c) => {
+      const chatSteps = c.steps || (isAdvanced ? input.flowSteps : undefined)
+      const chatGraph = c.flow_graph || (isAdvanced ? input.flowGraph : undefined)
+
+      const chatObj: any = {
+        chat_id: c.chatId,
+        name: c.chatName,
+        action_interval: 1,
+        message_thread_id: c.messageThreadId ? Number(c.messageThreadId) : undefined,
+        sender_filter: c.senderFilter ? c.senderFilter.trim() || undefined : undefined,
+        source_account: c.sourceAccount || undefined,
+        execution_engine: input.executionEngine?.trim() || (isAdvanced ? "v4" : undefined),
+      }
+
+      if (isAdvanced && (chatGraph || chatSteps)) {
+        if (chatGraph) {
+          chatObj.flow_graph = chatGraph
+        } else if (chatSteps) {
+          chatObj.steps = chatSteps
+          if (c.initial_step_id) {
+            chatObj.initial_step_id = c.initial_step_id
+          }
+        }
+      } else {
+        chatObj.actions = ca as RawTaskAction[]
+      }
+      return chatObj
+    })
 
   const safeChats = chats.length
     ? chats
     : [
-        {
-          chat_id: input.fallbackChatId || 0,
-          name: input.fallbackChatName || '',
-          actions: ca as RawTaskAction[],
-          action_interval: 1,
-          message_thread_id: input.fallbackThreadId
-            ? Number(input.fallbackThreadId)
-            : undefined,
-          sender_filter: input.fallbackSenderFilter.trim() || undefined,
-          source_account: input.fallbackSourceAccount || undefined,
-          execution_engine: input.executionEngine?.trim() || undefined,
-        },
+        (() => {
+          const chatSteps = isAdvanced ? input.flowSteps : undefined
+          const chatGraph = isAdvanced ? input.flowGraph : undefined
+          const chatObj: any = {
+            chat_id: input.fallbackChatId || 0,
+            name: input.fallbackChatName || "",
+            action_interval: 1,
+            message_thread_id: input.fallbackThreadId
+              ? Number(input.fallbackThreadId)
+              : undefined,
+            sender_filter: input.fallbackSenderFilter ? input.fallbackSenderFilter.trim() || undefined : undefined,
+            source_account: input.fallbackSourceAccount || undefined,
+            execution_engine: input.executionEngine?.trim() || (isAdvanced ? "v4" : undefined),
+          }
+          if (isAdvanced && (chatGraph || chatSteps)) {
+            if (chatGraph) {
+              chatObj.flow_graph = chatGraph
+            } else if (chatSteps) {
+              chatObj.steps = chatSteps
+            }
+          } else {
+            chatObj.actions = ca as RawTaskAction[]
+          }
+          return chatObj
+        })(),
       ]
 
   const primaryName = safeChats[0]?.name || input.fallbackChatName
@@ -199,7 +240,7 @@ export function buildTaskFormPayload(
     adaptive_schedule_patterns: input.adaptiveSchedulePatterns || [],
     next_task_on_success: input.nextTaskOnSuccess?.trim() ? input.nextTaskOnSuccess.trim() : undefined,
     next_task_delay_seconds: input.nextTaskDelaySeconds !== undefined && String(input.nextTaskDelaySeconds).trim() !== '' ? Number(input.nextTaskDelaySeconds) : undefined,
-    execution_engine: input.executionEngine?.trim() || undefined,
+    execution_engine: effectiveEngine,
     chats: safeChats,
   }
 }

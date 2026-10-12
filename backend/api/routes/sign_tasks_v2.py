@@ -59,6 +59,7 @@ class ChatConfig(BaseModel):
     name: str = Field("", description="Chat name")
     actions: Optional[List[Dict[str, Any]]] = Field(None, description="Actions")
     steps: Optional[List[Dict[str, Any]]] = Field(None, description="Workflow steps")
+    flow_graph: Optional[Dict[str, Any]] = Field(None, description="Flow graph IR")
     initial_step_id: Optional[str] = Field(None, description="Initial step ID")
     delete_after: Optional[int] = Field(None, description="Delete delay seconds")
     action_interval: int = Field(1, description="Action interval seconds")
@@ -72,6 +73,21 @@ class ChatConfig(BaseModel):
 
     class Config:
         extra = "allow"
+
+
+class FlowValidationIssue(BaseModel):
+    level: str  # "error" | "warning"
+    node_id: Optional[str] = None
+    message: str
+
+
+class PreviewFlowResponse(BaseModel):
+    valid: bool
+    node_count: int = 0
+    entry_node_id: Optional[str] = None
+    mermaid: str = ""
+    errors: List[FlowValidationIssue] = []
+    warnings: List[FlowValidationIssue] = []
 
 
 class SignTaskCreate(BaseModel):
@@ -305,6 +321,46 @@ def list_sign_tasks(
         force_refresh=force_refresh,
         tag=tag,
     )
+
+
+
+
+@router.post("/preview-flow", response_model=PreviewFlowResponse)
+def preview_flow(
+    chat: ChatConfig,
+    current_user=Depends(get_current_user),
+):
+    from tg_signer.config import SignChatV3, WorkflowConfigError
+    from tg_signer.core.flow_normalizer import GraphNormalizer
+
+    chat_data = _model_dump(chat)
+    try:
+        chat_obj = SignChatV3(**chat_data)
+        graph = GraphNormalizer.from_chat(chat_obj)
+        GraphNormalizer.validate_graph(graph)
+        mermaid_code = GraphNormalizer.to_mermaid(graph)
+        return PreviewFlowResponse(
+            valid=True,
+            node_count=len(graph.nodes),
+            entry_node_id=graph.entry_node_id,
+            mermaid=mermaid_code,
+            errors=[],
+            warnings=[],
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        issue = FlowValidationIssue(level="error", message=err_msg)
+        resp = PreviewFlowResponse(
+            valid=False,
+            node_count=0,
+            mermaid="",
+            errors=[issue],
+            warnings=[],
+        )
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=_model_dump(resp),
+        )
 
 
 @router.get("/runs/active", response_model=ActiveRunsResponse)

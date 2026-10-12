@@ -383,3 +383,41 @@ export function getLocalizedErrorMessage(
   }
   return getErrorMessage(e, fallback)
 }
+
+
+// Flow 控制节点相关类型定义
+export interface FlowValidationIssue {
+  level: "error" | "warning";
+  node_id?: string | null;
+  message: string;
+}
+
+export interface PreviewFlowResponse {
+  valid: boolean;
+  node_count: number;
+  entry_node_id?: string | null;
+  mermaid: string;
+  errors: FlowValidationIssue[];
+  warnings: FlowValidationIssue[];
+}
+
+export interface FlowStepConfig {
+  step_id: string;
+  node_type?: string;
+  action_type?: string | number;
+  params?: Record<string, any>;
+  config?: Record<string, any>;
+  next_step_id?: string | null;
+  cases?: Record<string, string>;
+  default_target?: string | null;
+  filter_patterns?: string[];
+  match_target?: string | null;
+  mismatch_target?: string | null;
+  delay_seconds?: number;
+  variable_name?: string;
+  regex?: string;
+  source?: string;
+  subflow_graph?: Record<string, any>;
+  branches?: Array<Record<string, any>>;
+  timeout_seconds?: number;
+}
