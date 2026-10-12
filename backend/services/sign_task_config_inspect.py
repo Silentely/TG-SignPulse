@@ -39,6 +39,11 @@ def _iter_graph_items(graph_dict: Any, visited: Optional[set] = None):
         subflow = node.get("subflow_graph")
         if isinstance(subflow, dict):
             yield from _iter_graph_items(subflow, visited)
+        branches = node.get("branches")
+        if isinstance(branches, (list, tuple)):
+            for b in branches:
+                if isinstance(b, dict):
+                    yield from _iter_graph_items(b, visited)
 
 
 def _iter_chat_actions(task_config: Optional[Dict[str, Any]]):
@@ -74,6 +79,11 @@ def _iter_chat_actions(task_config: Optional[Dict[str, Any]]):
                 subflow = step.get("subflow_graph")
                 if isinstance(subflow, dict):
                     yield from _iter_graph_items(subflow, visited)
+                branches = step.get("branches")
+                if isinstance(branches, (list, tuple)):
+                    for b in branches:
+                        if isinstance(b, dict):
+                            yield from _iter_graph_items(b, visited)
 
         flow_graph = chat.get("flow_graph")
         if isinstance(flow_graph, dict):

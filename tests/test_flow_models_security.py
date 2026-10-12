@@ -44,3 +44,33 @@ def test_reject_mismatched_key_and_node_id():
     }
     with pytest.raises(ValueError, match="节点 ID 不一致"):
         ExecutionGraph.from_dict(data)
+
+
+def test_execution_graph_and_delay_node_alias_compatibility():
+    from tg_signer.core.flow_models import DelayNode
+    from tg_signer.config import FlowStepConfig
+
+    # 1. DelayNode 兼容 delay_seconds 字段
+    d = DelayNode(id="d1", delay_seconds=4.5)
+    assert d.seconds == 4.5
+
+    # 2. ExecutionGraph.from_dict 兼容 "type": "delay" 与 delay_seconds
+    data = {
+        "entry_node_id": "step_delay",
+        "nodes": {
+            "step_delay": {
+                "id": "step_delay",
+                "type": "delay",
+                "delay_seconds": 3.0,
+                "next_node_id": "_TERMINAL_COMPLETE",
+            }
+        },
+    }
+    graph = ExecutionGraph.from_dict(data)
+    node = graph.nodes["step_delay"]
+    assert isinstance(node, DelayNode)
+    assert node.seconds == 3.0
+
+    # 3. FlowStepConfig 兼容 seconds
+    fstep = FlowStepConfig(step_id="fs1", node_type="delay", seconds=2.5)
+    assert fstep.delay_seconds == 2.5

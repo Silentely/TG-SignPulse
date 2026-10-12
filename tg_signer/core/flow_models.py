@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 
 TERMINAL_COMPLETE_ID = "_TERMINAL_COMPLETE"
 TERMINAL_FAIL_ID = "_TERMINAL_FAIL"
@@ -213,6 +213,13 @@ class DelayNode(BaseFlowNode):
     node_type: NodeType = NodeType.DELAY
     seconds: float = 1.0
 
+    @root_validator(pre=True)
+    def _normalize_delay_seconds(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if isinstance(values, dict):
+            if "delay_seconds" in values and "seconds" not in values:
+                values["seconds"] = values["delay_seconds"]
+        return values
+
 
 class SubflowNode(BaseFlowNode):
     node_type: NodeType = NodeType.SUBFLOW
@@ -266,7 +273,7 @@ class ExecutionGraph(BaseModel):
                     raise ValueError(f"节点 ID 不一致: key '{nid}' vs id '{node_id_val}'")
                 node_kwargs.setdefault("id", nid)
 
-                ntype_raw = node_kwargs.get("node_type")
+                ntype_raw = node_kwargs.get("node_type") or node_kwargs.get("type")
                 if not ntype_raw:
                     ntype = NodeType.ACTION
                 else:

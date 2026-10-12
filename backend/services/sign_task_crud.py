@@ -61,6 +61,11 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
             sub = node.get("subflow_graph")
             if isinstance(sub, dict):
                 _check_graph_regex(sub, visited)
+            branches = node.get("branches")
+            if isinstance(branches, (list, tuple)):
+                for b in branches:
+                    if isinstance(b, dict):
+                        _check_graph_regex(b, visited)
 
     for chat in chats:
         if not isinstance(chat, dict):
@@ -81,6 +86,11 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
                 sub = step.get("subflow_graph")
                 if isinstance(sub, dict):
                     _check_graph_regex(sub, set())
+                branches = step.get("branches")
+                if isinstance(branches, (list, tuple)):
+                    for b in branches:
+                        if isinstance(b, dict):
+                            _check_graph_regex(b, set())
 
         flow_graph = chat.get("flow_graph")
         if isinstance(flow_graph, dict):

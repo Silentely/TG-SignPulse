@@ -91,3 +91,69 @@ def test_validate_chats_regex_safety_rejects_redos_in_flow_extractor():
     ]
     with pytest.raises(ValueError, match="灾难性回溯"):
         _validate_chats_regex_safety(chats)
+
+
+def test_inspect_and_crud_detect_in_parallel_branches():
+    # 1. task_requires_updates 递归进入 parallel branches
+    cfg = {
+        "chats": [
+            {
+                "chat_id": 123,
+                "flow_graph": {
+                    "entry_node_id": "p1",
+                    "nodes": {
+                        "p1": {
+                            "id": "p1",
+                            "node_type": "parallel",
+                            "branches": [
+                                {
+                                    "entry_node_id": "b1_1",
+                                    "nodes": {
+                                        "b1_1": {
+                                            "id": "b1_1",
+                                            "node_type": "wait_event",
+                                            "next_node_id": "_TERMINAL_COMPLETE",
+                                        }
+                                    },
+                                }
+                            ],
+                            "next_node_id": "_TERMINAL_COMPLETE",
+                        }
+                    },
+                },
+            }
+        ]
+    }
+    assert task_requires_updates(cfg) is True
+
+    # 2. _validate_chats_regex_safety 拦截 parallel 分支内的危险正则
+    unsafe_chats = [
+        {
+            "chat_id": 456,
+            "flow_graph": {
+                "entry_node_id": "p1",
+                "nodes": {
+                    "p1": {
+                        "id": "p1",
+                        "node_type": "parallel",
+                        "branches": [
+                            {
+                                "entry_node_id": "sub_ext",
+                                "nodes": {
+                                    "sub_ext": {
+                                        "id": "sub_ext",
+                                        "node_type": "extractor",
+                                        "regex": "(a+)+",
+                                        "next_node_id": "_TERMINAL_COMPLETE",
+                                    }
+                                },
+                            }
+                        ],
+                        "next_node_id": "_TERMINAL_COMPLETE",
+                    }
+                },
+            },
+        }
+    ]
+    with pytest.raises(ValueError, match="存在灾难性回溯风险"):
+        _validate_chats_regex_safety(unsafe_chats)

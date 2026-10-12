@@ -380,6 +380,8 @@ class FlowStepConfig(BaseModel):
             ev = values.get("export_vars")
             if v_name and not ev:
                 values["export_vars"] = {"1": v_name}
+            if "seconds" in values and "delay_seconds" not in values:
+                values["delay_seconds"] = values["seconds"]
         return values
 
     # 6. Subflow 专用

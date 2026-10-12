@@ -43,3 +43,24 @@ def test_to_mermaid_escapes_special_characters():
     mermaid = GraphNormalizer.to_mermaid(graph)
     assert "<script>" not in mermaid
     assert '&quot;' in mermaid or '#quot;' in mermaid
+
+
+def test_to_mermaid_escapes_condition_expressions():
+    from tg_signer.core.flow_models import ConditionNode
+    nodes = {
+        "cond_1": ConditionNode(
+            id="cond_1",
+            cases=[
+                {"condition": "vars.text == \"hello\"", "target_id": "target_a"},
+                {"condition": "<script>alert(1)</script>", "target_id": "target_b"},
+            ],
+            default_target_id="_TERMINAL_COMPLETE",
+        ),
+        "target_a": ActionNode(id="target_a", next_node_id="_TERMINAL_COMPLETE"),
+        "target_b": ActionNode(id="target_b", next_node_id="_TERMINAL_COMPLETE"),
+    }
+    graph = ExecutionGraph(entry_node_id="cond_1", nodes=nodes)
+    mermaid = GraphNormalizer.to_mermaid(graph)
+    assert "<script>" not in mermaid
+    assert "&lt;script&gt;" in mermaid
+    assert "&quot;hello&quot;" in mermaid

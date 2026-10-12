@@ -572,7 +572,8 @@ class GraphNormalizer:
                             if t == TERMINAL_COMPLETE_ID
                             else ("Fail([失败])" if t == TERMINAL_FAIL_ID else t)
                         )
-                        lines.append(f'    {nid} -->|"{cond}"| {t_lbl}')
+                        clean_cond = html.escape(str(cond)).replace("\"", "&quot;").replace("\n", " ")
+                        lines.append(f'    {nid} -->|"{clean_cond}"| {t_lbl}')
                 if node.default_target_id:
                     def_t = (
                         "End([完成])"
