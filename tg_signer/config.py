@@ -326,7 +326,6 @@ class WorkflowConfigError(ValueError):
     """工作流配置与拓扑结构异常基类"""
 
 
-
 class FlowNodeType(str, Enum):
     ACTION = "action"
     CONDITION = "condition"
@@ -426,7 +425,9 @@ class FlowStepConfig(BaseModel):
                 or "action_type" in params
             )
             if not has_action_in_data:
-                raise WorkflowConfigError(f"步骤 '{step_id}' 为动作节点，必须提供 action_type")
+                raise WorkflowConfigError(
+                    f"步骤 '{step_id}' 为动作节点，必须提供 action_type"
+                )
 
         elif ntype == FlowNodeType.DELAY:
             d_sec = values.get("delay_seconds")
@@ -437,12 +438,16 @@ class FlowStepConfig(BaseModel):
             cases = values.get("cases") or []
             def_t = values.get("default_target_id")
             if not cases and not def_t:
-                raise WorkflowConfigError(f"步骤 '{step_id}' 条件节点必须配置 cases 或 default_target_id 至少一个出口")
+                raise WorkflowConfigError(
+                    f"步骤 '{step_id}' 条件节点必须配置 cases 或 default_target_id 至少一个出口"
+                )
 
         elif ntype == FlowNodeType.PARALLEL:
             branches = values.get("branches") or []
             if not branches:
-                raise WorkflowConfigError(f"步骤 '{step_id}' 并行节点必须配置非空 branches")
+                raise WorkflowConfigError(
+                    f"步骤 '{step_id}' 并行节点必须配置非空 branches"
+                )
 
         return values
 
@@ -649,7 +654,9 @@ class SignChatV3(BaseJSONConfig):
         has_steps = steps is not None
         has_flow_graph = flow_graph is not None
 
-        sources_count = sum(1 for flag in (has_actions, has_steps, has_flow_graph) if flag)
+        sources_count = sum(
+            1 for flag in (has_actions, has_steps, has_flow_graph) if flag
+        )
         if sources_count != 1:
             raise WorkflowConfigError(
                 "actions、steps、flow_graph 只能配置且必须配置其中一个非空来源"
@@ -671,7 +678,9 @@ class SignChatV3(BaseJSONConfig):
             if not has_flow_step:
                 # 纯旧版 WorkflowStepConfig 流程：完整保留旧校验
                 if not initial_step_id or not str(initial_step_id).strip():
-                    raise WorkflowConfigError("配置工作流 steps 时必须提供 initial_step_id")
+                    raise WorkflowConfigError(
+                        "配置工作流 steps 时必须提供 initial_step_id"
+                    )
                 step_ids = []
                 for s in steps:
                     s_id = getattr(s, "step_id", None) or (
@@ -705,9 +714,7 @@ class SignChatV3(BaseJSONConfig):
                 try:
                     WorkflowEngine.validate_topology(wf_def)
                 except Exception as err:
-                    raise WorkflowConfigError(
-                        f"工作流拓扑结构无效: {err}"
-                    ) from err
+                    raise WorkflowConfigError(f"工作流拓扑结构无效: {err}") from err
             else:
                 # 含有新版 FlowStepConfig 的流程：校验 step_id 唯一性
                 step_ids = []
@@ -779,7 +786,11 @@ class SignChatV3(BaseJSONConfig):
         ai_action_names = {a.name for a in ai_actions}
 
         def _is_ai(action_val: Any) -> bool:
-            if action_val in ai_actions or action_val in ai_action_vals or action_val in ai_action_names:
+            if (
+                action_val in ai_actions
+                or action_val in ai_action_vals
+                or action_val in ai_action_names
+            ):
                 return True
             try:
                 return int(action_val) in ai_action_vals
@@ -812,7 +823,11 @@ class SignChatV3(BaseJSONConfig):
             return False
         visited.add(gid)
         nodes = graph_dict.get("nodes") or {}
-        node_list = nodes.values() if isinstance(nodes, dict) else (nodes if isinstance(nodes, (list, tuple)) else [])
+        node_list = (
+            nodes.values()
+            if isinstance(nodes, dict)
+            else (nodes if isinstance(nodes, (list, tuple)) else [])
+        )
         for node in node_list:
             if not isinstance(node, dict):
                 continue
@@ -838,7 +853,11 @@ class SignChatV3(BaseJSONConfig):
         resp_names = {a.name for a in response_actions}
 
         def _is_resp_act(action_val: Any) -> bool:
-            if action_val in response_actions or action_val in resp_vals or action_val in resp_names:
+            if (
+                action_val in response_actions
+                or action_val in resp_vals
+                or action_val in resp_names
+            ):
                 return True
             try:
                 return int(action_val) in resp_vals
@@ -848,7 +867,10 @@ class SignChatV3(BaseJSONConfig):
         if self.steps is not None:
             for s in self.steps:
                 nt = getattr(s, "node_type", None)
-                if nt == FlowNodeType.WAIT_EVENT or str(nt).strip().lower() == "wait_event":
+                if (
+                    nt == FlowNodeType.WAIT_EVENT
+                    or str(nt).strip().lower() == "wait_event"
+                ):
                     return True
                 if _is_resp_act(getattr(s, "action_type", None)):
                     return True
@@ -859,7 +881,9 @@ class SignChatV3(BaseJSONConfig):
                 ):
                     return True
                 sub = getattr(s, "subflow_graph", None)
-                if isinstance(sub, dict) and self._graph_has_updates(sub, _is_resp_act, set()):
+                if isinstance(sub, dict) and self._graph_has_updates(
+                    sub, _is_resp_act, set()
+                ):
                     return True
             return False
 
@@ -880,7 +904,9 @@ class SignChatV3(BaseJSONConfig):
         return False
 
     @classmethod
-    def _graph_has_updates(cls, graph_dict: Dict[str, Any], is_resp_fn, visited: set) -> bool:
+    def _graph_has_updates(
+        cls, graph_dict: Dict[str, Any], is_resp_fn, visited: set
+    ) -> bool:
         if not isinstance(graph_dict, dict):
             return False
         gid = id(graph_dict)
@@ -888,7 +914,11 @@ class SignChatV3(BaseJSONConfig):
             return False
         visited.add(gid)
         nodes = graph_dict.get("nodes") or {}
-        node_list = nodes.values() if isinstance(nodes, dict) else (nodes if isinstance(nodes, (list, tuple)) else [])
+        node_list = (
+            nodes.values()
+            if isinstance(nodes, dict)
+            else (nodes if isinstance(nodes, (list, tuple)) else [])
+        )
         for node in node_list:
             if not isinstance(node, dict):
                 continue
@@ -905,7 +935,9 @@ class SignChatV3(BaseJSONConfig):
             ):
                 return True
             sub = node.get("subflow_graph")
-            if isinstance(sub, dict) and cls._graph_has_updates(sub, is_resp_fn, visited):
+            if isinstance(sub, dict) and cls._graph_has_updates(
+                sub, is_resp_fn, visited
+            ):
                 return True
         return False
 

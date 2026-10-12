@@ -1,5 +1,6 @@
 # tests/test_flow_validation_full_graph.py
 import pytest
+
 from tg_signer.core.flow_models import (
     MAX_NODES_PER_GRAPH,
     ActionNode,
@@ -24,7 +25,7 @@ def test_reject_exceeding_max_nodes_per_graph():
     nodes = {}
     for i in range(MAX_NODES_PER_GRAPH + 1):
         nid = f"step_{i}"
-        nxt = f"step_{i+1}" if i < MAX_NODES_PER_GRAPH else "_TERMINAL_COMPLETE"
+        nxt = f"step_{i + 1}" if i < MAX_NODES_PER_GRAPH else "_TERMINAL_COMPLETE"
         nodes[nid] = ActionNode(id=nid, next_node_id=nxt)
     graph = ExecutionGraph(entry_node_id="step_0", nodes=nodes)
     with pytest.raises(GraphValidationError, match="单图节点总数超过上限"):
@@ -42,16 +43,17 @@ def test_to_mermaid_escapes_special_characters():
     graph = ExecutionGraph(entry_node_id="s1", nodes=nodes)
     mermaid = GraphNormalizer.to_mermaid(graph)
     assert "<script>" not in mermaid
-    assert '&quot;' in mermaid or '#quot;' in mermaid
+    assert "&quot;" in mermaid or "#quot;" in mermaid
 
 
 def test_to_mermaid_escapes_condition_expressions():
     from tg_signer.core.flow_models import ConditionNode
+
     nodes = {
         "cond_1": ConditionNode(
             id="cond_1",
             cases=[
-                {"condition": "vars.text == \"hello\"", "target_id": "target_a"},
+                {"condition": 'vars.text == "hello"', "target_id": "target_a"},
                 {"condition": "<script>alert(1)</script>", "target_id": "target_b"},
             ],
             default_target_id="_TERMINAL_COMPLETE",
@@ -67,30 +69,33 @@ def test_to_mermaid_escapes_condition_expressions():
 
 
 def test_reject_exceeding_max_total_task_nodes_in_subflows():
-    from tg_signer.core.flow_models import SubflowNode, MAX_TOTAL_TASK_NODES
+    from tg_signer.core.flow_models import SubflowNode
+
     # 构造两个合法子图，每个节点数 40 (< 50)，主图 40，再加一个 40，总共 160 > 150
     def make_subgraph(prefix: str, count: int = 40) -> ExecutionGraph:
         s_nodes = {}
         for i in range(count):
             sid = f"{prefix}_{i}"
-            nxt = f"{prefix}_{i+1}" if i < count - 1 else "_TERMINAL_COMPLETE"
+            nxt = f"{prefix}_{i + 1}" if i < count - 1 else "_TERMINAL_COMPLETE"
             s_nodes[sid] = ActionNode(id=sid, next_node_id=nxt)
         return ExecutionGraph(entry_node_id=f"{prefix}_0", nodes=s_nodes)
 
     sub1 = make_subgraph("sub1", 45)
     sub2 = make_subgraph("sub2", 45)
     sub3 = make_subgraph("sub3", 45)
-    
+
     # 主图 40 节点，加上 3 个 45 节点的子图 = 175 > 150
     root_nodes = {}
     for i in range(20):
         nid = f"root_{i}"
-        nxt = f"root_{i+1}" if i < 19 else "_TERMINAL_COMPLETE"
+        nxt = f"root_{i + 1}" if i < 19 else "_TERMINAL_COMPLETE"
         root_nodes[nid] = ActionNode(id=nid, next_node_id=nxt)
-    
+
     root_nodes["sf_1"] = SubflowNode(id="sf_1", subflow_graph=sub1, next_node_id="sf_2")
     root_nodes["sf_2"] = SubflowNode(id="sf_2", subflow_graph=sub2, next_node_id="sf_3")
-    root_nodes["sf_3"] = SubflowNode(id="sf_3", subflow_graph=sub3, next_node_id="_TERMINAL_COMPLETE")
+    root_nodes["sf_3"] = SubflowNode(
+        id="sf_3", subflow_graph=sub3, next_node_id="_TERMINAL_COMPLETE"
+    )
     root_nodes["root_0"].next_node_id = "sf_1"
 
     root_graph = ExecutionGraph(entry_node_id="root_0", nodes=root_nodes)

@@ -1,6 +1,7 @@
 # tg_signer/core/flow_normalizer.py
 from __future__ import annotations
 
+import html
 from typing import Any, Dict, List, Optional
 
 from tg_signer.config import (
@@ -16,13 +17,11 @@ from tg_signer.config import (
     SignChatV3,
     action_from_step,
 )
-import html
 from tg_signer.core.flow_models import (
     MAX_NODES_PER_GRAPH,
     MAX_PARALLEL_BRANCHES,
     MAX_SUBFLOW_DEPTH,
     MAX_TOTAL_TASK_NODES,
-
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
     ActionNode,
@@ -126,7 +125,7 @@ class GraphNormalizer:
 
     @classmethod
     def _from_workflow_steps(cls, chat: SignChatV3) -> ExecutionGraph:
-        from tg_signer.config import FlowNodeType, FlowStepConfig
+        from tg_signer.config import FlowStepConfig
 
         nodes: Dict[str, BaseFlowNode] = {}
         entry_id = chat.initial_step_id or (
@@ -151,13 +150,17 @@ class GraphNormalizer:
                     max_visits=step.max_retries + 1 if step.allow_loop else 1,
                 )
 
-                is_stop_on_term = getattr(raw_act, "stop_flow_on_terminal", False) or bool(
+                is_stop_on_term = getattr(
+                    raw_act, "stop_flow_on_terminal", False
+                ) or bool(
                     step.config.get("stop_flow_on_terminal", False)
                     if step.config
                     else False
                 )
                 term_policy = (
-                    TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
+                    TerminalPolicy.STOP_FLOW
+                    if is_stop_on_term
+                    else TerminalPolicy.IGNORE
                 )
 
                 run_if = (step.config.get("run_if") if step.config else None) or (
@@ -196,7 +199,9 @@ class GraphNormalizer:
         from tg_signer.config import FlowNodeType
 
         # 解析 terminal policy
-        term_policy_str = str(getattr(step, "terminal_policy", "ignore") or "ignore").lower()
+        term_policy_str = str(
+            getattr(step, "terminal_policy", "ignore") or "ignore"
+        ).lower()
         if term_policy_str == "stop_flow":
             term_policy = TerminalPolicy.STOP_FLOW
         elif term_policy_str == "branch_to":
@@ -204,7 +209,9 @@ class GraphNormalizer:
         else:
             term_policy = TerminalPolicy.IGNORE
 
-        term_target = cls._resolve_sentinel_id(getattr(step, "terminal_branch_target", None))
+        term_target = cls._resolve_sentinel_id(
+            getattr(step, "terminal_branch_target", None)
+        )
 
         # 解析 retry policy
         rp_data = getattr(step, "retry_policy", None)
@@ -224,23 +231,25 @@ class GraphNormalizer:
         else:
             allow_loop = getattr(step, "allow_loop", False)
             max_retries = getattr(step, "max_retries", None)
-            max_visits = (max_retries + 1) if (allow_loop and max_retries is not None) else 1
+            max_visits = (
+                (max_retries + 1) if (allow_loop and max_retries is not None) else 1
+            )
             loop_pol = LoopPolicy(allow_loop=allow_loop, max_visits=max_visits)
 
-        common_kwargs = dict(
-            id=step.step_id,
-            name=step.name or f"{step.node_type.value.capitalize()}-{step.step_id}",
-            next_node_id=next_id,
-            on_failure_node_id=fail_id,
-            terminal_policy=term_policy,
-            terminal_branch_target=term_target,
-            retry_policy=retry_pol,
-            loop_policy=loop_pol,
-            timeout_seconds=getattr(step, "timeout_seconds", 25.0) or 25.0,
-            run_if=step.run_if,
-            skip_if=step.skip_if,
-            metadata=dict(getattr(step, "metadata", {}) or {}),
-        )
+        common_kwargs = {
+            "id": step.step_id,
+            "name": step.name or f"{step.node_type.value.capitalize()}-{step.step_id}",
+            "next_node_id": next_id,
+            "on_failure_node_id": fail_id,
+            "terminal_policy": term_policy,
+            "terminal_branch_target": term_target,
+            "retry_policy": retry_pol,
+            "loop_policy": loop_pol,
+            "timeout_seconds": getattr(step, "timeout_seconds", 25.0) or 25.0,
+            "run_if": step.run_if,
+            "skip_if": step.skip_if,
+            "metadata": dict(getattr(step, "metadata", {}) or {}),
+        }
 
         ntype = step.node_type
         if ntype == FlowNodeType.ACTION:
@@ -266,7 +275,9 @@ class GraphNormalizer:
 
         elif ntype == FlowNodeType.WAIT_EVENT:
             common_kwargs["metadata"].setdefault("chat_id", chat.chat_id)
-            common_kwargs["metadata"].setdefault("chat_name", getattr(chat, "name", None))
+            common_kwargs["metadata"].setdefault(
+                "chat_name", getattr(chat, "name", None)
+            )
             return WaitEventNode(
                 event_type=step.event_type,
                 filter_patterns=list(step.filter_patterns or []),
@@ -417,9 +428,13 @@ class GraphNormalizer:
         if not graph.nodes:
             raise GraphValidationError("执行图不能为空")
         if len(graph.nodes) > MAX_NODES_PER_GRAPH:
-            raise GraphValidationError(f"单图节点总数超过上限: 当前 {len(graph.nodes)} > 最大允许 {MAX_NODES_PER_GRAPH}")
+            raise GraphValidationError(
+                f"单图节点总数超过上限: 当前 {len(graph.nodes)} > 最大允许 {MAX_NODES_PER_GRAPH}"
+            )
         if depth > MAX_SUBFLOW_DEPTH:
-            raise GraphValidationError(f"子图嵌套深度超过上限: 当前 {depth} > 最大允许 {MAX_SUBFLOW_DEPTH}")
+            raise GraphValidationError(
+                f"子图嵌套深度超过上限: 当前 {depth} > 最大允许 {MAX_SUBFLOW_DEPTH}"
+            )
 
         if budget is None:
             budget = {"total_nodes": 0}
@@ -528,10 +543,14 @@ class GraphNormalizer:
                 if cur_node.default_target_id:
                     neighbors.append(cur_node.default_target_id)
             if isinstance(cur_node, SubflowNode) and cur_node.subflow_graph:
-                cls.validate_graph(cur_node.subflow_graph, depth=depth + 1, budget=budget)
+                cls.validate_graph(
+                    cur_node.subflow_graph, depth=depth + 1, budget=budget
+                )
             if isinstance(cur_node, ParallelNode) and cur_node.branches:
                 if len(cur_node.branches) > MAX_PARALLEL_BRANCHES:
-                    raise GraphValidationError(f"并行分支数超过上限: 当前 {len(cur_node.branches)} > 最大允许 {MAX_PARALLEL_BRANCHES}")
+                    raise GraphValidationError(
+                        f"并行分支数超过上限: 当前 {len(cur_node.branches)} > 最大允许 {MAX_PARALLEL_BRANCHES}"
+                    )
                 for branch in cur_node.branches:
                     cls.validate_graph(branch, depth=depth + 1, budget=budget)
 
@@ -563,7 +582,9 @@ class GraphNormalizer:
         for nid, node in graph.nodes.items():
             nid_safe = _safe_id(nid)
             raw_label = f"{node.name or nid} [{node.node_type.value}]"
-            sanitized_label = html.escape(raw_label).replace('"', "&quot;").replace("\n", " ")
+            sanitized_label = (
+                html.escape(raw_label).replace('"', "&quot;").replace("\n", " ")
+            )
             lines.append(f'    {nid_safe}["{sanitized_label}"]')
 
             if node.next_node_id:
@@ -593,7 +614,11 @@ class GraphNormalizer:
                             t_lbl = "Fail([失败])"
                         else:
                             t_lbl = _safe_id(t)
-                        clean_cond = html.escape(str(cond)).replace('"', "&quot;").replace("\n", " ")
+                        clean_cond = (
+                            html.escape(str(cond))
+                            .replace('"', "&quot;")
+                            .replace("\n", " ")
+                        )
                         lines.append(f'    {nid_safe} -->|"{clean_cond}"| {t_lbl}')
                 if node.default_target_id:
                     if node.default_target_id == TERMINAL_COMPLETE_ID:

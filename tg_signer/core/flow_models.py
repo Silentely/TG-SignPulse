@@ -270,7 +270,9 @@ class ExecutionGraph(BaseModel):
                 node_kwargs = dict(n_data)
                 node_id_val = node_kwargs.get("id")
                 if node_id_val is not None and str(node_id_val) != str(nid):
-                    raise ValueError(f"节点 ID 不一致: key '{nid}' vs id '{node_id_val}'")
+                    raise ValueError(
+                        f"节点 ID 不一致: key '{nid}' vs id '{node_id_val}'"
+                    )
                 node_kwargs.setdefault("id", nid)
 
                 ntype_raw = node_kwargs.get("node_type") or node_kwargs.get("type")

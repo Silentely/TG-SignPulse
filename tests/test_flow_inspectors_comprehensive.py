@@ -1,5 +1,6 @@
 # tests/test_flow_inspectors_comprehensive.py
 import pytest
+
 from backend.services.sign_task_config_inspect import task_requires_updates
 from backend.services.sign_task_crud import _validate_chats_regex_safety
 from tg_signer.config import SignChatV3
@@ -8,7 +9,10 @@ from tg_signer.config import SignChatV3
 def test_inspect_detects_wait_event_with_visited_anti_loop():
     subflow_data = {"nodes": {}}
     # 制造逻辑自引用结构测试防环
-    subflow_data["nodes"]["sub"] = {"node_type": "subflow", "subflow_graph": subflow_data}
+    subflow_data["nodes"]["sub"] = {
+        "node_type": "subflow",
+        "subflow_graph": subflow_data,
+    }
     cfg = {"chats": [{"chat_id": 123, "flow_graph": subflow_data}]}
     # 不应发生 RecursionError
     res = task_requires_updates(cfg)

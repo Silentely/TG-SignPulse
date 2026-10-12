@@ -101,18 +101,34 @@ def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
     if not isinstance(task_config.get("chats"), list):
         return True
     for item in _iter_chat_actions(task_config):
-        node_type = str(
-            (item.get("node_type") if isinstance(item, dict) else getattr(item, "node_type", None))
-            or (item.get("type") if isinstance(item, dict) else getattr(item, "type", None))
-            or ""
-        ).strip().lower()
+        node_type = (
+            str(
+                (
+                    item.get("node_type")
+                    if isinstance(item, dict)
+                    else getattr(item, "node_type", None)
+                )
+                or (
+                    item.get("type")
+                    if isinstance(item, dict)
+                    else getattr(item, "type", None)
+                )
+                or ""
+            )
+            .strip()
+            .lower()
+        )
         if node_type == "wait_event":
             return True
 
         raw_act = (
             item.get("action")
             if isinstance(item, dict) and "action" in item
-            else (item.get("action_type") if isinstance(item, dict) else getattr(item, "action", None))
+            else (
+                item.get("action_type")
+                if isinstance(item, dict)
+                else getattr(item, "action", None)
+            )
         )
         if raw_act is None and hasattr(item, "action_type"):
             raw_act = getattr(item, "action_type", None)
@@ -148,7 +164,11 @@ def task_has_keyword_monitor(task_config: Optional[Dict[str, Any]]) -> bool:
         raw_act = (
             action.get("action")
             if isinstance(action, dict) and "action" in action
-            else (action.get("action_type") if isinstance(action, dict) else getattr(action, "action", None))
+            else (
+                action.get("action_type")
+                if isinstance(action, dict)
+                else getattr(action, "action", None)
+            )
         )
         try:
             if isinstance(raw_act, str):

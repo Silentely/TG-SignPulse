@@ -1,7 +1,13 @@
 # tests/test_flow_routing_adaptive.py
 import pytest
+
 from backend.services.sign_task_crud import _validate_chats_workflow
-from tg_signer.config import FlowNodeType, FlowStepConfig, SignChatV3, WorkflowConfigError
+from tg_signer.config import (
+    FlowNodeType,
+    FlowStepConfig,
+    SignChatV3,
+    WorkflowConfigError,
+)
 from tg_signer.core.flow_routing import resolve_execution_engine
 
 
@@ -60,7 +66,12 @@ def test_validate_chats_workflow_rejects_dangling_edge_on_save():
         {
             "chat_id": 123,
             "steps": [
-                {"step_id": "s1", "node_type": "delay", "delay_seconds": 1, "next_step_id": "non_exist"}
+                {
+                    "step_id": "s1",
+                    "node_type": "delay",
+                    "delay_seconds": 1,
+                    "next_step_id": "non_exist",
+                }
             ],
         }
     ]
@@ -96,7 +107,12 @@ def test_validate_chats_workflow_rejects_flow_with_explicit_v3_on_save():
             "chat_id": 123,
             "execution_engine": "v3",
             "steps": [
-                {"step_id": "s1", "node_type": "delay", "delay_seconds": 1, "next_step_id": "_TERMINAL_COMPLETE"}
+                {
+                    "step_id": "s1",
+                    "node_type": "delay",
+                    "delay_seconds": 1,
+                    "next_step_id": "_TERMINAL_COMPLETE",
+                }
             ],
         }
     ]
@@ -108,7 +124,12 @@ def test_validate_chats_workflow_rejects_flow_with_explicit_v3_on_save():
         {
             "chat_id": 123,
             "steps": [
-                {"step_id": "s1", "node_type": "delay", "delay_seconds": 1, "next_step_id": "_TERMINAL_COMPLETE"}
+                {
+                    "step_id": "s1",
+                    "node_type": "delay",
+                    "delay_seconds": 1,
+                    "next_step_id": "_TERMINAL_COMPLETE",
+                }
             ],
         }
     ]

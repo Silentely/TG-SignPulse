@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import zlib
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Union
 
 from tg_signer.config import FlowStepConfig, SignChatV3
 from tg_signer.utils import read_positive_int_env
@@ -101,7 +101,10 @@ def _chat_requires_flow_engine(c: Any) -> bool:
     steps = getattr(c, "steps", None)
     if steps:
         for s in steps:
-            if isinstance(s, FlowStepConfig) or getattr(s, "node_type", None) is not None:
+            if (
+                isinstance(s, FlowStepConfig)
+                or getattr(s, "node_type", None) is not None
+            ):
                 return True
     return False
 
@@ -156,14 +159,20 @@ def resolve_execution_engine(
             explicit_v3 = True
     if task_cfg_chats:
         for c in task_cfg_chats:
-            ce = c.get("execution_engine") if isinstance(c, dict) else getattr(c, "execution_engine", None)
+            ce = (
+                c.get("execution_engine")
+                if isinstance(c, dict)
+                else getattr(c, "execution_engine", None)
+            )
             if ce is not None and str(ce).strip().lower() == ENGINE_V3:
                 explicit_v3 = True
                 break
 
     if requires_flow:
         if explicit_v3:
-            raise ValueError("工作流包含图结构/控制节点，无法在经典执行引擎上运行，请移除 execution_engine='v3' 或配置为 'v4'")
+            raise ValueError(
+                "工作流包含图结构/控制节点，无法在经典执行引擎上运行，请移除 execution_engine='v3' 或配置为 'v4'"
+            )
         explicit_v4 = False
         if task_engine is not None and str(task_engine).strip().lower() == ENGINE_V4:
             explicit_v4 = True
@@ -174,7 +183,9 @@ def resolve_execution_engine(
             if raw_ce is not None and str(raw_ce).strip().lower() == ENGINE_V4:
                 explicit_v4 = True
         source = "task" if explicit_v4 else "auto"
-        return EngineResolutionResult(ENGINE_V4, ENGINE_DISPLAY_NAMES[ENGINE_V4], source)
+        return EngineResolutionResult(
+            ENGINE_V4, ENGINE_DISPLAY_NAMES[ENGINE_V4], source
+        )
 
     # 1a. 单目标 Chat 级显式指定
     if target_chat is not None:
@@ -241,7 +252,9 @@ def resolve_execution_engine(
     env_source = os.getenv("PULSEFLOW_ENGINE_SOURCE", "env").strip().lower()
     source = env_source if env_source in {"env", "settings"} else "env"
     if env_raw == ENGINE_V3:
-        return EngineResolutionResult(ENGINE_V3, ENGINE_DISPLAY_NAMES[ENGINE_V3], source)
+        return EngineResolutionResult(
+            ENGINE_V3, ENGINE_DISPLAY_NAMES[ENGINE_V3], source
+        )
     if (
         env_raw in {"1", "true", "yes", "on", "v4"}
         or read_positive_int_env("USE_PULSEFLOW_ENGINE", 0, 0) == 1

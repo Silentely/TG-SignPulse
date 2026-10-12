@@ -1,5 +1,6 @@
 # tests/test_flow_models_security.py
 import pytest
+
 from tg_signer.core.flow_models import (
     MAX_NODES_PER_GRAPH,
     MAX_PARALLEL_BRANCHES,
@@ -47,8 +48,8 @@ def test_reject_mismatched_key_and_node_id():
 
 
 def test_execution_graph_and_delay_node_alias_compatibility():
-    from tg_signer.core.flow_models import DelayNode
     from tg_signer.config import FlowStepConfig
+    from tg_signer.core.flow_models import DelayNode
 
     # 1. DelayNode 兼容 delay_seconds 字段
     d = DelayNode(id="d1", delay_seconds=4.5)

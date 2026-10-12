@@ -1,10 +1,13 @@
-import pytest
 from fastapi.testclient import TestClient
-from backend.main import app
+
 from backend.core.auth import get_current_user
+from backend.main import app
 
 # Mock auth dependency
-app.dependency_overrides[get_current_user] = lambda: {"username": "admin", "role": "admin"}
+app.dependency_overrides[get_current_user] = lambda: {
+    "username": "admin",
+    "role": "admin",
+}
 client = TestClient(app)
 
 

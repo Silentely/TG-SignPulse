@@ -49,14 +49,23 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
             return
         visited.add(gid)
         nodes = graph_dict.get("nodes") or {}
-        node_list = nodes.values() if isinstance(nodes, dict) else (nodes if isinstance(nodes, (list, tuple)) else [])
+        node_list = (
+            nodes.values()
+            if isinstance(nodes, dict)
+            else (nodes if isinstance(nodes, (list, tuple)) else [])
+        )
         for node in node_list:
             if not isinstance(node, dict):
                 continue
-            _check_pattern(node.get("regex"), f"节点 '{node.get('id', 'unknown')}' regex")
+            _check_pattern(
+                node.get("regex"), f"节点 '{node.get('id', 'unknown')}' regex"
+            )
             params = node.get("params")
             if isinstance(params, dict):
-                _check_pattern(params.get("regex"), f"节点 '{node.get('id', 'unknown')}' params.regex")
+                _check_pattern(
+                    params.get("regex"),
+                    f"节点 '{node.get('id', 'unknown')}' params.regex",
+                )
                 validate_action_regex_safety(params)
             sub = node.get("subflow_graph")
             if isinstance(sub, dict):
@@ -76,10 +85,15 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
 
         for step in chat.get("steps") or []:
             if isinstance(step, dict):
-                _check_pattern(step.get("regex"), f"步骤 '{step.get('step_id', 'unknown')}' regex")
+                _check_pattern(
+                    step.get("regex"), f"步骤 '{step.get('step_id', 'unknown')}' regex"
+                )
                 params = step.get("params")
                 if isinstance(params, dict):
-                    _check_pattern(params.get("regex"), f"步骤 '{step.get('step_id', 'unknown')}' params.regex")
+                    _check_pattern(
+                        params.get("regex"),
+                        f"步骤 '{step.get('step_id', 'unknown')}' params.regex",
+                    )
                 config = step.get("config")
                 if isinstance(config, dict):
                     validate_action_regex_safety(config)
@@ -125,7 +139,11 @@ def _validate_chats_workflow(
         actions = chat.get("actions")
         steps = chat.get("steps")
         flow_graph = chat.get("flow_graph")
-        sources_count = sum(1 for flag in (actions is not None, steps is not None, flow_graph is not None) if flag)
+        sources_count = sum(
+            1
+            for flag in (actions is not None, steps is not None, flow_graph is not None)
+            if flag
+        )
         if sources_count != 1:
             raise WorkflowConfigError(
                 f"chats[{idx}] actions、steps、flow_graph 互斥，必须且只能配置其中之一"
@@ -154,13 +172,19 @@ def _validate_chats_workflow(
                 # 2. 前置引擎路由冲突校验（拦截高级图强配 v3 导致后续运行时报错）
                 resolve_execution_engine(chat_obj, task_engine=task_engine)
         except GraphValidationError as exc:
-            raise WorkflowConfigError(f"chats[{idx}] 工作流图结构校验失败: {exc}") from exc
+            raise WorkflowConfigError(
+                f"chats[{idx}] 工作流图结构校验失败: {exc}"
+            ) from exc
         except WorkflowConfigError:
             raise
         except ValueError as exc:
-            raise WorkflowConfigError(f"chats[{idx}] 工作流引擎配置冲突: {exc}") from exc
+            raise WorkflowConfigError(
+                f"chats[{idx}] 工作流引擎配置冲突: {exc}"
+            ) from exc
         except Exception as exc:
-            raise WorkflowConfigError(f"chats[{idx}] 工作流图结构校验失败: {exc}") from exc
+            raise WorkflowConfigError(
+                f"chats[{idx}] 工作流图结构校验失败: {exc}"
+            ) from exc
 
 
 class SignTaskCrudMixin:

@@ -323,14 +323,12 @@ def list_sign_tasks(
     )
 
 
-
-
 @router.post("/preview-flow", response_model=PreviewFlowResponse)
 def preview_flow(
     chat: ChatConfig,
     current_user=Depends(get_current_user),
 ):
-    from tg_signer.config import SignChatV3, WorkflowConfigError
+    from tg_signer.config import SignChatV3
     from tg_signer.core.flow_normalizer import GraphNormalizer
 
     chat_data = _model_dump(chat)

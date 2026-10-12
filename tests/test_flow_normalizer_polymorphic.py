@@ -1,5 +1,4 @@
 # tests/test_flow_normalizer_polymorphic.py
-import pytest
 from tg_signer.config import FlowNodeType, FlowStepConfig, SignChatV3
 from tg_signer.core.flow_models import (
     ActionNode,
