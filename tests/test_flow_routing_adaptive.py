@@ -120,3 +120,25 @@ def test_validate_chats_workflow_rejects_empty_actions_list_on_save():
     chats = [{"chat_id": 123, "actions": []}]
     with pytest.raises(WorkflowConfigError, match="actions 列表不能为空"):
         _validate_chats_workflow(chats)
+
+
+def test_validate_update_task_retains_flow_and_rejects_v3_engine():
+    # 模拟 existing.get("chats") 含有 flow_graph，更新时 chats 为空沿用现有配置，但将 task_engine 改为 v3
+    existing_chats = [
+        {
+            "chat_id": 123,
+            "flow_graph": {
+                "entry_node_id": "s1",
+                "nodes": {
+                    "s1": {
+                        "id": "s1",
+                        "type": "delay",
+                        "delay_seconds": 1,
+                        "next_node_id": "_TERMINAL_COMPLETE",
+                    }
+                },
+            },
+        }
+    ]
+    with pytest.raises(WorkflowConfigError, match="无法在经典执行引擎上运行"):
+        _validate_chats_workflow(existing_chats, task_engine="v3")

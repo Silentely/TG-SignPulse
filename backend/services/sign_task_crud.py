@@ -544,6 +544,8 @@ class SignTaskCrudMixin:
         next_next_task_on_success = fields.get("next_task_on_success", "")
         next_next_task_delay_seconds = fields.get("next_task_delay_seconds", 2.0)
         next_execution_engine = fields.get("execution_engine")
+        # 校验最终合并后的 chats 与 execution_engine，确保沿用已有 chats 但将引擎改回 v3 时被前置拦截
+        _validate_chats_workflow(next_chats, task_engine=next_execution_engine)
         schedule_plan = resolve_schedule_plan(
             next_execution_mode,
             sign_at=next_sign_at,
