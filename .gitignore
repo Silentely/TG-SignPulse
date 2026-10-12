@@ -190,4 +190,4 @@ coding-trajectories.jsonl
 .env.evolver.local
 docs/research
 docs/rfcs
-docs/superpowers
+docs/superpowers.review_scratch*
