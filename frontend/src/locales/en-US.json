@@ -1422,5 +1422,16 @@
     "backHome": "Back to Dashboard",
     "goToLogin": "Go to Login",
     "goBack": "Go Back"
+  },
+  "flow": {
+    "previewTitle": "Workflow Topology Preview",
+    "validationFailed": "Flow Validation Failed",
+    "graphValid": "Workflow graph is valid",
+    "graphInvalid": "Workflow graph has errors",
+    "nodeCount": "Nodes",
+    "entryNode": "Entry",
+    "errorsTitle": "Validation Errors",
+    "warningsTitle": "Validation Warnings",
+    "diagramPreview": "Mermaid Diagram"
   }
 }

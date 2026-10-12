@@ -1422,5 +1422,16 @@
     "backHome": "返回控制台",
     "goToLogin": "前往登录",
     "goBack": "返回上一页"
+  },
+  "flow": {
+    "previewTitle": "工作流拓扑预览",
+    "validationFailed": "流程校验失败",
+    "graphValid": "工作流图结构合法",
+    "graphInvalid": "工作流图结构存在错误",
+    "nodeCount": "节点数",
+    "entryNode": "入口",
+    "errorsTitle": "拓扑校验错误",
+    "warningsTitle": "拓扑校验告警",
+    "diagramPreview": "Mermaid 拓扑表示"
   }
 }

@@ -294,10 +294,13 @@ class GraphNormalizer:
             )
 
         elif ntype == FlowNodeType.EXTRACTOR:
+            export_vars = dict(step.export_vars or {})
+            if not export_vars and getattr(step, "variable_name", None):
+                export_vars["1"] = step.variable_name
             return ExtractorNode(
                 source_field=step.source_field,
                 regex=step.regex,
-                export_vars=dict(step.export_vars or {}),
+                export_vars=export_vars,
                 **common_kwargs,
             )
 

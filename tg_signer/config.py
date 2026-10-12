@@ -370,7 +370,17 @@ class FlowStepConfig(BaseModel):
     # 5. Extractor 专用
     source_field: str = "prev.output"
     regex: str = ""
+    variable_name: Optional[str] = None
     export_vars: Dict[str, str] = Field(default_factory=dict)
+
+    @root_validator(pre=True)
+    def _normalize_flow_step_fields(cls, values):
+        if isinstance(values, dict):
+            v_name = values.get("variable_name")
+            ev = values.get("export_vars")
+            if v_name and not ev:
+                values["export_vars"] = {"1": v_name}
+        return values
 
     # 6. Subflow 专用
     subflow_graph: Optional[Dict[str, Any]] = None
