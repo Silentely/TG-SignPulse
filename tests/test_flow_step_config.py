@@ -85,3 +85,21 @@ def test_sign_chat_v3_rejects_conflicting_sources():
 def test_sign_chat_v3_rejects_all_empty_sources():
     with pytest.raises((WorkflowConfigError, ValidationError), match="actions、steps、flow_graph 只能配置且必须配置其中一个"):
         SignChatV3(chat_id=123)
+
+
+def test_flow_step_config_validates_node_type_specific_fields():
+    # 1. Action 节点缺少 action_type
+    with pytest.raises((WorkflowConfigError, ValidationError), match="必须提供 action_type"):
+        FlowStepConfig(step_id="act_1", node_type="action")
+
+    # 2. Condition 节点既无 cases 也无 default_target_id
+    with pytest.raises((WorkflowConfigError, ValidationError), match="至少一个出口"):
+        FlowStepConfig(step_id="cond_1", node_type="condition")
+
+    # 3. Delay 节点延迟为负数
+    with pytest.raises((WorkflowConfigError, ValidationError), match="延迟秒数必须非负"):
+        FlowStepConfig(step_id="delay_1", node_type="delay", delay_seconds=-1.0)
+
+    # 4. Parallel 节点分支为空
+    with pytest.raises((WorkflowConfigError, ValidationError), match="必须配置非空 branches"):
+        FlowStepConfig(step_id="par_1", node_type="parallel", branches=[])

@@ -97,16 +97,23 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
             _check_graph_regex(flow_graph, set())
 
 
-def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:
-    """写入前校验 chats 的 actions/steps/flow_graph 互斥与工作流拓扑。
+def _validate_chats_workflow(
+    chats: Optional[List[Dict[str, Any]]],
+    task_engine: Optional[str] = None,
+) -> None:
+    """写入前校验 chats 的 actions/steps/flow_graph 互斥、工作流拓扑与引擎生命周期。
 
-    判据与运行时一致（交由 SignChatV3 校验并在使用流图时前置建图校验），保证「能写入即可加载」；
+    判据与运行时一致：
+    1. 校验 SignChatV3（含 actions 列表非空及互斥）；
+    2. 若包含高级流程图（flow_graph / FlowStepConfig），前置建图并校验完整拓扑与总节点预算；
+    3. 调用 resolve_execution_engine 前置拦截「高级流程强配 execution_engine='v3'」冲突；
     违反时抛 WorkflowConfigError（ValueError 子类），由路由层转成 400。
     """
     if not chats:
         return
     from tg_signer.config import FlowStepConfig, SignChatV3, WorkflowConfigError
     from tg_signer.core.flow_normalizer import GraphNormalizer
+    from tg_signer.core.flow_routing import resolve_execution_engine
 
     validator = getattr(SignChatV3, "model_validate", None) or getattr(
         SignChatV3, "parse_obj", None
@@ -122,8 +129,9 @@ def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:
             raise WorkflowConfigError(
                 f"chats[{idx}] actions、steps、flow_graph 互斥，必须且只能配置其中之一"
             )
-        if actions is not None:
-            continue
+        if actions is not None and len(actions) == 0:
+            raise WorkflowConfigError(f"chats[{idx}] actions 列表不能为空")
+
         try:
             if validator is not None:
                 chat_obj = validator(chat)
@@ -139,10 +147,15 @@ def _validate_chats_workflow(chats: Optional[List[Dict[str, Any]]]) -> None:
                 isinstance(s, FlowStepConfig) for s in (chat_obj.steps or [])
             )
             if has_flow:
+                # 1. 建图及拓扑/预算校验
                 graph = GraphNormalizer.from_chat(chat_obj)
                 GraphNormalizer.validate_graph(graph)
+                # 2. 前置引擎路由冲突校验（拦截高级图强配 v3 导致后续运行时报错）
+                resolve_execution_engine(chat_obj, task_engine=task_engine)
         except WorkflowConfigError:
             raise
+        except ValueError as exc:
+            raise WorkflowConfigError(f"chats[{idx}] 工作流引擎配置冲突: {exc}") from exc
         except Exception as exc:
             raise WorkflowConfigError(f"chats[{idx}] 工作流图结构校验失败: {exc}") from exc
 
@@ -224,7 +237,7 @@ class SignTaskCrudMixin:
 
         task_name = validate_storage_name(task_name, field_name="task_name")
         _validate_chats_regex_safety(chats)
-        _validate_chats_workflow(chats)
+        _validate_chats_workflow(chats, task_engine=execution_engine)
         target_accounts = self._normalize_account_names(account_names, account_name)
         if not target_accounts:
             raise ValueError("必须指定至少一个账号名称")
@@ -432,7 +445,7 @@ class SignTaskCrudMixin:
         # 仅在调用方显式提供 chats 时校验；None 表示沿用已落盘配置
         if chats is not None:
             _validate_chats_regex_safety(chats)
-            _validate_chats_workflow(chats)
+            _validate_chats_workflow(chats, task_engine=execution_engine)
 
         # Normalize account_name: skip wildcard, resolve to real account
         if account_name == "*":

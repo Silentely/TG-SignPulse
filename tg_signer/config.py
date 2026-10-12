@@ -407,6 +407,45 @@ class FlowStepConfig(BaseModel):
         except ValueError:
             raise ValueError(f"未知或不支持的节点类型: {v}")
 
+    @root_validator
+    def _validate_node_type_specific_fields(cls, values):
+        if not isinstance(values, dict):
+            return values
+        ntype = values.get("node_type")
+        step_id = values.get("step_id", "unknown")
+
+        if ntype == FlowNodeType.ACTION:
+            act = values.get("action_type")
+            cfg = values.get("config") or {}
+            params = values.get("params") or {}
+            has_action_in_data = (
+                act is not None
+                or "action" in cfg
+                or "action_type" in cfg
+                or "action" in params
+                or "action_type" in params
+            )
+            if not has_action_in_data:
+                raise WorkflowConfigError(f"步骤 '{step_id}' 为动作节点，必须提供 action_type")
+
+        elif ntype == FlowNodeType.DELAY:
+            d_sec = values.get("delay_seconds")
+            if d_sec is not None and d_sec < 0:
+                raise WorkflowConfigError(f"步骤 '{step_id}' 延迟秒数必须非负: {d_sec}")
+
+        elif ntype == FlowNodeType.CONDITION:
+            cases = values.get("cases") or []
+            def_t = values.get("default_target_id")
+            if not cases and not def_t:
+                raise WorkflowConfigError(f"步骤 '{step_id}' 条件节点必须配置 cases 或 default_target_id 至少一个出口")
+
+        elif ntype == FlowNodeType.PARALLEL:
+            branches = values.get("branches") or []
+            if not branches:
+                raise WorkflowConfigError(f"步骤 '{step_id}' 并行节点必须配置非空 branches")
+
+        return values
+
     @validator("action_type", pre=True)
     def _parse_action_type(cls, v):
         if v is None:

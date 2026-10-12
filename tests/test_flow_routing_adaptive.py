@@ -87,3 +87,36 @@ def test_validate_chats_workflow_accepts_valid_flow_graph():
     ]
     # Should not raise
     _validate_chats_workflow(chats)
+
+
+def test_validate_chats_workflow_rejects_flow_with_explicit_v3_on_save():
+    # 1. 单 chat 显式 v3
+    chats1 = [
+        {
+            "chat_id": 123,
+            "execution_engine": "v3",
+            "steps": [
+                {"step_id": "s1", "node_type": "delay", "delay_seconds": 1, "next_step_id": "_TERMINAL_COMPLETE"}
+            ],
+        }
+    ]
+    with pytest.raises(WorkflowConfigError, match="无法在经典执行引擎上运行"):
+        _validate_chats_workflow(chats1)
+
+    # 2. task 级别显式 v3
+    chats2 = [
+        {
+            "chat_id": 123,
+            "steps": [
+                {"step_id": "s1", "node_type": "delay", "delay_seconds": 1, "next_step_id": "_TERMINAL_COMPLETE"}
+            ],
+        }
+    ]
+    with pytest.raises(WorkflowConfigError, match="无法在经典执行引擎上运行"):
+        _validate_chats_workflow(chats2, task_engine="v3")
+
+
+def test_validate_chats_workflow_rejects_empty_actions_list_on_save():
+    chats = [{"chat_id": 123, "actions": []}]
+    with pytest.raises(WorkflowConfigError, match="actions 列表不能为空"):
+        _validate_chats_workflow(chats)

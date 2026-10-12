@@ -21,6 +21,7 @@ from tg_signer.core.flow_models import (
     MAX_NODES_PER_GRAPH,
     MAX_PARALLEL_BRANCHES,
     MAX_SUBFLOW_DEPTH,
+    MAX_TOTAL_TASK_NODES,
 
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
@@ -406,14 +407,28 @@ class GraphNormalizer:
         return action_type, params
 
     @classmethod
-    def validate_graph(cls, graph: ExecutionGraph, depth: int = 1) -> None:
+    def validate_graph(
+        cls,
+        graph: ExecutionGraph,
+        depth: int = 1,
+        budget: Optional[Dict[str, int]] = None,
+    ) -> None:
         """检查悬空边、分支目标与全连通分量死循环及资源上限"""
         if not graph.nodes:
             raise GraphValidationError("执行图不能为空")
         if len(graph.nodes) > MAX_NODES_PER_GRAPH:
-            raise GraphValidationError(f"节点总数超过上限: 当前 {len(graph.nodes)} > 最大允许 {MAX_NODES_PER_GRAPH}")
+            raise GraphValidationError(f"单图节点总数超过上限: 当前 {len(graph.nodes)} > 最大允许 {MAX_NODES_PER_GRAPH}")
         if depth > MAX_SUBFLOW_DEPTH:
             raise GraphValidationError(f"子图嵌套深度超过上限: 当前 {depth} > 最大允许 {MAX_SUBFLOW_DEPTH}")
+
+        if budget is None:
+            budget = {"total_nodes": 0}
+        budget["total_nodes"] += len(graph.nodes)
+        if budget["total_nodes"] > MAX_TOTAL_TASK_NODES:
+            raise GraphValidationError(
+                f"全任务流程图节点总数超过上限: 当前 {budget['total_nodes']} > 最大允许 {MAX_TOTAL_TASK_NODES}"
+            )
+
         if graph.entry_node_id not in graph.nodes:
             raise GraphValidationError(f"初始步骤 {graph.entry_node_id} 不在图节点中")
 
@@ -513,12 +528,12 @@ class GraphNormalizer:
                 if cur_node.default_target_id:
                     neighbors.append(cur_node.default_target_id)
             if isinstance(cur_node, SubflowNode) and cur_node.subflow_graph:
-                cls.validate_graph(cur_node.subflow_graph, depth=depth + 1)
+                cls.validate_graph(cur_node.subflow_graph, depth=depth + 1, budget=budget)
             if isinstance(cur_node, ParallelNode) and cur_node.branches:
                 if len(cur_node.branches) > MAX_PARALLEL_BRANCHES:
                     raise GraphValidationError(f"并行分支数超过上限: 当前 {len(cur_node.branches)} > 最大允许 {MAX_PARALLEL_BRANCHES}")
                 for branch in cur_node.branches:
-                    cls.validate_graph(branch, depth=depth + 1)
+                    cls.validate_graph(branch, depth=depth + 1, budget=budget)
 
             for nxt in neighbors:
                 _dfs(nxt)
@@ -536,59 +551,62 @@ class GraphNormalizer:
     @classmethod
     def to_mermaid(cls, graph: ExecutionGraph) -> str:
         """将执行图导出为标准 Mermaid 流程图文本 (graph TD)"""
+        import re
+
+        def _safe_id(raw_id: str) -> str:
+            return re.sub(r"[^a-zA-Z0-9_]", "_", str(raw_id))
+
         lines = ["graph TD"]
-        lines.append(f"    Start([开始]) --> {graph.entry_node_id}")
+        entry_safe = _safe_id(graph.entry_node_id)
+        lines.append(f"    Start([开始]) --> {entry_safe}")
 
         for nid, node in graph.nodes.items():
+            nid_safe = _safe_id(nid)
             raw_label = f"{node.name or nid} [{node.node_type.value}]"
-            sanitized_label = html.escape(raw_label).replace('"', '&quot;')
-            lines.append(f'    {nid}["{sanitized_label}"]')
+            sanitized_label = html.escape(raw_label).replace('"', "&quot;").replace("\n", " ")
+            lines.append(f'    {nid_safe}["{sanitized_label}"]')
 
             if node.next_node_id:
-                target = (
-                    "End([完成])"
-                    if node.next_node_id == TERMINAL_COMPLETE_ID
-                    else node.next_node_id
-                )
-                if target == TERMINAL_FAIL_ID:
+                if node.next_node_id == TERMINAL_COMPLETE_ID:
+                    target = "End([完成])"
+                elif node.next_node_id == TERMINAL_FAIL_ID:
                     target = "Fail([失败])"
-                lines.append(f"    {nid} -->|next| {target}")
+                else:
+                    target = _safe_id(node.next_node_id)
+                lines.append(f"    {nid_safe} -->|next| {target}")
 
             if node.on_failure_node_id:
-                target = (
-                    "Fail([失败])"
-                    if node.on_failure_node_id == TERMINAL_FAIL_ID
-                    else node.on_failure_node_id
-                )
-                lines.append(f"    {nid} -.->|on_failure| {target}")
+                if node.on_failure_node_id == TERMINAL_FAIL_ID:
+                    target = "Fail([失败])"
+                else:
+                    target = _safe_id(node.on_failure_node_id)
+                lines.append(f"    {nid_safe} -.->|on_failure| {target}")
 
             if isinstance(node, ConditionNode):
                 for c in node.cases:
                     t = c.get("target_id")
                     cond = c.get("condition", "")
                     if t:
-                        t_lbl = (
-                            "End([完成])"
-                            if t == TERMINAL_COMPLETE_ID
-                            else ("Fail([失败])" if t == TERMINAL_FAIL_ID else t)
-                        )
-                        clean_cond = html.escape(str(cond)).replace("\"", "&quot;").replace("\n", " ")
-                        lines.append(f'    {nid} -->|"{clean_cond}"| {t_lbl}')
+                        if t == TERMINAL_COMPLETE_ID:
+                            t_lbl = "End([完成])"
+                        elif t == TERMINAL_FAIL_ID:
+                            t_lbl = "Fail([失败])"
+                        else:
+                            t_lbl = _safe_id(t)
+                        clean_cond = html.escape(str(cond)).replace('"', "&quot;").replace("\n", " ")
+                        lines.append(f'    {nid_safe} -->|"{clean_cond}"| {t_lbl}')
                 if node.default_target_id:
-                    def_t = (
-                        "End([完成])"
-                        if node.default_target_id == TERMINAL_COMPLETE_ID
-                        else (
-                            "Fail([失败])"
-                            if node.default_target_id == TERMINAL_FAIL_ID
-                            else node.default_target_id
-                        )
-                    )
-                    lines.append(f"    {nid} -->|default| {def_t}")
+                    if node.default_target_id == TERMINAL_COMPLETE_ID:
+                        def_t = "End([完成])"
+                    elif node.default_target_id == TERMINAL_FAIL_ID:
+                        def_t = "Fail([失败])"
+                    else:
+                        def_t = _safe_id(node.default_target_id)
+                    lines.append(f"    {nid_safe} -->|default| {def_t}")
 
         if graph.error_handler_node_id:
             lines.append(
-                f"    ErrorHandler[全局降级错误处理] -.-> {graph.error_handler_node_id}"
+                f"    ErrorHandler[全局降级错误处理] -.-> {_safe_id(graph.error_handler_node_id)}"
             )
 
         return "\n".join(lines)

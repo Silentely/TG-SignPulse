@@ -335,9 +335,12 @@ def preview_flow(
 
     chat_data = _model_dump(chat)
     try:
+        from tg_signer.core.flow_routing import resolve_execution_engine
+
         chat_obj = SignChatV3(**chat_data)
         graph = GraphNormalizer.from_chat(chat_obj)
         GraphNormalizer.validate_graph(graph)
+        resolve_execution_engine(chat_obj)
         mermaid_code = GraphNormalizer.to_mermaid(graph)
         return PreviewFlowResponse(
             valid=True,
