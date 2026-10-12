@@ -120,8 +120,15 @@ class PulseFlowEngine:
                 on_step_start,
                 on_step_finish,
             )
-        elif isinstance(node, WaitEventNode) and bus is not None:
-            return await self._run_wait_event_node(node, ctx, bus)
+        elif isinstance(node, WaitEventNode):
+            if bus is not None:
+                return await self._run_wait_event_node(node, ctx, bus)
+            return StepOutcome(
+                node_id=node.id,
+                status=NodeStatus.FAILED,
+                output_text=f"WaitEventNode {node.id} 执行失败: 未提供事件总线 (TelegramEventBus)，无法监听事件",
+                updates_last_output=False,
+            )
         else:
             return await executor(node, ctx)
 
@@ -852,12 +859,19 @@ class PulseFlowEngine:
                     continue
 
                 text = event.text or ""
+                details = {
+                    "message_id": event.message_id,
+                    "sender_id": event.sender_id,
+                    "chat_id": event.chat_id,
+                    "event_type": event.event_type,
+                }
                 if not node.filter_patterns:
                     return StepOutcome(
                         node_id=node.id,
                         status=NodeStatus.SUCCESS,
                         output_text=text,
                         updates_last_output=True,
+                        details=details,
                     )
 
                 for pattern in node.filter_patterns:
@@ -867,6 +881,7 @@ class PulseFlowEngine:
                             status=NodeStatus.SUCCESS,
                             output_text=text,
                             updates_last_output=True,
+                            details=details,
                         )
         finally:
             bus.unsubscribe(chat_id=chat_id, message_thread_id=thread_id, queue=queue)

@@ -358,9 +358,9 @@ class GraphNormalizer:
         if not step_id:
             return None
         sid = step_id.strip()
-        if sid.upper() == "COMPLETE":
+        if sid.upper() in {"COMPLETE", "SUCCESS", "DONE", TERMINAL_COMPLETE_ID}:
             return TERMINAL_COMPLETE_ID
-        if sid.upper() == "FAIL":
+        if sid.upper() in {"FAIL", "FAILED", "ERROR", TERMINAL_FAIL_ID}:
             return TERMINAL_FAIL_ID
         return sid
 
@@ -418,13 +418,60 @@ class GraphNormalizer:
         return action_type, params
 
     @classmethod
+    def find_unreachable_nodes(cls, graph: ExecutionGraph) -> set[str]:
+        """计算图中所有从入口步骤 (entry_node_id) 不可达的孤立节点集合"""
+        if (
+            not graph.nodes
+            or not graph.entry_node_id
+            or graph.entry_node_id not in graph.nodes
+        ):
+            return set(graph.nodes.keys()) if graph.nodes else set()
+
+        sentinels = {
+            TERMINAL_COMPLETE_ID,
+            TERMINAL_FAIL_ID,
+            "COMPLETE",
+            "FAIL",
+            "SUCCESS",
+            "DONE",
+            "FAILED",
+            "ERROR",
+        }
+        visited: set[str] = set()
+
+        def _dfs(cur: str) -> None:
+            if cur in sentinels or cur not in graph.nodes or cur in visited:
+                return
+            visited.add(cur)
+            cur_node = graph.nodes[cur]
+            neighbors = []
+            if cur_node.next_node_id:
+                neighbors.append(cur_node.next_node_id)
+            if cur_node.on_failure_node_id:
+                neighbors.append(cur_node.on_failure_node_id)
+            if cur_node.terminal_branch_target:
+                neighbors.append(cur_node.terminal_branch_target)
+            if isinstance(cur_node, ConditionNode):
+                for c in cur_node.cases:
+                    if c.get("target_id"):
+                        neighbors.append(c["target_id"])
+                if cur_node.default_target_id:
+                    neighbors.append(cur_node.default_target_id)
+            for nxt in neighbors:
+                _dfs(nxt)
+
+        _dfs(graph.entry_node_id)
+        return set(graph.nodes.keys()) - visited
+
+    @classmethod
     def validate_graph(
         cls,
         graph: ExecutionGraph,
         depth: int = 1,
         budget: Optional[Dict[str, int]] = None,
+        warnings: Optional[List[str]] = None,
     ) -> None:
-        """检查悬空边、分支目标与全连通分量死循环及资源上限"""
+        """检查悬空边、分支目标与全连通分量死循环及资源上限，并收集不可达步骤告警"""
         if not graph.nodes:
             raise GraphValidationError("执行图不能为空")
         if len(graph.nodes) > MAX_NODES_PER_GRAPH:
@@ -561,11 +608,20 @@ class GraphNormalizer:
 
         # 1. 从入口节点出发做 DFS
         _dfs(graph.entry_node_id)
+        entry_visited = set(visited)
 
         # 2. 遍历全图中所有未访问到的连通分量，检测孤立子图中的死循环
         for nid in list(graph.nodes.keys()):
             if nid not in visited:
                 _dfs(nid)
+
+        # 3. 收集从入口步骤不可达的步骤告警 (对齐 Spec 4.4)
+        unreachable = set(graph.nodes.keys()) - entry_visited
+        if unreachable and warnings is not None:
+            for un_id in sorted(unreachable):
+                warnings.append(
+                    f"步骤 '{un_id}' 从入口步骤 '{graph.entry_node_id}' 不可达"
+                )
 
     @classmethod
     def to_mermaid(cls, graph: ExecutionGraph) -> str:
@@ -579,13 +635,21 @@ class GraphNormalizer:
         entry_safe = _safe_id(graph.entry_node_id)
         lines.append(f"    Start([开始]) --> {entry_safe}")
 
+        unreachable = cls.find_unreachable_nodes(graph)
+
         for nid, node in graph.nodes.items():
             nid_safe = _safe_id(nid)
-            raw_label = f"{node.name or nid} [{node.node_type.value}]"
+            is_unreach = nid in unreachable
+            suffix = " (不可达)" if is_unreach else ""
+            raw_label = f"{node.name or nid}{suffix} [{node.node_type.value}]"
             sanitized_label = (
                 html.escape(raw_label).replace('"', "&quot;").replace("\n", " ")
             )
             lines.append(f'    {nid_safe}["{sanitized_label}"]')
+            if is_unreach:
+                lines.append(
+                    f"    style {nid_safe} stroke:#f59e0b,stroke-dasharray: 5 5"
+                )
 
             if node.next_node_id:
                 if node.next_node_id == TERMINAL_COMPLETE_ID:
@@ -602,6 +666,23 @@ class GraphNormalizer:
                 else:
                     target = _safe_id(node.on_failure_node_id)
                 lines.append(f"    {nid_safe} -.->|on_failure| {target}")
+
+            if node.terminal_branch_target:
+                if node.terminal_branch_target in {
+                    TERMINAL_COMPLETE_ID,
+                    "COMPLETE",
+                    "SUCCESS",
+                }:
+                    t_target = "End([完成])"
+                elif node.terminal_branch_target in {
+                    TERMINAL_FAIL_ID,
+                    "FAIL",
+                    "FAILED",
+                }:
+                    t_target = "Fail([失败])"
+                else:
+                    t_target = _safe_id(node.terminal_branch_target)
+                lines.append(f"    {nid_safe} -.->|terminal_branch| {t_target}")
 
             if isinstance(node, ConditionNode):
                 for c in node.cases:

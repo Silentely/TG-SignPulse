@@ -318,5 +318,9 @@ class ExecutionGraph(BaseModel):
         )
 
 
-SubflowNode.update_forward_refs(ExecutionGraph=ExecutionGraph)
-ParallelNode.update_forward_refs(ExecutionGraph=ExecutionGraph)
+if hasattr(SubflowNode, "model_rebuild"):
+    SubflowNode.model_rebuild(_types_namespace={"ExecutionGraph": ExecutionGraph})
+    ParallelNode.model_rebuild(_types_namespace={"ExecutionGraph": ExecutionGraph})
+elif hasattr(SubflowNode, "update_forward_refs"):
+    SubflowNode.update_forward_refs(ExecutionGraph=ExecutionGraph)
+    ParallelNode.update_forward_refs(ExecutionGraph=ExecutionGraph)

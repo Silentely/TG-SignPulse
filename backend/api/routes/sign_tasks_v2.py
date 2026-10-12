@@ -337,16 +337,18 @@ def preview_flow(
 
         chat_obj = SignChatV3(**chat_data)
         graph = GraphNormalizer.from_chat(chat_obj)
-        GraphNormalizer.validate_graph(graph)
+        warn_list: list[str] = []
+        GraphNormalizer.validate_graph(graph, warnings=warn_list)
         resolve_execution_engine(chat_obj)
         mermaid_code = GraphNormalizer.to_mermaid(graph)
+        issues = [FlowValidationIssue(level="warning", message=w) for w in warn_list]
         return PreviewFlowResponse(
             valid=True,
             node_count=len(graph.nodes),
             entry_node_id=graph.entry_node_id,
             mermaid=mermaid_code,
             errors=[],
-            warnings=[],
+            warnings=issues,
         )
     except Exception as exc:
         err_msg = str(exc)
