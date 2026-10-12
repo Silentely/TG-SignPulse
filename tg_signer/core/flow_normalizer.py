@@ -1,7 +1,7 @@
 # tg_signer/core/flow_normalizer.py
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from tg_signer.config import (
     ChooseOptionByImageAction,

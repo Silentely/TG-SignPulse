@@ -1,0 +1,45 @@
+{
+  "_version": 4,
+  "task_group_id": "",
+  "account_name": "acc1",
+  "account_names": [
+    "acc1"
+  ],
+  "sign_at": "10:30",
+  "random_seconds": 0,
+  "jitter_seconds": 0,
+  "sign_interval": 1,
+  "chats": [
+    {
+      "chat_id": -1001,
+      "name": "c1",
+      "flow_graph": {
+        "entry_node_id": "s1",
+        "nodes": {
+          "s1": {
+            "id": "s1",
+            "type": "delay",
+            "delay_seconds": 1,
+            "next_node_id": "_TERMINAL_COMPLETE"
+          }
+        }
+      }
+    }
+  ],
+  "execution_mode": "fixed",
+  "range_start": "",
+  "range_end": "",
+  "notify_on_failure": true,
+  "notify_on_success": true,
+  "retry_count": 3,
+  "enabled": true,
+  "tags": [
+    "x"
+  ],
+  "adaptive_schedule_enabled": false,
+  "adaptive_schedule_patterns": [],
+  "adaptive_schedule_padding_seconds": 30,
+  "next_task_on_success": "",
+  "next_task_delay_seconds": 2.0,
+  "execution_engine": null
+}

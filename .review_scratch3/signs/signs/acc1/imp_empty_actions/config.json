@@ -1,0 +1,10 @@
+{
+  "account_name": "acc1",
+  "sign_at": "09:00",
+  "chats": [
+    {
+      "chat_id": -1,
+      "actions": []
+    }
+  ]
+}

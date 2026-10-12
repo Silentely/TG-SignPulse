@@ -1,0 +1,39 @@
+{
+  "_version": 4,
+  "task_group_id": "",
+  "account_name": "acc1",
+  "account_names": [
+    "acc1"
+  ],
+  "sign_at": "09:00",
+  "random_seconds": 0,
+  "jitter_seconds": 0,
+  "sign_interval": 1,
+  "chats": [
+    {
+      "chat_id": -1002,
+      "actions": [
+        {
+          "action": 1,
+          "text": "hi"
+        }
+      ]
+    }
+  ],
+  "execution_mode": "fixed",
+  "range_start": "",
+  "range_end": "",
+  "notify_on_failure": true,
+  "notify_on_success": true,
+  "retry_count": 3,
+  "enabled": true,
+  "tags": [
+    "x"
+  ],
+  "adaptive_schedule_enabled": false,
+  "adaptive_schedule_patterns": [],
+  "adaptive_schedule_padding_seconds": 30,
+  "next_task_on_success": "",
+  "next_task_delay_seconds": 2.0,
+  "execution_engine": "v4"
+}

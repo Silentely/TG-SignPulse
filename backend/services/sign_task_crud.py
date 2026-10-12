@@ -112,12 +112,13 @@ def _validate_chats_workflow(
     if not chats:
         return
     from tg_signer.config import FlowStepConfig, SignChatV3, WorkflowConfigError
-    from tg_signer.core.flow_normalizer import GraphNormalizer
+    from tg_signer.core.flow_normalizer import GraphNormalizer, GraphValidationError
     from tg_signer.core.flow_routing import resolve_execution_engine
 
     validator = getattr(SignChatV3, "model_validate", None) or getattr(
         SignChatV3, "parse_obj", None
     )
+    task_budget = {"total_nodes": 0}
     for idx, chat in enumerate(chats):
         if not isinstance(chat, dict):
             continue
@@ -147,11 +148,13 @@ def _validate_chats_workflow(
                 isinstance(s, FlowStepConfig) for s in (chat_obj.steps or [])
             )
             if has_flow:
-                # 1. 建图及拓扑/预算校验
+                # 1. 建图及拓扑/预算校验（全任务多 chat 共享节点总预算）
                 graph = GraphNormalizer.from_chat(chat_obj)
-                GraphNormalizer.validate_graph(graph)
+                GraphNormalizer.validate_graph(graph, budget=task_budget)
                 # 2. 前置引擎路由冲突校验（拦截高级图强配 v3 导致后续运行时报错）
                 resolve_execution_engine(chat_obj, task_engine=task_engine)
+        except GraphValidationError as exc:
+            raise WorkflowConfigError(f"chats[{idx}] 工作流图结构校验失败: {exc}") from exc
         except WorkflowConfigError:
             raise
         except ValueError as exc:
