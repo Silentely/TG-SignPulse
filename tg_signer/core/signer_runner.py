@@ -261,12 +261,24 @@ class SignerRunnerMixin:
                                     self.context.step_outputs[node_id] = out_dict
                                     self.context.step_outputs[idx] = out_dict
                                     self.context.step_outputs[str(idx)] = out_dict
+                            flow_path = flow_res.get("path")
+                            if flow_path:
+                                self.context.workflow_path = list(flow_path)
+                            self.context.workflow_steps = steps
                             self.context.flow_trace = flow_res.get("trace")
                             self.context.flow_metrics = flow_res.get("metrics")
                             flow_succeeded = True
                             if getattr(self, "_event_bus", None) is bus:
                                 self._event_bus = None
                             return True
+                        flow_path = flow_res.get("path")
+                        if flow_path:
+                            self.context.workflow_path = list(flow_path)
+                        if flow_res.get("steps"):
+                            self.context.workflow_steps = flow_res.get("steps")
+                        if ctx.last_output:
+                            self.context.last_output = ctx.last_output
+                            self.context.last_received_text = ctx.last_output
                         err_detail = (
                             flow_res.get("error")
                             or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"

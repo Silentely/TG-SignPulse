@@ -234,6 +234,7 @@ class TelegramNodeExecutor:
             output_text = self.compat.output_text(res=res, action=exec_action)
 
             if res is False:
+                self._log(f"步骤 [{node.id}] 执行未达预期/失败", level="WARNING")
                 if cont_on_error:
                     self._log(
                         f"步骤 {node.id} 执行返回失败，已配置容错继续（continue_on_error）",
@@ -252,6 +253,7 @@ class TelegramNodeExecutor:
                     output_text=output_text,
                 )
 
+            self._log(f"步骤 [{node.id}] 执行完成（成功）", level="INFO")
             return StepOutcome(
                 node_id=node.id,
                 status=NodeStatus.SUCCESS,

@@ -366,6 +366,8 @@ class BaseUserWorker(Generic[ConfigT]):
             lambda: self.app.send_message(chat_id, text, **kwargs),
             operation=f"发送消息到 {chat_id}",
         )
+        if getattr(self, "context", None) is not None:
+            self.context.pulseflow_side_effect_started = True
         self.log(
             f"已发送文本消息到 {chat_id}: {text}"
             + (
@@ -410,6 +412,8 @@ class BaseUserWorker(Generic[ConfigT]):
             lambda: self.app.send_dice(chat_id, emoji, **kwargs),
             operation=f"发送骰子到 {chat_id}",
         )
+        if getattr(self, "context", None) is not None:
+            self.context.pulseflow_side_effect_started = True
         self.log(
             f"已发送骰子到 {chat_id}: {emoji}"
             + (

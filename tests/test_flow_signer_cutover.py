@@ -290,3 +290,81 @@ async def test_user_signer_worker_context_real_instance_pulseflow_fields():
     # 验证支持动态 extra 字段（如 flow_metrics 等）
     real_ctx.flow_metrics = {"steps": 1}
     assert real_ctx.flow_metrics["steps"] == 1
+
+
+@pytest.mark.asyncio
+async def test_pulseflow_runner_populates_workflow_path_and_steps():
+    """验证 PulseFlow 执行成功后，workflow_path 和 workflow_steps 回填到 signer.context。"""
+    from tg_signer.core.context import UserSignerWorkerContext
+
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    signer.log = MagicMock()
+
+    async def wait_for(chat, action, next_action=None):
+        return True
+
+    signer.wait_for = wait_for
+    chat = SignChatV3(
+        chat_id=88888,
+        actions=[SendTextAction(text="/step1"), SendTextAction(text="/step2")],
+        execution_engine="v4",
+    )
+
+    res = await signer.sign_a_chat(chat)
+    assert res is True
+    assert signer.context.workflow_path == ["step_0", "step_1"]
+    assert signer.context.workflow_steps == 2
+    assert signer.context.flow_trace is not None
+    assert signer.context.pulseflow_side_effect_started is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_send_message_and_dice_mark_pulseflow_side_effect():
+    """验证 runtime.send_message 与 send_dice 会主动标记 pulseflow_side_effect_started。"""
+    from tg_signer.core.context import UserSignerWorkerContext
+
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    signer.log = MagicMock()
+    signer.app = MagicMock()
+
+    mock_msg = MagicMock()
+    mock_msg.chat.id = 12345
+    mock_msg.id = 999
+    signer.app.send_message = AsyncMock(return_value=mock_msg)
+    signer.app.send_dice = AsyncMock(return_value=mock_msg)
+
+    assert signer.context.pulseflow_side_effect_started is False
+    await signer.send_message(12345, "hello")
+    assert signer.context.pulseflow_side_effect_started is True
+
+    signer.context.pulseflow_side_effect_started = False
+    await signer.send_dice(12345, "🎲")
+    assert signer.context.pulseflow_side_effect_started is True
+
+
+def test_flow_normalizer_dict_actions_preserves_policy():
+    """验证使用 dict 动作配置时，stop_flow_on_terminal / continue_on_error 能被正确规范化。"""
+    from tg_signer.core.flow_models import TERMINAL_COMPLETE_ID, TerminalPolicy
+    from tg_signer.core.flow_normalizer import GraphNormalizer
+
+    chat = MagicMock()
+    chat.flow_graph = None
+    chat.steps = None
+    chat.actions = [
+        {
+            "action": "SEND_TEXT",
+            "text": "/start",
+            "stop_flow_on_terminal": True,
+            "continue_on_error": True,
+        }
+    ]
+    graph = GraphNormalizer.from_chat(chat)
+    node = graph.nodes["step_0"]
+    assert node.terminal_policy == TerminalPolicy.STOP_FLOW
+    assert node.on_failure_node_id == TERMINAL_COMPLETE_ID

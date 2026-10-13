@@ -91,7 +91,11 @@ class GraphNormalizer:
             next_id = f"step_{i + 1}" if i + 1 < total else TERMINAL_COMPLETE_ID
 
             # 向后兼容：只有当动作显式标记了 stop_flow_on_terminal 时才设置 STOP_FLOW
-            is_stop_on_term = getattr(act, "stop_flow_on_terminal", False)
+            is_stop_on_term = (
+                getattr(act, "stop_flow_on_terminal", False)
+                if not isinstance(act, dict)
+                else bool(act.get("stop_flow_on_terminal", False))
+            )
             term_policy = (
                 TerminalPolicy.STOP_FLOW if is_stop_on_term else TerminalPolicy.IGNORE
             )
@@ -99,11 +103,23 @@ class GraphNormalizer:
             action_type, params = cls._extract_action_type_and_params(act)
 
             # 若配置了 continue_on_error，失败后亦可继续走向下一步
-            cont_on_err = getattr(act, "continue_on_error", False)
+            cont_on_err = (
+                getattr(act, "continue_on_error", False)
+                if not isinstance(act, dict)
+                else bool(act.get("continue_on_error", False))
+            )
             fail_id = next_id if cont_on_err else TERMINAL_FAIL_ID
 
-            run_if = getattr(act, "run_if", None) or getattr(act, "condition", None)
-            skip_if = getattr(act, "skip_if", None)
+            run_if = (
+                (getattr(act, "run_if", None) or getattr(act, "condition", None))
+                if not isinstance(act, dict)
+                else (act.get("run_if") or act.get("condition"))
+            )
+            skip_if = (
+                getattr(act, "skip_if", None)
+                if not isinstance(act, dict)
+                else act.get("skip_if")
+            )
 
             node = ActionNode(
                 id=node_id,

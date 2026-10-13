@@ -91,6 +91,8 @@ class SignerActionsMixin:
                 callback_data,
             )
             if ans is not None:
+                if getattr(self, "context", None) is not None:
+                    self.context.pulseflow_side_effect_started = True
                 return True
             strict_confirm = (
                 read_positive_int_env("TG_SIGNER_STRICT_CALLBACK_CONFIRMATION", 0, 0)
@@ -99,6 +101,8 @@ class SignerActionsMixin:
             if not strict_confirm and getattr(
                 getattr(self, "context", None), "last_callback_unconfirmed", False
             ):
+                if getattr(self, "context", None) is not None:
+                    self.context.pulseflow_side_effect_started = True
                 self.log(
                     "按钮点击已发送至 Telegram，未收到 API 显式回调（Bot 通常以发送新消息或编辑方式响应），继续推进流程",
                     level="INFO",
@@ -107,6 +111,8 @@ class SignerActionsMixin:
             return False
 
         if await click_inline_button_unified(message, btn, log_func=self.log):
+            if getattr(self, "context", None) is not None:
+                self.context.pulseflow_side_effect_started = True
             return True
 
         if callback_data is None:
