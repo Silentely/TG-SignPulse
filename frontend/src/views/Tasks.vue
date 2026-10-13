@@ -23,6 +23,7 @@ import TaskListToolbar from '../components/tasks/TaskListToolbar.vue'
 import FilterEmptyState from '../components/FilterEmptyState.vue'
 import PageRetry from '../components/PageRetry.vue'
 import { devLog } from '../lib/devLog'
+import { isRunInProgress } from '../lib/run-status'
 import {
   filterTasksByModeAndQuery,
   hasActiveListFilters,
@@ -146,6 +147,7 @@ const {
   runCardProps,
   handleCancelRun,
   loadAccountStatusMap,
+  taskActiveRun,
 } = useTaskListRuntime({
   tasks,
   listenTaskCount,

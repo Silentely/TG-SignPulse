@@ -63,7 +63,7 @@ if git diff --name-only HEAD@{1}..HEAD 2>/dev/null | grep -q "^frontend/" || \
    [ -n "$(git status --porcelain frontend/ 2>/dev/null)" ]; then
     echo "🎨 [2/3] 前端类型检查..."
     if command -v npx &>/dev/null && [ -f "frontend/package.json" ]; then
-        if (cd frontend && npx vue-tsc --noEmit 2>&1); then
+        if (cd frontend && npm run typecheck 2>&1); then
             echo "   ✅ 前端类型检查通过"
         else
             echo "   ❌ 前端类型检查失败，请修复后再推送"
