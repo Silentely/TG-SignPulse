@@ -39,19 +39,33 @@ class TelegramEventBus:
         message_thread_id: Optional[int] = None,
         min_message_id: Optional[int] = None,
         event_type: Optional[str] = "NEW_MESSAGE",
+        since_timestamp: Optional[float] = None,
     ) -> asyncio.Queue:
         key = (chat_id, message_thread_id)
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
         self._subscribers.setdefault(key, []).append(queue)
 
-        if min_message_id is not None and key in self._history_buffers:
+        def _matches_type(ev_type: str) -> bool:
+            if not event_type or event_type.upper() in {"ANY", "ALL"}:
+                return True
+            return ev_type.upper() == event_type.upper()
+
+        if key in self._history_buffers:
             now = time.time()
             for ev in self._history_buffers[key]:
-                if (
-                    ev.message_id > min_message_id
-                    and (event_type is None or ev.event_type == event_type)
-                    and now - ev.occurred_at <= self._buffer_ttl
-                ):
+                if now - ev.occurred_at > self._buffer_ttl:
+                    continue
+                if not _matches_type(ev.event_type):
+                    continue
+                matches_watermark = False
+                if min_message_id is not None:
+                    matches_watermark = ev.message_id > min_message_id
+                elif since_timestamp is not None:
+                    matches_watermark = ev.occurred_at >= since_timestamp
+                else:
+                    matches_watermark = (now - ev.occurred_at) <= 5.0
+
+                if matches_watermark:
                     try:
                         queue.put_nowait(ev)
                     except asyncio.QueueFull:

@@ -248,3 +248,47 @@ def test_scoped_context_condition_ignores_operators_inside_literals():
         is True
     )
     assert ctx.eval_condition('vars.text == "cats or dogs"') is False
+
+
+def test_scoped_context_parentheses_and_complex_nesting():
+    """验证括号嵌套条件与复合取反表达式的正确解析。"""
+    ctx = ScopedFlowContext()
+    ctx.set_var("status", "running")
+    ctx.set_var("code", 200)
+    ctx.set_var("env", "staging")
+
+    # (A or B) and C
+    assert (
+        ctx.eval_condition(
+            "(vars.status == 'running' or vars.status == 'pending') and vars.code == 200"
+        )
+        is True
+    )
+    assert (
+        ctx.eval_condition(
+            "(vars.status == 'error' or vars.status == 'failed') and vars.code == 200"
+        )
+        is False
+    )
+
+    # A or (B and C)
+    assert (
+        ctx.eval_condition(
+            "vars.env == 'prod' or (vars.status == 'running' and vars.code == 200)"
+        )
+        is True
+    )
+    assert (
+        ctx.eval_condition(
+            "vars.env == 'prod' or (vars.status == 'failed' and vars.code == 200)"
+        )
+        is False
+    )
+
+    # 多重嵌套括号
+    assert ctx.eval_condition("((vars.code == 200))") is True
+    assert ctx.eval_condition("!(vars.code != 200)") is True
+    assert ctx.eval_condition("not (vars.code != 200)") is True
+    assert (
+        ctx.eval_condition("not (vars.status == 'error' or vars.env == 'prod')") is True
+    )

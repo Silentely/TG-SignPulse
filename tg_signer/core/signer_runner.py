@@ -1045,7 +1045,9 @@ class SignerRunnerMixin:
         async with self.app:
             await self.send_dice(chat_id, emoji, delete_after, **kwargs)
 
-    async def _on_message(self, client: Client, message: Message):
+    async def _on_message(
+        self, client: Client, message: Message, is_edit: bool = False
+    ):
         chats = self.context.sign_chats.get(message.chat.id)
         if not chats:
             self.log("忽略意料之外的聊天", level="WARNING")
@@ -1074,34 +1076,35 @@ class SignerRunnerMixin:
             oldest_keys = sorted(chat_msgs.keys())[:100]
             for k in oldest_keys:
                 chat_msgs.pop(k, None)
-        msg_text = getattr(message, "text", None) or getattr(message, "caption", None)
+        msg_text = (
+            getattr(message, "text", None) or getattr(message, "caption", None) or ""
+        )
         if msg_text:
             self.context.last_received_text = str(msg_text)
-            bus = getattr(self, "_event_bus", None)
-            if bus is not None:
-                try:
-                    import time
+        bus = getattr(self, "_event_bus", None)
+        if bus is not None:
+            try:
+                import time
 
-                    from tg_signer.core.flow_event_bus import TelegramMessageEvent
+                from tg_signer.core.flow_event_bus import TelegramMessageEvent
 
-                    ev = TelegramMessageEvent(
-                        event_id=f"msg_{message.chat.id}_{message.id}",
-                        chat_id=message.chat.id,
-                        message_thread_id=message_thread_id,
-                        message_id=message.id,
-                        sender_id=getattr(
-                            getattr(message, "from_user", None), "id", None
-                        ),
-                        event_type="NEW_MESSAGE",
-                        text=str(msg_text),
-                        occurred_at=time.time(),
-                    )
-                    asyncio.create_task(bus.publish(ev))
-                except Exception:
-                    pass
+                ev_type = "EDITED_MESSAGE" if is_edit else "NEW_MESSAGE"
+                ev = TelegramMessageEvent(
+                    event_id=f"msg_{message.chat.id}_{message.id}_{'edit' if is_edit else 'new'}",
+                    chat_id=message.chat.id,
+                    message_thread_id=message_thread_id,
+                    message_id=message.id,
+                    sender_id=getattr(getattr(message, "from_user", None), "id", None),
+                    event_type=ev_type,
+                    text=str(msg_text),
+                    occurred_at=time.time(),
+                )
+                asyncio.create_task(bus.publish(ev))
+            except Exception:
+                pass
 
     async def on_message(self, client: Client, message: Message):
-        await self._on_message(client, message)
+        await self._on_message(client, message, is_edit=False)
 
     async def on_edited_message(self, client, message: Message):
-        await self._on_message(client, message)
+        await self._on_message(client, message, is_edit=True)

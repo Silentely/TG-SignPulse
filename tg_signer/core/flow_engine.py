@@ -817,6 +817,8 @@ class PulseFlowEngine:
     ) -> StepOutcome:
         chat_id = node.metadata.get("chat_id")
         if chat_id is None:
+            chat_id = ctx.system.get("chat_id") or ctx.get("chat.id")
+        if chat_id is None:
             # 订阅键与 publish 的 chat_id 必须一致，缺失时立即失败而不是必然超时。
             return StepOutcome(
                 node_id=node.id,
@@ -824,8 +826,17 @@ class PulseFlowEngine:
                 output_text=f"WaitEventNode {node.id} 缺少 chat_id 配置，无法订阅消息事件",
                 updates_last_output=False,
             )
-        thread_id = node.metadata.get("message_thread_id")
+        thread_id = node.metadata.get("message_thread_id") or ctx.system.get(
+            "message_thread_id"
+        )
         min_msg_id = node.metadata.get("min_message_id")
+        if min_msg_id is None:
+            min_msg_id = ctx.system.get("last_sent_message_id") or ctx.system.get(
+                "last_message_id"
+            )
+        since_ts = node.metadata.get("since_timestamp") or ctx.system.get(
+            "last_action_finished_at"
+        )
         timeout = float(node.timeout_seconds or 25.0)
 
         queue = bus.subscribe(
@@ -833,6 +844,7 @@ class PulseFlowEngine:
             message_thread_id=thread_id,
             min_message_id=min_msg_id,
             event_type=node.event_type,
+            since_timestamp=since_ts,
         )
         try:
             deadline = time.perf_counter() + timeout
@@ -855,7 +867,11 @@ class PulseFlowEngine:
                         updates_last_output=False,
                     )
 
-                if node.event_type and event.event_type != node.event_type:
+                if (
+                    node.event_type
+                    and node.event_type.upper() not in {"ANY", "ALL"}
+                    and event.event_type != node.event_type
+                ):
                     continue
 
                 text = event.text or ""

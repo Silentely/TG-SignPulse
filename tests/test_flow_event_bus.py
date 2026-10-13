@@ -75,3 +75,27 @@ async def test_event_bus_clear_and_get_history():
     # 清空特定会话
     bus.clear(chat_id=2001)
     assert len(bus.get_history(chat_id=2001)) == 0
+
+
+@pytest.mark.asyncio
+async def test_event_bus_default_window_backfill_and_any_type():
+    """验证未提供 min_message_id 时，历史缓冲回补最近窗口事件，且支持 ANY 类型通配。"""
+    bus = TelegramEventBus()
+    ev = TelegramMessageEvent(
+        event_id="ev_recent",
+        chat_id=3001,
+        message_thread_id=None,
+        message_id=50,
+        sender_id=123,
+        event_type="EDITED_MESSAGE",
+        text="已更新积分",
+        occurred_at=time.time(),
+    )
+    await bus.publish(ev)
+
+    # 订阅 ANY 类型
+    queue = bus.subscribe(chat_id=3001, event_type="ANY")
+    assert not queue.empty()
+    res = queue.get_nowait()
+    assert res.text == "已更新积分"
+    assert res.event_type == "EDITED_MESSAGE"

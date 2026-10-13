@@ -68,6 +68,52 @@ class TelegramNodeExecutor:
                 pass
         return None
 
+    @classmethod
+    def materialize_action(cls, node: BaseFlowNode) -> Any:
+        """从 ActionNode 中材质化还原标准 SignAction 实例，确保 wait_for 调度兼容。"""
+        raw_act = node.metadata.get("raw_action")
+        if raw_act is not None and not isinstance(raw_act, dict):
+            return raw_act
+
+        from tg_signer.config import (
+            ACTION_MODEL_MAP,
+            SupportAction,
+        )
+
+        act_type_str = str(getattr(node, "action_type", "") or "SEND_TEXT").upper()
+        support_act = None
+        for member in SupportAction:
+            if member.name == act_type_str or str(member.value) == act_type_str:
+                support_act = member
+                break
+        if support_act is None and act_type_str in {"PLUGIN", "CUSTOM_PLUGIN"}:
+            support_act = SupportAction.CUSTOM_PLUGIN
+
+        params = dict(getattr(node, "params", {}) or {})
+        if isinstance(raw_act, dict):
+            params.update(raw_act)
+
+        if (
+            hasattr(node, "terminal_policy")
+            and getattr(node.terminal_policy, "value", "") == "stop_flow"
+        ):
+            params.setdefault("stop_flow_on_terminal", True)
+        if hasattr(node, "skip_if") and node.skip_if:
+            params.setdefault("skip_if", node.skip_if)
+
+        if support_act and support_act in ACTION_MODEL_MAP:
+            target_cls = ACTION_MODEL_MAP[support_act]
+            try:
+                params_copy = dict(params)
+                params_copy.setdefault("action", support_act)
+                inst = target_cls(**params_copy)
+                node.metadata["raw_action"] = inst
+                return inst
+            except Exception:
+                pass
+
+        return raw_act or params
+
     async def __call__(
         self, node: BaseFlowNode, context: ScopedFlowContext
     ) -> StepOutcome:
@@ -79,9 +125,7 @@ class TelegramNodeExecutor:
     async def _call_unlocked(
         self, node: BaseFlowNode, context: ScopedFlowContext
     ) -> StepOutcome:
-        raw_act = node.metadata.get("raw_action")
-        if raw_act is None:
-            raw_act = node.params
+        raw_act = self.materialize_action(node)
 
         # 1. 检查 skip_if_matched 条件跳过
         skip_pat = getattr(raw_act, "skip_if_matched", None)
@@ -136,6 +180,8 @@ class TelegramNodeExecutor:
             rendered_prompt = render_template(raw_act.ai_prompt, tmpl_ctx)
             if rendered_prompt != raw_act.ai_prompt:
                 exec_action = _copy_action_with(raw_act, ai_prompt=rendered_prompt)
+        elif isinstance(raw_act, dict):
+            exec_action = render_template_recursive(raw_act, tmpl_ctx)
 
         # 3. 处理执行延迟 delay（支持固定秒数、随机区间 "1-3" 及 chat.action_interval 兜底）
         action_delay = 0.0
@@ -230,6 +276,13 @@ class TelegramNodeExecutor:
                 runner_context = getattr(self.runner, "context", None)
                 if runner_context is not None:
                     runner_context.pulseflow_side_effect_started = True
+                msg_id = getattr(res, "id", None)
+                if msg_id:
+                    context.system["last_sent_message_id"] = msg_id
+                    context.system["last_message_id"] = msg_id
+                import time as _t
+
+                context.system["last_action_finished_at"] = _t.time()
             matched_term = self.compat.consume_matched_terminal()
             output_text = self.compat.output_text(res=res, action=exec_action)
 

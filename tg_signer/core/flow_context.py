@@ -9,14 +9,15 @@ from tg_signer.core.template import render_template
 
 
 def _split_top_level(expr: str, sep: str, maxsplit: int = -1) -> list:
-    """按分隔符切分表达式，跳过单/双引号内的字面量内容。
+    """按分隔符切分表达式，跳过单/双引号内的字面量以及圆括号内的子表达式。
 
-    避免 `vars.name == "cats and dogs"` 这类字面量被误当作逻辑组合式或运算符切分。
+    避免 `vars.name == "cats and dogs"` 或 `(A or B) and C` 这类结构被错误切分。
     maxsplit < 0 表示不限制切分次数；未命中分隔符时返回单元素列表。
     """
     parts: list = []
     buf: list = []
     quote: Optional[str] = None
+    paren_depth = 0
     splits = 0
     idx = 0
     while idx < len(expr):
@@ -32,7 +33,22 @@ def _split_top_level(expr: str, sep: str, maxsplit: int = -1) -> list:
             buf.append(ch)
             idx += 1
             continue
-        if (maxsplit < 0 or splits < maxsplit) and expr.startswith(sep, idx):
+        if ch == "(":
+            paren_depth += 1
+            buf.append(ch)
+            idx += 1
+            continue
+        if ch == ")":
+            if paren_depth > 0:
+                paren_depth -= 1
+            buf.append(ch)
+            idx += 1
+            continue
+        if (
+            paren_depth == 0
+            and (maxsplit < 0 or splits < maxsplit)
+            and expr.startswith(sep, idx)
+        ):
             parts.append("".join(buf))
             buf = []
             splits += 1
@@ -222,6 +238,29 @@ class ScopedFlowContext:
             return True
         scope = self.build_scope_dict(default_output)
         expr = expr.strip()
+
+        # 剥离成对的外层括号
+        while expr.startswith("(") and expr.endswith(")"):
+            depth = 0
+            is_matched_outer = True
+            for c in expr[:-1]:
+                if c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+                    if depth == 0:
+                        is_matched_outer = False
+                        break
+            if is_matched_outer and depth == 1:
+                expr = expr[1:-1].strip()
+            else:
+                break
+
+        # 复合表达式取反支持：not (expr) 或 !(expr)
+        if expr.startswith("not ") and expr[4:].strip().startswith("("):
+            return not self.eval_condition(expr[4:].strip(), default_output)
+        if expr.startswith("!") and expr[1:].strip().startswith("("):
+            return not self.eval_condition(expr[1:].strip(), default_output)
 
         # 0. 复合逻辑或/与判定（支持表达式组合）
         if " or " in expr:

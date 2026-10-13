@@ -334,3 +334,58 @@ async def test_adapter_flood_wait_auto_recovery():
     assert result["status"] == "success"
     assert mock_runner.wait_for.call_count == 2
     assert any(call.args[0] == 3 for call in sleep.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_adapter_materialize_pure_action_node():
+    """验证纯 ActionNode（无 metadata.raw_action）能正确材质化为强类型 SignAction。"""
+    node = ActionNode(
+        id="pure_node",
+        action_type="SEND_TEXT",
+        params={"text": "/pure_start {{ vars.token }}"},
+    )
+    graph = ExecutionGraph(entry_node_id="pure_node", nodes={"pure_node": node})
+    ctx = ScopedFlowContext()
+    ctx.set_var("token", "TOK_888")
+
+    mock_runner = MagicMock()
+    mock_runner.wait_for = AsyncMock(return_value=True)
+    mock_runner.context = MagicMock()
+
+    chat = SignChatV3(chat_id=123, actions=[])
+    executor = TelegramNodeExecutor(mock_runner, chat)
+    engine = PulseFlowEngine()
+
+    result = await engine.run(graph, ctx, executor)
+    assert result["status"] == "success"
+    assert mock_runner.wait_for.call_count == 1
+    call_action = mock_runner.wait_for.call_args[0][1]
+    assert isinstance(call_action, SendTextAction)
+    assert call_action.text == "/pure_start TOK_888"
+
+
+@pytest.mark.asyncio
+async def test_adapter_tracks_last_sent_message_id_in_system_context():
+    """验证动作执行成功后，返回的 Message ID 被正确同步到 system 上下文供下游 WaitEventNode 使用。"""
+    node = ActionNode(
+        id="send_node",
+        action_type="SEND_TEXT",
+        params={"text": "/checkin"},
+    )
+    graph = ExecutionGraph(entry_node_id="send_node", nodes={"send_node": node})
+    ctx = ScopedFlowContext()
+
+    mock_msg = MagicMock()
+    mock_msg.id = 10086
+
+    mock_runner = MagicMock()
+    mock_runner.wait_for = AsyncMock(return_value=mock_msg)
+    mock_runner.context = MagicMock()
+
+    chat = SignChatV3(chat_id=123, actions=[])
+    executor = TelegramNodeExecutor(mock_runner, chat)
+    engine = PulseFlowEngine()
+
+    result = await engine.run(graph, ctx, executor)
+    assert result["status"] == "success"
+    assert ctx.system.get("last_sent_message_id") == 10086
