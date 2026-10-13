@@ -1023,7 +1023,12 @@ async def execute_sign_task(
     account_name = validate_storage_name(account_name, field_name="account_name")
     task_name = validate_storage_name(task_name, field_name="task_name")
 
-    if svc.is_task_running(task_name, account_name):
+    try:
+        is_running = svc.is_task_running(task_name, account_name, run_id=run_id)
+    except TypeError:
+        is_running = svc.is_task_running(task_name, account_name)
+
+    if is_running:
         return {
             "success": False,
             "error": "任务已经在运行中",

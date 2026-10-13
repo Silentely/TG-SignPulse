@@ -1738,23 +1738,40 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
         )
 
     def is_task_running(
-        self, task_name: str, account_name: Optional[str] = None
+        self,
+        task_name: str,
+        account_name: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> bool:
-        """检查任务是否正在运行"""
+        """检查任务是否正在运行。
+
+        若指定了 run_id 且当前运行态的 run_id 匹配，说明是本次执行自身（如 start_task_run 提前置态），
+        不视为外部冲突。
+        """
         if account_name:
             task_key = self._task_key(account_name, task_name)
             if self._active_tasks.get(task_key, False):
                 return True
-            return (self._run_statuses.get(task_key) or {}).get("state") == "running"
-        return any(
+            status = self._run_statuses.get(task_key) or {}
+            if status.get("state") == "running":
+                if run_id and status.get("run_id") == run_id:
+                    return False
+                return True
+            return False
+        if any(
             key[1] == task_name
             for key, running in self._active_tasks.items()
             if running
-        ) or any(
-            key[1] == task_name
-            and (self._run_statuses.get(key) or {}).get("state") == "running"
-            for key in list(self._run_statuses.keys())
-        )
+        ):
+            return True
+        for key in list(self._run_statuses.keys()):
+            if key[1] == task_name:
+                st = self._run_statuses.get(key) or {}
+                if st.get("state") == "running":
+                    if run_id and st.get("run_id") == run_id:
+                        continue
+                    return True
+        return False
 
     async def run_task_with_logs(
         self,

@@ -635,3 +635,33 @@ async def test_run_task_with_logs_rejects_new_runs_after_shutdown():
 
     with pytest.raises(RuntimeError, match="正在停机"):
         await svc.run_task_with_logs("acc", "task")
+
+
+def test_is_task_running_with_own_run_id():
+    """验证 is_task_running 在自身 run_id 匹配时不会误判为外部冲突自锁。"""
+    from backend.services.sign_tasks import SignTaskService
+
+    svc = SignTaskService.__new__(SignTaskService)
+    svc._active_tasks = {}
+    svc._run_statuses = {
+        ("acc1", "daily"): {
+            "run_id": "run-123",
+            "state": "running",
+        }
+    }
+    svc._task_key = lambda a, t: (a, t)
+
+    # 1. 相同 run_id，不视为外部冲突
+    assert not svc.is_task_running("daily", "acc1", run_id="run-123")
+
+    # 2. 不同 run_id 或未提供 run_id，视为冲突
+    assert svc.is_task_running("daily", "acc1", run_id="run-456")
+    assert svc.is_task_running("daily", "acc1", run_id=None)
+
+    # 3. 不带 account_name 时的检查
+    assert not svc.is_task_running("daily", run_id="run-123")
+    assert svc.is_task_running("daily", run_id="run-456")
+
+    # 4. 若 active_tasks 为 True（已进入执行锁内部），始终判定为运行中
+    svc._active_tasks[("acc1", "daily")] = True
+    assert svc.is_task_running("daily", "acc1", run_id="run-123")
