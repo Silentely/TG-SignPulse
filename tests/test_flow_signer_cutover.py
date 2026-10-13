@@ -267,3 +267,26 @@ async def test_user_signer_pulseflow_skips_retry_after_side_effect():
         task_retry_count_var.reset(token)
 
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_user_signer_worker_context_real_instance_pulseflow_fields():
+    """验证真实 UserSignerWorkerContext 实例在 PulseFlow 执行时赋字段不会抛出 Pydantic 字段缺失错误。"""
+    from tg_signer.core.context import UserSignerWorkerContext
+
+    real_ctx = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    # 验证字段默认值与写入
+    assert real_ctx.pulseflow_side_effect_started is False
+    assert real_ctx.pulseflow_fallback_occurred is False
+    assert real_ctx.pulseflow_fallback_reason is None
+
+    real_ctx.pulseflow_side_effect_started = True
+    real_ctx.pulseflow_fallback_occurred = True
+    real_ctx.pulseflow_fallback_reason = "norm error"
+    assert real_ctx.pulseflow_side_effect_started is True
+    assert real_ctx.pulseflow_fallback_occurred is True
+    assert real_ctx.pulseflow_fallback_reason == "norm error"
+
+    # 验证支持动态 extra 字段（如 flow_metrics 等）
+    real_ctx.flow_metrics = {"steps": 1}
+    assert real_ctx.flow_metrics["steps"] == 1

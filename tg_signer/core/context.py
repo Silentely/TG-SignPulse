@@ -20,11 +20,12 @@ class UserSignerWorkerContext(BaseModel):
     """签到工作上下文"""
 
     if _PYDANTIC_V2 and ConfigDict is not None:
-        model_config = ConfigDict(arbitrary_types_allowed=True)
+        model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
     else:
 
         class Config:
             arbitrary_types_allowed = True
+            extra = "allow"
 
     sign_chats: dict  # 签到配置列表, int -> list[SignChatV3]
     chat_messages: dict  # 收到的消息, int -> dict[int, Optional[Message]]
@@ -42,3 +43,6 @@ class UserSignerWorkerContext(BaseModel):
     last_received_text: Optional[str] = None
     workflow_path: Optional[list] = None
     workflow_steps: Optional[int] = None
+    pulseflow_side_effect_started: bool = False
+    pulseflow_fallback_occurred: bool = False
+    pulseflow_fallback_reason: Optional[str] = None
