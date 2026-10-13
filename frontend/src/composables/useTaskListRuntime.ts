@@ -313,10 +313,16 @@ export function useTaskListRuntime(options: {
         toast.success(t('tasks.cancelSuccess'))
         await refreshActiveRuns()
       } else {
-        toast.error(res.error || t('tasks.cancelFailed'))
+        if (res.error && res.error.includes('当前没有进行中的运行')) {
+          toast.info(t('tasks.runAlreadyFinished'))
+          await refreshActiveRuns()
+        } else {
+          toast.error(res.error || t('tasks.cancelFailed'))
+        }
       }
     } catch (e: unknown) {
       notifyApiError(e, 'tasks.cancelFailed')
+      await refreshActiveRuns().catch(() => {})
     } finally {
       cancelBusyKey.value = ''
     }

@@ -312,7 +312,10 @@
     "filterListen": "监听",
     "filterScheduled": "定时",
     "pausedHint": "任务已暂停，请先恢复后再执行",
-    "tagsLabel": "标签"
+    "tagsLabel": "标签",
+    "viewLiveLogs": "查看实时运行日志",
+    "clickToViewLiveLogs": "点击查看实时运行日志",
+    "runAlreadyFinished": "该任务运行已结束"
   },
   "taskForm": {
     "taskName": "任务名称",

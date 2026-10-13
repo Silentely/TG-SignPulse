@@ -349,8 +349,10 @@ const openEdit = (task: TaskUiItem) => {
   showEditModal.value = true
 }
 
-const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
-  logsRunAccount.value = ''  // No specific run account, show aggregated history
+const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null, accountName?: string) => {
+  const ar = taskActiveRun(task)
+  const activeAccount = accountName || (ar && isRunInProgress(ar) ? ar.account_name : '')
+  logsRunAccount.value = activeAccount || ''
   logsTask.value = task
   logsInitialTab.value = tab
   showLogsModal.value = true
@@ -483,7 +485,7 @@ const openLogs = (task: TaskUiItem, tab: 'history' | 'hits' | null = null) => {
       @cancel-run="handleCancelRun"
       @run="handleRun"
       @run-account="(task, acc) => doRun(task, acc)"
-      @open-logs="(task, tab) => openLogs(task, tab ?? null)"
+      @open-logs="(task, tab, acc) => openLogs(task, tab ?? null, acc)"
       @clone="openCloneModal"
       @edit="openEdit"
       @delete="handleDelete"

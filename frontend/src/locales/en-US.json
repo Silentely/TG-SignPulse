@@ -312,7 +312,10 @@
     "filterListen": "Listen",
     "filterScheduled": "Scheduled",
     "pausedHint": "Task is paused; resume it before running",
-    "tagsLabel": "Tags"
+    "tagsLabel": "Tags",
+    "viewLiveLogs": "View Live Logs",
+    "clickToViewLiveLogs": "Click to view live logs",
+    "runAlreadyFinished": "Task run has already finished"
   },
   "taskForm": {
     "taskName": "Task Name",

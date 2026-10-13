@@ -33,7 +33,7 @@ const emit = defineEmits<{
   (e: 'cancel-run', task: TaskUiItem): void
   (e: 'run', task: TaskUiItem): void
   (e: 'run-account', task: TaskUiItem, account: string): void
-  (e: 'open-logs', task: TaskUiItem, tab?: 'history' | 'hits' | null): void
+  (e: 'open-logs', task: TaskUiItem, tab?: 'history' | 'hits' | null, accountName?: string): void
   (e: 'clone', task: TaskUiItem): void
   (e: 'edit', task: TaskUiItem): void
   (e: 'delete', task: TaskUiItem): void
@@ -138,9 +138,10 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
           <ToneBadge
             v-if="taskActiveRun && isRunInProgress(taskActiveRun)"
             :status="taskActiveRun"
-            extra-class="!text-[11px] max-w-[16rem] truncate"
+            extra-class="!text-[11px] max-w-[16rem] truncate cursor-pointer hover:opacity-90"
             pulse
-            :title="activeRunTooltip || activeRunBadgeText"
+            :title="activeRunTooltip ? `${activeRunTooltip}\n${t('tasks.clickToViewLiveLogs')}` : `${activeRunBadgeText} · ${t('tasks.clickToViewLiveLogs')}`"
+            @click.stop="emit('open-logs', task, null, taskActiveRun.account_name)"
           >
             {{ activeRunBadgeText }}
             <template v-if="taskActiveRuns.length > 1">
@@ -229,8 +230,8 @@ const runTaskBusy = computed(() => Boolean(props.runBusyKey?.startsWith(`${props
       <button
         type="button"
         class="ui-row-action cursor-pointer"
-        :title="t('tasks.viewLogs')"
-        @click="emit('open-logs', task)"
+        :title="taskActiveRun && isRunInProgress(taskActiveRun) ? t('tasks.viewLiveLogs') : t('tasks.viewLogs')"
+        @click="emit('open-logs', task, null, taskActiveRun && isRunInProgress(taskActiveRun) ? taskActiveRun.account_name : undefined)"
       >
         <FileText class="w-3.5 h-3.5" />
         <span>{{ t('tasks.logs') }}</span>
