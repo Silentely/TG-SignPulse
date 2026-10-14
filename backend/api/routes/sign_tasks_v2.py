@@ -329,8 +329,8 @@ def preview_flow(
     current_user=Depends(get_current_user),
 ):
     from tg_signer.config import SignChatV3
+    from tg_signer.core.flow_mermaid_adapter import render_mermaid_diagram
     from tg_signer.core.flow_models import ExecutionGraph
-    from tg_signer.core.flow_normalizer import GraphNormalizer
 
     chat_data = _model_dump(chat)
     try:
@@ -340,7 +340,10 @@ def preview_flow(
         warn_list: list[str] = []
         graph = ExecutionGraph.compile(chat_obj, warnings=warn_list)
         resolve_execution_engine(chat_obj)
-        mermaid_code = GraphNormalizer.to_mermaid(graph)
+        try:
+            mermaid_code = render_mermaid_diagram(graph)
+        except Exception:
+            mermaid_code = ""
         issues = [FlowValidationIssue(level="warning", message=w) for w in warn_list]
         return PreviewFlowResponse(
             valid=True,

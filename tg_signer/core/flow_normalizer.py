@@ -1,7 +1,6 @@
 # tg_signer/core/flow_normalizer.py
 from __future__ import annotations
 
-import html
 from typing import Any, Dict, List, Optional, Union
 
 from tg_signer.config import (
@@ -596,49 +595,10 @@ class GraphNormalizer:
 
     @classmethod
     def find_unreachable_nodes(cls, graph: ExecutionGraph) -> set[str]:
-        """计算图中所有从入口步骤 (entry_node_id) 不可达的孤立节点集合"""
-        if (
-            not graph.nodes
-            or not graph.entry_node_id
-            or graph.entry_node_id not in graph.nodes
-        ):
-            return set(graph.nodes.keys()) if graph.nodes else set()
+        """计算图中所有从入口步骤 (entry_node_id) 不可达的孤立节点集合（委托至 flow_mermaid_adapter）"""
+        from tg_signer.core.flow_mermaid_adapter import find_unreachable_nodes
 
-        sentinels = {
-            TERMINAL_COMPLETE_ID,
-            TERMINAL_FAIL_ID,
-            "COMPLETE",
-            "FAIL",
-            "SUCCESS",
-            "DONE",
-            "FAILED",
-            "ERROR",
-        }
-        visited: set[str] = set()
-
-        def _dfs(cur: str) -> None:
-            if cur in sentinels or cur not in graph.nodes or cur in visited:
-                return
-            visited.add(cur)
-            cur_node = graph.nodes[cur]
-            neighbors = []
-            if cur_node.next_node_id:
-                neighbors.append(cur_node.next_node_id)
-            if cur_node.on_failure_node_id:
-                neighbors.append(cur_node.on_failure_node_id)
-            if cur_node.terminal_branch_target:
-                neighbors.append(cur_node.terminal_branch_target)
-            if isinstance(cur_node, ConditionNode):
-                for c in cur_node.cases:
-                    if c.get("target_id"):
-                        neighbors.append(c["target_id"])
-                if cur_node.default_target_id:
-                    neighbors.append(cur_node.default_target_id)
-            for nxt in neighbors:
-                _dfs(nxt)
-
-        _dfs(graph.entry_node_id)
-        return set(graph.nodes.keys()) - visited
+        return find_unreachable_nodes(graph)
 
     @classmethod
     def validate_graph(
@@ -828,94 +788,7 @@ class GraphNormalizer:
 
     @classmethod
     def to_mermaid(cls, graph: ExecutionGraph) -> str:
-        """将执行图导出为标准 Mermaid 流程图文本 (graph TD)"""
-        import re
+        """将执行图导出为标准 Mermaid 流程图文本 (graph TD)（委托至 flow_mermaid_adapter）"""
+        from tg_signer.core.flow_mermaid_adapter import render_mermaid_diagram
 
-        def _safe_id(raw_id: str) -> str:
-            return re.sub(r"[^a-zA-Z0-9_]", "_", str(raw_id))
-
-        lines = ["graph TD"]
-        entry_safe = _safe_id(graph.entry_node_id)
-        lines.append(f"    Start([开始]) --> {entry_safe}")
-
-        unreachable = cls.find_unreachable_nodes(graph)
-
-        for nid, node in graph.nodes.items():
-            nid_safe = _safe_id(nid)
-            is_unreach = nid in unreachable
-            suffix = " (不可达)" if is_unreach else ""
-            raw_label = f"{node.name or nid}{suffix} [{node.node_type.value}]"
-            sanitized_label = (
-                html.escape(raw_label).replace('"', "&quot;").replace("\n", " ")
-            )
-            lines.append(f'    {nid_safe}["{sanitized_label}"]')
-            if is_unreach:
-                lines.append(
-                    f"    style {nid_safe} stroke:#f59e0b,stroke-dasharray: 5 5"
-                )
-
-            if node.next_node_id:
-                if node.next_node_id == TERMINAL_COMPLETE_ID:
-                    target = "End([完成])"
-                elif node.next_node_id == TERMINAL_FAIL_ID:
-                    target = "Fail([失败])"
-                else:
-                    target = _safe_id(node.next_node_id)
-                lines.append(f"    {nid_safe} -->|next| {target}")
-
-            if node.on_failure_node_id:
-                if node.on_failure_node_id == TERMINAL_FAIL_ID:
-                    target = "Fail([失败])"
-                else:
-                    target = _safe_id(node.on_failure_node_id)
-                lines.append(f"    {nid_safe} -.->|on_failure| {target}")
-
-            if node.terminal_branch_target:
-                if node.terminal_branch_target in {
-                    TERMINAL_COMPLETE_ID,
-                    "COMPLETE",
-                    "SUCCESS",
-                }:
-                    t_target = "End([完成])"
-                elif node.terminal_branch_target in {
-                    TERMINAL_FAIL_ID,
-                    "FAIL",
-                    "FAILED",
-                }:
-                    t_target = "Fail([失败])"
-                else:
-                    t_target = _safe_id(node.terminal_branch_target)
-                lines.append(f"    {nid_safe} -.->|terminal_branch| {t_target}")
-
-            if isinstance(node, ConditionNode):
-                for c in node.cases:
-                    t = c.get("target_id")
-                    cond = c.get("condition", "")
-                    if t:
-                        if t == TERMINAL_COMPLETE_ID:
-                            t_lbl = "End([完成])"
-                        elif t == TERMINAL_FAIL_ID:
-                            t_lbl = "Fail([失败])"
-                        else:
-                            t_lbl = _safe_id(t)
-                        clean_cond = (
-                            html.escape(str(cond))
-                            .replace('"', "&quot;")
-                            .replace("\n", " ")
-                        )
-                        lines.append(f'    {nid_safe} -->|"{clean_cond}"| {t_lbl}')
-                if node.default_target_id:
-                    if node.default_target_id == TERMINAL_COMPLETE_ID:
-                        def_t = "End([完成])"
-                    elif node.default_target_id == TERMINAL_FAIL_ID:
-                        def_t = "Fail([失败])"
-                    else:
-                        def_t = _safe_id(node.default_target_id)
-                    lines.append(f"    {nid_safe} -->|default| {def_t}")
-
-        if graph.error_handler_node_id:
-            lines.append(
-                f"    ErrorHandler[全局降级错误处理] -.-> {_safe_id(graph.error_handler_node_id)}"
-            )
-
-        return "\n".join(lines)
+        return render_mermaid_diagram(graph)
