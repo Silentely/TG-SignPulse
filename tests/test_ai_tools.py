@@ -944,11 +944,11 @@ class VisualTruncationRetryTest(unittest.IsolatedAsyncioTestCase):
 class AITimeoutTest(unittest.TestCase):
     """AI 视觉超时默认值测试。"""
 
-    def test_default_timeout_is_15_seconds(self):
+    def test_default_timeout_is_25_seconds(self):
         old = os.environ.get("AI_VISION_TIMEOUT")
         try:
             os.environ.pop("AI_VISION_TIMEOUT", None)
-            self.assertEqual(AITools._ai_timeout(), 15.0)
+            self.assertEqual(AITools._ai_timeout(), 25.0)
         finally:
             if old is not None:
                 os.environ["AI_VISION_TIMEOUT"] = old
