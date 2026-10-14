@@ -10,6 +10,11 @@ from pydantic import BaseModel, Field, root_validator
 TERMINAL_COMPLETE_ID = "_TERMINAL_COMPLETE"
 TERMINAL_FAIL_ID = "_TERMINAL_FAIL"
 
+
+class FlowLoopLimitExceededError(RuntimeError):
+    """节点访问次数超出 loop_policy.max_visits 限制"""
+
+
 # 流程图安全资源限制硬边界常量
 MAX_NODES_PER_GRAPH = 50
 MAX_SUBFLOW_DEPTH = 3

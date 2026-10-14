@@ -29,6 +29,13 @@ from backend.services.sign_task_run_status import (
 from backend.utils.task_logs import extract_last_target_message
 from tg_signer.core import get_client_refcount
 from tg_signer.core.workflow_engine import WorkflowLoopExceededError
+try:
+    from tg_signer.core.flow_models import FlowLoopLimitExceededError
+except ImportError:
+    try:
+        from tg_signer.core.flow_engine import FlowLoopLimitExceededError  # type: ignore
+    except ImportError:
+        FlowLoopLimitExceededError = None  # type: ignore
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 from tg_signer.utils import extract_flood_wait_seconds
 
@@ -738,9 +745,12 @@ async def _runner_handle_error(
     if is_timeout_error_message(str(e)) or state.get("timed_out"):
         _set_ctx(state, "timed_out", True)
 
+    loop_exceeded_types = tuple(
+        t for t in (WorkflowLoopExceededError, FlowLoopLimitExceededError) if t is not None
+    )
     if (
-        isinstance(e, WorkflowLoopExceededError)
-        or "WorkflowLoopExceededError" in type(e).__name__
+        (loop_exceeded_types and isinstance(e, loop_exceeded_types))
+        or type(e).__name__ in ("WorkflowLoopExceededError", "FlowLoopLimitExceededError")
     ):
         _set_ctx(state, "failure_category", FailureCategory.TASK_LOOP_EXCEEDED.value)
     if state.get("account_invalid_detected") or svc._is_invalid_session_error(e):

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 
 class FailureCategory(str, Enum):
@@ -27,6 +27,9 @@ class FailureCategory(str, Enum):
     STRONG_FAILURE = "strong_failure"
     TASK_LOOP_EXCEEDED = "task_loop_exceeded"
     UNKNOWN = "unknown"
+
+
+FAILURE_CATEGORY_TASK_LOOP_EXCEEDED = FailureCategory.TASK_LOOP_EXCEEDED.value
 
 
 _NEGATION_PATTERN = re.compile(r"(没有|未|无|并非|不是).{0,3}(失败|异常|超时)")
@@ -189,6 +192,12 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
     (
         FailureCategory.TASK_LOOP_EXCEEDED,
         (
+            "flow step limit exceeded",
+            "flowlooplimitexceedederror",
+            "node loop limit exceeded",
+            "loop limit exceeded",
+            "loop not allowed",
+            "node loop not allowed",
             "workflowloopexceedederror",
             "超过允许上限",
             "执行已达最大步数硬上限",
@@ -227,7 +236,7 @@ def message_indicates_strong_failure(text: str) -> bool:
 
 
 def classify_failure(
-    error: Optional[str] = None,
+    error: Optional[Union[str, BaseException]] = None,
     output: Optional[str] = None,
     *,
     success: Optional[bool] = None,
@@ -240,7 +249,15 @@ def classify_failure(
     if success is True:
         return FailureCategory.NONE
 
-    blob = f"{error or ''}\n{output or ''}".strip().lower()
+    if isinstance(error, BaseException):
+        exc_type_name = type(error).__name__
+        if exc_type_name in {"FlowLoopLimitExceededError", "WorkflowLoopExceededError"}:
+            return FailureCategory.TASK_LOOP_EXCEEDED
+        error_str = f"{exc_type_name}: {error}"
+    else:
+        error_str = str(error or "")
+
+    blob = f"{error_str}\n{output or ''}".strip().lower()
     if not blob:
         return FailureCategory.UNKNOWN if success is False else FailureCategory.NONE
 

@@ -253,7 +253,13 @@ class GraphNormalizer:
             chat.steps[0].step_id if chat.steps else TERMINAL_COMPLETE_ID
         )
 
-        for step in chat.steps or []:
+        for raw_step in chat.steps or []:
+            if isinstance(raw_step, dict):
+                from tg_signer.config import WorkflowStepConfig
+                step = WorkflowStepConfig(**raw_step)
+            else:
+                step = raw_step
+
             next_id = cls._resolve_sentinel_id(step.next_step_id)
             fail_id = cls._resolve_sentinel_id(step.on_failure_step_id)
 
@@ -266,9 +272,14 @@ class GraphNormalizer:
                 if step.config:
                     params.update(step.config)
 
+                max_visits = (
+                    (step.max_retries + 1)
+                    if (step.allow_loop and step.max_retries is not None)
+                    else 1
+                )
                 loop_pol = LoopPolicy(
-                    allow_loop=step.allow_loop,
-                    max_visits=step.max_retries + 1 if step.allow_loop else 1,
+                    allow_loop=bool(step.allow_loop),
+                    max_visits=max_visits,
                 )
 
                 is_stop_on_term = getattr(
@@ -277,11 +288,25 @@ class GraphNormalizer:
                     step.config.get("stop_flow_on_terminal", False)
                     if step.config
                     else False
+                ) or bool(getattr(step, "stop_flow_on_terminal", False))
+
+                term_policy_raw = (
+                    (step.config.get("terminal_policy") if step.config else None)
+                    or getattr(step, "terminal_policy", None)
+                    or ("stop_flow" if is_stop_on_term else "ignore")
                 )
-                term_policy = (
-                    TerminalPolicy.STOP_FLOW
-                    if is_stop_on_term
-                    else TerminalPolicy.IGNORE
+                if isinstance(term_policy_raw, TerminalPolicy):
+                    term_policy = term_policy_raw
+                elif str(term_policy_raw).lower() == "stop_flow":
+                    term_policy = TerminalPolicy.STOP_FLOW
+                elif str(term_policy_raw).lower() == "branch_to":
+                    term_policy = TerminalPolicy.BRANCH_TO
+                else:
+                    term_policy = TerminalPolicy.IGNORE
+
+                term_target = cls._resolve_sentinel_id(
+                    (step.config.get("terminal_branch_target") if step.config else None)
+                    or getattr(step, "terminal_branch_target", None)
                 )
 
                 run_if = (step.config.get("run_if") if step.config else None) or (
@@ -322,6 +347,7 @@ class GraphNormalizer:
                     on_failure_node_id=fail_id,
                     loop_policy=loop_pol,
                     terminal_policy=term_policy,
+                    terminal_branch_target=term_target,
                     timeout_seconds=step_timeout,
                     run_if=run_if,
                     skip_if=skip_if,

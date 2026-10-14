@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Pattern
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_event_bus import TelegramEventBus
 from tg_signer.core.flow_models import (
+    FlowLoopLimitExceededError,
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
     BaseFlowNode,
@@ -44,9 +45,6 @@ def _redact_trace_text(value: str) -> str:
         str(value),
     )
 
-
-class FlowLoopLimitExceededError(RuntimeError):
-    """节点访问次数超出 loop_policy.max_visits 限制"""
 
 
 class PulseFlowEngine:
