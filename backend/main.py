@@ -617,6 +617,16 @@ async def on_shutdown() -> None:
     except Exception:
         log.exception("Push HTTP client shutdown failed")
 
+    # 清理所有插件 Worker 子进程，防止孤儿进程残留
+    try:
+        from tg_signer.core.plugin_host import cleanup_all_worker_processes
+
+        cleaned = cleanup_all_worker_processes()
+        if cleaned > 0:
+            log.info("Cleaned up %d plugin worker process(es) on shutdown", cleaned)
+    except Exception:
+        log.exception("Plugin worker processes cleanup failed")
+
     # 释放调度文件锁，避免异常退出后锁文件残留导致下一进程误判 replica
     try:
         from backend.scheduler.instance_lock import release_scheduler_lock

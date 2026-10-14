@@ -6,6 +6,7 @@ import asyncio
 import importlib.util
 import inspect
 import os
+import signal
 import sys
 import traceback
 from pathlib import Path
@@ -580,6 +581,11 @@ async def run_worker_loop(
 
 
 def main() -> None:
+    if sys.platform != "win32":
+        try:
+            signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+        except Exception:
+            pass
     try:
         asyncio.run(run_worker_loop())
     except KeyboardInterrupt:

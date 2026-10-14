@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Dict, Optional, Union
 
@@ -16,6 +17,50 @@ from tg_signer.core.plugin_ipc import (
     serialize_message_for_worker,
 )
 from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+_active_worker_lock = threading.Lock()
+_active_worker_processes: set[Any] = set()
+
+
+def register_worker_process(proc: Any) -> None:
+    """注册正在运行的 Worker 进程实例以进行生命周期治理。"""
+    if proc is not None:
+        with _active_worker_lock:
+            _active_worker_processes.add(proc)
+
+
+def unregister_worker_process(proc: Any) -> None:
+    """注销已结束的 Worker 进程实例。"""
+    if proc is not None:
+        with _active_worker_lock:
+            _active_worker_processes.discard(proc)
+
+
+def get_active_worker_processes() -> list[Any]:
+    """获取当前所有活跃的 Worker 进程副本。"""
+    with _active_worker_lock:
+        return list(_active_worker_processes)
+
+
+def cleanup_all_worker_processes() -> int:
+    """终止所有注册的活跃插件 Worker 进程，防止孤儿进程残留。"""
+    with _active_worker_lock:
+        procs = list(_active_worker_processes)
+        _active_worker_processes.clear()
+
+    cleaned_count = 0
+    for proc in procs:
+        try:
+            pid = getattr(proc, "pid", proc)
+            if isinstance(pid, int) and pid > 0:
+                kill_process_tree(pid)
+                cleaned_count += 1
+            elif hasattr(proc, "kill") and callable(proc.kill):
+                proc.kill()
+                cleaned_count += 1
+        except Exception:
+            pass
+    return cleaned_count
 
 
 def kill_process_tree(target: Union[int, Any]) -> None:
@@ -272,6 +317,7 @@ class PluginProcessHost:
             stderr=asyncio.subprocess.PIPE,
             **kwargs,
         )
+        register_worker_process(self.process)
 
         init_payload = {
             "plugin_name": self.plugin_name,
@@ -522,7 +568,7 @@ class PluginProcessHost:
             if result_future in done:
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 # 先取结果再记账：future 携带异常时在此抛出，由 execute() 统一记为
-                # 失败，避免"一条成功 + 一条失败"的双重计数与伪成功记录
+                # 失败，避免“一条成功 + 一条失败”的双重计数与伪成功记录
                 res = result_future.result()
                 PluginRegistry.record_execution(
                     self.plugin_name,
@@ -583,3 +629,6 @@ class PluginProcessHost:
                 except asyncio.TimeoutError:
                     # 子进程未能及时退出：已发起 kill_process_tree，直接结束收尾
                     pass
+
+            if self.process is not None:
+                unregister_worker_process(self.process)
