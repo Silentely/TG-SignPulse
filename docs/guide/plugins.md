@@ -167,7 +167,7 @@ async def my_handler(ctx: PluginContext) -> bool:
 
 ## 官方开箱预置插件库
 
-TG-SignPulse 官方预置了 5 个经过严格单测与实战验证的生产级标准插件（位于 `plugins/` 目录）：
+TG-SignPulse 官方预置了 6 个经过严格单测与实战验证的生产级标准插件（位于 `plugins/` 目录）：
 
 1. **`math_solver`**（纯文本计算题秒答插件）：
    - **运行模式**：`reactive`
@@ -205,6 +205,15 @@ TG-SignPulse 官方预置了 5 个经过严格单测与实战验证的生产级�
      - `webhook_url`：目标 Webhook 地址（必填，HTTP/HTTPS）；
      - `auth_token`：可选，HTTP Bearer 鉴权 Token；
      - `custom_message`：可选，附加自定义推送说明文本。
+
+6. **`stock_sniper`**（商店 Bot 补货监控与自动抢购助手）：
+   - **运行模式**：`reactive`
+   - **适用场景**：配合定时巡检（如 Cron 每 1~2 分钟），智能解析商店机器人内联键盘商品菜单，监控售罄标识（如 `Sold out`）。仅在缺货变为有货时触发报警，支持 Webhook / Bark 外部推送，并可选支持自动模拟点击抢购。
+   - **参数配置**：
+     - `target_keyword`：目标商品关键词（如 `31B Token`）；
+     - `sold_out_tag`：缺货标识文本（默认 `Sold out`）；
+     - `notify_webhook`：可选，报警推送 Webhook 或 Bark URL；
+     - `auto_checkout`：可选，发现补货时是否自动点击商品按钮。
 
 ---
 

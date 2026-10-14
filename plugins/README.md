@@ -71,3 +71,8 @@ TG-SignPulse 随包提供了丰富的开箱即用官方插件，用户可在前�
   - **参数**：`webhook_url`（必填，HTTP/HTTPS Webhook 目标地址），`auth_token`（可选，Bearer 鉴权令牌），`custom_message`（可选，附加通知附言）。
 
 详细插件开发指南与 API 说明请查阅：[TG-SignPulse 官方文档 - 自定义 Action 插件扩展机制](../docs/guide/plugins.md)。
+
+- **[`stock_sniper`](./stock_sniper/main.py)**：
+  Telegram 商店机器人商品库存监控与补货秒杀助手。智能解析商店内联键盘菜单中的商品按钮，监控售罄标识（如 `Sold out`）；支持状态反转防骚扰告警（缺货变有货时才通知）、多渠道 Webhook / Bark 报警，以及可选的自动模拟点击抢购。
+  - **模式**：`reactive`
+  - **参数**：`target_keyword`（商品关键词，如 `31B Token`），`sold_out_tag`（售罄标识，如 `Sold out`），`notify_webhook`（可选告警通知 URL），`auto_checkout`（可选是否自动点击抢购）。

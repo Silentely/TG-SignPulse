@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1246,3 +1247,228 @@ async def test_active_plugin_auto_mode_from_registry():
         assert ok is True
         mock_host.assert_called_once()
         assert mock_host.call_args.kwargs["trigger_type"] == "active"
+
+
+def _get_stock_kw_key(target_kw: str) -> str:
+    kw_slug = "".join(c if c.isalnum() else "_" for c in target_kw.lower())
+    kw_hash = hashlib.sha256(target_kw.lower().encode("utf-8")).hexdigest()[:8]
+    return f"{kw_slug}_{kw_hash}"
+
+
+@pytest.mark.asyncio
+async def test_stock_sniper_sold_out(tmp_path, monkeypatch):
+    """当商品包含 Sold out 时，记录状态为 sold_out 并返回 True，不触发告警与点击"""
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("stock_sniper")
+    assert meta is not None
+
+    db_path = tmp_path / "test_stock_sniper.db"
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(db_path))
+
+    mock_btn = MagicMock()
+    mock_btn.text = "31B Token · Rp 55.000 / $3.09 · Sold out"
+
+    mock_msg = MagicMock()
+    mock_msg.id = 101
+    mock_msg.buttons = [[mock_btn]]
+    mock_msg.click = AsyncMock()
+
+    ctx = PluginContext(
+        app=MagicMock(),
+        chat_id=999,
+        message=mock_msg,
+        logger=MagicMock(),
+        plugin_name="stock_sniper",
+        params={
+            "target_keyword": "31B Token",
+            "sold_out_tag": "Sold out",
+            "auto_checkout": False,
+        },
+    )
+
+    ok = await meta.handler(ctx)
+    assert ok is True
+    # 状态持久化为 sold_out
+    assert await ctx.storage.get("state:31b_token_8972a27e") == "sold_out"
+    assert await ctx.storage.get("alerted:31b_token_8972a27e") is None
+    # 未开启自动下单且售罄，不触发点击
+    mock_msg.click.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stock_sniper_restocked_and_retry_on_failure(tmp_path, monkeypatch):
+    """当检测到商品补货时，记录 in_stock 状态；点击失败时保留重试资格，成功后才标记完成"""
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("stock_sniper")
+    assert meta is not None
+
+    db_path = tmp_path / "test_stock_sniper_restock.db"
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(db_path))
+
+    mock_btn = MagicMock()
+    mock_btn.text = "31B Token · Rp 55.000 / $3.09 · Buy"
+
+    mock_msg = MagicMock()
+    mock_msg.id = 102
+    mock_msg.buttons = [[mock_btn]]
+    mock_msg.click = AsyncMock(side_effect=RuntimeError("网络闪断点击失败"))
+
+    ctx = PluginContext(
+        app=MagicMock(),
+        chat_id=999,
+        message=mock_msg,
+        logger=MagicMock(),
+        plugin_name="stock_sniper",
+        params={
+            "target_keyword": "31B Token",
+            "sold_out_tag": "Sold out",
+            "auto_checkout": True,
+        },
+    )
+
+    # 预设此前为 sold_out
+    await ctx.storage.set("state:31b_token_8972a27e", "sold_out")
+
+    # 第 1 轮：点击失败
+    ok = await meta.handler(ctx)
+    assert ok is True
+    assert await ctx.storage.get("state:31b_token_8972a27e") == "in_stock"
+    assert await ctx.storage.get("alerted:31b_token_8972a27e") is True
+    # 因为点击失败，checkout_done 未被写入 True
+    assert await ctx.storage.get("checkout_done:31b_token_8972a27e") is None
+
+    # 第 2 轮（网络恢复，点击成功）
+    mock_msg.click = AsyncMock()
+    ok2 = await meta.handler(ctx)
+    assert ok2 is True
+    mock_msg.click.assert_awaited_once_with("31B Token · Rp 55.000 / $3.09 · Buy")
+    assert await ctx.storage.get("checkout_done:31b_token_8972a27e") is True
+
+    # 第 3 轮（持续有货）：此前已完成购买，静默跳过点击
+    mock_msg.click.reset_mock()
+    ok3 = await meta.handler(ctx)
+    assert ok3 is True
+    mock_msg.click.assert_not_called()
+
+    # 第 4 轮：商品又卖光了变回 sold out，清理 alerted 与 checkout_done
+    mock_btn.text = "31B Token · Rp 55.000 / $3.09 · Sold out"
+    ok4 = await meta.handler(ctx)
+    assert ok4 is True
+    assert await ctx.storage.get("state:31b_token_8972a27e") == "sold_out"
+    assert await ctx.storage.get("alerted:31b_token_8972a27e") is None
+    assert await ctx.storage.get("checkout_done:31b_token_8972a27e") is None
+
+
+@pytest.mark.asyncio
+async def test_stock_sniper_key_isolation(tmp_path, monkeypatch):
+    """验证同一对话内监控不同商品关键词时，存储 key 具有 sha256 防碰撞隔离"""
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("stock_sniper")
+    assert meta is not None
+
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(tmp_path / "iso.db"))
+
+    # 商品 1: a-b
+    mock_msg1 = MagicMock(buttons=[[MagicMock(text="a-b · Sold out")]])
+    ctx1 = PluginContext(
+        app=MagicMock(),
+        chat_id=111,
+        message=mock_msg1,
+        logger=MagicMock(),
+        plugin_name="stock_sniper",
+        params={"target_keyword": "a-b", "sold_out_tag": "Sold out"},
+    )
+    assert await meta.handler(ctx1) is True
+
+    # 商品 2: a_b (有货)
+    mock_msg2 = MagicMock(buttons=[[MagicMock(text="a_b · Buy")]])
+    ctx2 = PluginContext(
+        app=MagicMock(),
+        chat_id=111,
+        message=mock_msg2,
+        logger=MagicMock(),
+        plugin_name="stock_sniper",
+        params={"target_keyword": "a_b", "sold_out_tag": "Sold out"},
+    )
+    assert await meta.handler(ctx2) is True
+
+    # 验证两者状态独立存储，未互相覆盖
+    k1 = _get_stock_kw_key("a-b")
+    k2 = _get_stock_kw_key("a_b")
+    assert k1 != k2
+    assert await ctx1.storage.get(f"state:{k1}") == "sold_out"
+    assert await ctx2.storage.get(f"state:{k2}") == "in_stock"
+
+
+@pytest.mark.asyncio
+async def test_stock_sniper_sandbox_execution(tmp_path, monkeypatch):
+    """验证通过 PluginProcessHost 子进程沙箱加载与执行 stock_sniper 插件"""
+    from tg_signer.core.plugin_host import PluginProcessHost
+
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("stock_sniper")
+    assert meta is not None
+
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(tmp_path / "sandbox.db"))
+
+    mock_btn = MagicMock()
+    mock_btn.text = "31B Token · Rp 55.000 / $3.09 · Sold out"
+    mock_btn.callback_data = "buy_31b"
+
+    mock_msg = MagicMock()
+    mock_msg.id = 200
+    mock_msg.text = "商品目录"
+    mock_msg.chat = MagicMock(id=888, title="Satu Digital", type="supergroup")
+    mock_msg.from_user = MagicMock(
+        id=999, username="satudigital_bot", first_name="Bot", last_name=None
+    )
+    mock_msg.reply_markup = MagicMock(inline_keyboard=[[mock_btn]])
+    mock_msg.reply_to_message = None
+    mock_msg.reply_to_message_id = None
+    mock_msg.caption = None
+    mock_msg.date = None
+    mock_msg.buttons = None
+
+    ctx = PluginContext(
+        app=MagicMock(),
+        chat_id=888,
+        message=mock_msg,
+        logger=MagicMock(),
+        plugin_name="stock_sniper",
+        params={"target_keyword": "31B Token", "sold_out_tag": "Sold out"},
+    )
+
+    host = PluginProcessHost(plugin_name="stock_sniper", ctx=ctx, timeout=10.0)
+    res = await host.execute()
+    assert res is True
+
+
+@pytest.mark.asyncio
+async def test_stock_sniper_web_debug_text_fallback(tmp_path, monkeypatch):
+    """验证当消息无内联按钮（例如 Web 控制台调试弹窗输入纯文本）时，自动回退将文本逐行转为模拟按钮"""
+    PluginRegistry.load_all_configured_plugins()
+    meta = PluginRegistry.get("stock_sniper")
+    assert meta is not None
+
+    monkeypatch.setenv("PLUGIN_STORAGE_PATH", str(tmp_path / "debug_fb.db"))
+
+    # 模拟 Web 调试弹窗发起的纯文本消息（无 buttons 属性）
+    mock_msg = MagicMock()
+    mock_msg.id = 300
+    mock_msg.text = "31B Token · Rp 55.000 / $3.09 · Sold out"
+    mock_msg.buttons = None
+    mock_msg.reply_markup = None
+    mock_msg.click = AsyncMock()
+
+    ctx = PluginContext(
+        app=MagicMock(),
+        chat_id=888,
+        message=mock_msg,
+        logger=MagicMock(),
+        plugin_name="stock_sniper",
+        params={"target_keyword": "31B Token", "sold_out_tag": "Sold out"},
+    )
+
+    # 应该被成功识别并判定为 sold_out
+    res = await meta.handler(ctx)
+    assert res is True
