@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.services.keyword_monitor.rules import validate_action_regex_safety
@@ -696,7 +697,7 @@ class SignTaskCrudMixin:
         old_account_dir = self.signs_dir / old_account_name
         new_account_dir = self.signs_dir / new_account_name
 
-        if old_account_dir.exists():
+        if isinstance(old_account_dir, Path) and old_account_dir.exists():
             self._move_storage_path(old_account_dir, new_account_dir)
 
         from backend.services.sign_task_config_build import (
@@ -734,44 +735,79 @@ class SignTaskCrudMixin:
 
             write_json_atomic(config_path, config)
 
-        safe_old = self._safe_history_key(old_account_name)
-        safe_new = self._safe_history_key(new_account_name)
-        skipped_history = 0
-        for history_file in self.run_history_dir.glob(f"{safe_old}__*.json"):
-            target_file = self.run_history_dir / history_file.name.replace(
-                f"{safe_old}__",
-                f"{safe_new}__",
-                1,
-            )
+        # Delegate history file renaming and account rewriting to history_store primitives
+        from backend.services.sign_task_history_io import (
+            safe_history_key,
+            unsafe_history_key,
+        )
+
+        history_store = getattr(self, "history_store", None)
+        if history_store is None and hasattr(self, "run_history_dir") and isinstance(self.run_history_dir, Path):
             try:
-                raw_data = json.loads(history_file.read_text(encoding="utf-8"))
-            except Exception as exc:
-                # 单文件损坏：留档供排查（旧名文件保留），其余历史文件仍可重命名
-                skipped_history += 1
-                _logger.warning(
-                    "账号重命名时历史文件损坏，跳过重命名并保留旧名（供人工恢复）: %s (%s)",
-                    history_file,
-                    exc,
+                from backend.services.sign_task_history_store import (
+                    SignTaskHistoryStore,
                 )
-                raw_data = None
 
-            if isinstance(raw_data, list):
-                for item in raw_data:
-                    if (
-                        isinstance(item, dict)
-                        and str(item.get("account_name") or "").strip()
-                        == old_account_name
+                history_store = SignTaskHistoryStore(
+                    self.run_history_dir, getattr(self, "signs_dir", None)
+                )
+            except Exception:
+                history_store = None
+
+        safe_old = safe_history_key(old_account_name)
+        tasks_to_migrate: set[str] = set()
+
+        if hasattr(self, "run_history_dir") and hasattr(self.run_history_dir, "glob"):
+            try:
+                for history_file in self.run_history_dir.glob(f"{safe_old}__*.json"):
+                    stem = getattr(history_file, "stem", "")
+                    if "__" in stem:
+                        t_part = stem.split("__", 1)[1]
+                        tasks_to_migrate.add(unsafe_history_key(t_part))
+                if old_account_name != safe_old:
+                    for history_file in self.run_history_dir.glob(
+                        f"{old_account_name}__*.json"
                     ):
-                        item["account_name"] = new_account_name
-                write_json_atomic(history_file, raw_data)
-            elif (
-                isinstance(raw_data, dict)
-                and str(raw_data.get("account_name") or "").strip() == old_account_name
-            ):
-                raw_data["account_name"] = new_account_name
-                write_json_atomic(history_file, raw_data)
+                        stem = getattr(history_file, "stem", "")
+                        if "__" in stem:
+                            t_part = stem.split("__", 1)[1]
+                            tasks_to_migrate.add(unsafe_history_key(t_part))
+            except Exception as exc:
+                _logger.debug("扫描待迁移历史文件失败: %s", exc)
 
-            self._move_storage_path(history_file, target_file)
+        if isinstance(new_account_dir, Path) and new_account_dir.exists():
+            try:
+                for task_dir in new_account_dir.iterdir():
+                    if task_dir.is_dir() and (task_dir / "config.json").exists():
+                        tasks_to_migrate.add(task_dir.name)
+            except Exception as exc:
+                _logger.debug("扫描任务配置目录失败: %s", exc)
+
+        skipped_history = 0
+        if history_store is not None:
+            for task_name in sorted(tasks_to_migrate):
+                try:
+                    renamed = history_store.rename_history_file(
+                        old_account_name, new_account_name, task_name
+                    )
+                    rewritten = history_store.rewrite_account_in_entries(
+                        old_account_name, task_name, new_account_name
+                    )
+                    if not renamed and rewritten == 0:
+                        skipped_history += 1
+                except Exception as exc:
+                    skipped_history += 1
+                    _logger.warning(
+                        "账号重命名时历史迁移失败 account=%s->%s task=%s: %s",
+                        old_account_name,
+                        new_account_name,
+                        task_name,
+                        exc,
+                    )
+            try:
+                history_store.rebuild_index()
+            except Exception as exc:
+                _logger.warning("账号重命名后重建历史索引失败: %s", exc)
 
         if skipped_history:
             _logger.warning(

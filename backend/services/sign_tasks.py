@@ -44,6 +44,7 @@ from backend.services.sign_task_history_io import (
     safe_history_key as safe_history_key_io,
 )
 from backend.services.sign_task_history_ops import SignTaskHistoryMixin
+from backend.services.sign_task_history_store import SignTaskHistoryStore
 from backend.services.sign_task_history_query import (
     collect_formatted_history_items,
     sort_history_items_desc,
@@ -115,8 +116,8 @@ def _ensure_wildcard_tombstone_table(db: Any) -> None:
         _service_logger.debug("Failed to auto-create wildcard_tombstones table: %s", e)
 
 
-class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
-    """签到任务服务类（历史见 SignTaskHistoryMixin，CRUD 见 SignTaskCrudMixin）"""
+class SignTaskService(SignTaskCrudMixin):
+    """签到任务服务类（历史委托至 SignTaskHistoryStore，CRUD 见 SignTaskCrudMixin）"""
 
     def __init__(self):
         from backend.core.config import get_settings
@@ -170,7 +171,41 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
             "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 2000, 80
         )
         self._max_account_last_run_entries = 100  # Bound account tracking
+        self._history_store: Optional[SignTaskHistoryStore] = None
+        self.history_store = SignTaskHistoryStore(
+            self.run_history_dir,
+            self.signs_dir,
+            max_entries_per_file=self._history_max_entries,
+            max_flow_lines=self._history_max_flow_lines,
+            max_line_chars=self._history_max_line_chars,
+        )
         self._cleanup_old_logs()
+
+    @property
+    def history_store(self) -> Optional[SignTaskHistoryStore]:
+        store = getattr(self, "_history_store", None)
+        curr_history_dir = getattr(self, "run_history_dir", None)
+        if not isinstance(curr_history_dir, Path):
+            return store
+        signs_dir = getattr(self, "signs_dir", None)
+        signs_dir_path = signs_dir if isinstance(signs_dir, Path) else None
+        if store is None or store.history_dir != curr_history_dir:
+            max_entries = getattr(self, "_history_max_entries", 50)
+            max_flow_lines = getattr(self, "_history_max_flow_lines", 200)
+            max_line_chars = getattr(self, "_history_max_line_chars", 500)
+            store = SignTaskHistoryStore(
+                curr_history_dir,
+                signs_dir_path,
+                max_entries_per_file=max_entries,
+                max_flow_lines=max_flow_lines,
+                max_line_chars=max_line_chars,
+            )
+            self._history_store = store
+        return store
+
+    @history_store.setter
+    def history_store(self, store: SignTaskHistoryStore) -> None:
+        self._history_store = store
 
     @property
     def _account_cooldown_seconds(self) -> int:
@@ -410,8 +445,19 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
 
     def _cleanup_old_logs(self):
         """清理超过保留天数的历史文件（SIGN_TASK_HISTORY_MAX_AGE_DAYS）。"""
+        try:
+            days = (
+                self._history_max_age_days()
+                if callable(getattr(self, "_history_max_age_days", None))
+                else int(getattr(self, "_history_max_age_days", 30))
+            )
+        except Exception:
+            days = 30
+        store = getattr(self, "history_store", None)
+        if store is not None:
+            return store.cleanup_expired(max_age_days=days)
         cleanup_old_history_files(
-            self.run_history_dir, max_age_days=self._history_max_age_days
+            self.run_history_dir, max_age_days=days
         )
 
     def _safe_history_key(self, name: str) -> str:
@@ -873,7 +919,345 @@ class SignTaskService(SignTaskHistoryMixin, SignTaskCrudMixin):
     def _repair_mojibake(text: str) -> str:
         return repair_mojibake(text)
 
-    # 历史查询/删除/落盘：见 SignTaskHistoryMixin
+    # =========================================================================
+    # 历史记录管理（委托至 SignTaskHistoryStore，由 Service 层协调元数据更新与缓存）
+    # =========================================================================
+
+    def _save_run_info(
+        self,
+        task_name: str,
+        success: bool,
+        message: str = "",
+        account_name: str = "",
+        flow_logs: Optional[List[str]] = None,
+        workflow_path: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """保存任务执行历史并同步任务配置与内存缓存。"""
+        entry_payload = {
+            "success": success,
+            "message": message,
+            "flow_logs": flow_logs,
+            "workflow_path": workflow_path,
+        }
+        run_entry = self.history_store.record_run(
+            account=account_name,
+            task=task_name,
+            entry=entry_payload,
+            publish_event=True,
+        )
+
+        self._set_task_last_run_metadata(task_name, account_name, run_entry)
+
+        from backend.services.sign_task_history_io import patch_tasks_cache_last_run
+
+        patch_tasks_cache_last_run(
+            self._tasks_cache,
+            task_name=task_name,
+            account_name=account_name,
+            last_run=run_entry,
+        )
+        self._sync_tasks_list_ttl()
+        return run_entry
+
+    def _set_task_last_run_metadata(
+        self,
+        task_name: str,
+        account_name: str = "",
+        last_run: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        try:
+            task_dir = self._resolve_task_dir(task_name, account_name or None)
+        except Exception:
+            task_dir = None
+
+        if task_dir is not None:
+            config_file = task_dir / "config.json"
+            if config_file.exists():
+                try:
+                    with path_write_lock(config_file):
+                        config = read_json_safe(config_file, default=None)
+                        if isinstance(config, dict):
+                            if last_run:
+                                config["last_run"] = last_run
+                            else:
+                                config.pop("last_run", None)
+                            write_json_atomic(config_file, config)
+                except Exception as exc:
+                    _service_logger.warning(
+                        "回写任务元数据 last_run 失败: %s (%s)", config_file, exc
+                    )
+
+        if self._tasks_cache is not None:
+            for task in self._tasks_cache:
+                if not isinstance(task, dict):
+                    continue
+                if (
+                    task.get("name") != task_name
+                    or task.get("account_name") != account_name
+                ):
+                    continue
+                if last_run:
+                    task["last_run"] = last_run
+                else:
+                    task.pop("last_run", None)
+                break
+
+    def _clear_task_last_run_metadata(
+        self, task_name: str, account_name: str = ""
+    ) -> None:
+        try:
+            task_dir = self._resolve_task_dir(task_name, account_name or None)
+        except Exception:
+            task_dir = None
+
+        if task_dir is None:
+            return
+
+        config_file = task_dir / "config.json"
+        if not config_file.exists():
+            return
+
+        try:
+            config = read_json_safe(config_file, default=None)
+            if not isinstance(config, dict) or "last_run" not in config:
+                return
+            del config["last_run"]
+            write_json_atomic(config_file, config)
+        except Exception as exc:
+            _service_logger.debug("清理 last_run 元数据失败: %s (%s)", config_file, exc)
+
+    def _get_last_run_info(
+        self, task_dir: Path, account_name: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        history_file = self.history_store.resolve_history_file(
+            account_name, task_dir.name
+        )
+        if history_file is None:
+            return None
+        try:
+            data = read_json_safe(history_file, default=None)
+            if isinstance(data, list) and len(data) > 0:
+                return data[0]
+            elif isinstance(data, dict):
+                return data
+            return None
+        except Exception:
+            return None
+
+    def get_history(
+        self,
+        account: Optional[str] = None,
+        task: Optional[str] = None,
+        limit: int = 50,
+        date_filter: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(
+            account=account, task=task, limit=limit, date_filter=date_filter
+        )
+
+    def get_history_page(
+        self,
+        account: Optional[str] = None,
+        task: Optional[str] = None,
+        limit: int = 50,
+        date_filter: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.get_history(
+            account=account, task=task, limit=limit, date_filter=date_filter
+        )
+
+    def get_task_history(
+        self,
+        task_name: str,
+        account_name: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(
+            account=account_name, task=task_name, limit=limit
+        )
+
+    def get_recent_history_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(limit=limit)
+
+    def get_filtered_history_logs(
+        self,
+        account_name: Optional[str] = None,
+        date: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(
+            account=account_name, limit=limit, date_filter=date
+        )
+
+    def get_account_history_logs(self, account_name: str) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(account=account_name)
+
+    def get_history_entry(
+        self, account: str, task: str, created_at: str
+    ) -> Optional[Dict[str, Any]]:
+        return self.history_store.get_history_entry(
+            account=account, task=task, created_at=created_at
+        )
+
+    def get_history_detail(
+        self, account: str, task: str, created_at: str
+    ) -> Optional[Dict[str, Any]]:
+        return self.get_history_entry(account=account, task=task, created_at=created_at)
+
+    def get_history_log_detail(
+        self, account_name: str, task_name: str, created_at: str
+    ) -> Optional[Dict[str, Any]]:
+        return self.get_history_entry(
+            account=account_name, task=task_name, created_at=created_at
+        )
+
+    def delete_history_entry(
+        self, account: str, task: str, created_at: str
+    ) -> bool:
+        deleted = self.history_store.delete_history_entry(
+            account=account, task=task, created_at=created_at
+        )
+        if deleted:
+            latest = self.history_store.query_history(
+                account=account, task=task, limit=1
+            )
+            latest_entry = latest[0] if latest else None
+            self._set_task_last_run_metadata(task, account, latest_entry)
+        return deleted
+
+    def delete_history_item(
+        self, account: str, task: str, created_at: str
+    ) -> bool:
+        return self.delete_history_entry(
+            account=account, task=task, created_at=created_at
+        )
+
+    def delete_history_log(
+        self, account_name: str, task_name: str, created_at: str
+    ) -> bool:
+        return self.delete_history_entry(
+            account=account_name, task=task_name, created_at=created_at
+        )
+
+    def clear_history(
+        self, account: Optional[str] = None, task: Optional[str] = None
+    ) -> Dict[str, int]:
+        res = self.history_store.clear_history(account=account, task=task)
+        if account and task:
+            self._clear_task_last_run_metadata(task, account)
+            if self._tasks_cache is not None:
+                for t in self._tasks_cache:
+                    if (
+                        isinstance(t, dict)
+                        and t.get("name") == task
+                        and t.get("account_name") == account
+                    ):
+                        t.pop("last_run", None)
+                        break
+        elif account and not task:
+            for t in self.list_tasks(account_name=account):
+                t_name = str(t.get("name") or "")
+                if t_name:
+                    self._clear_task_last_run_metadata(t_name, account)
+            if self._tasks_cache is not None:
+                for t in self._tasks_cache:
+                    if isinstance(t, dict) and t.get("account_name") == account:
+                        t.pop("last_run", None)
+        elif task and not account:
+            for t in self.list_tasks(aggregate=False):
+                if t.get("name") == task:
+                    acc = str(t.get("account_name") or "")
+                    self._clear_task_last_run_metadata(task, acc)
+            if self._tasks_cache is not None:
+                for t in self._tasks_cache:
+                    if isinstance(t, dict) and t.get("name") == task:
+                        t.pop("last_run", None)
+        else:
+            for t in self.list_tasks(force_refresh=True, aggregate=False):
+                t_name = str(t.get("name") or "")
+                acc = str(t.get("account_name") or "")
+                if t_name:
+                    self._clear_task_last_run_metadata(t_name, acc)
+            if self._tasks_cache is not None:
+                for t in self._tasks_cache:
+                    if isinstance(t, dict):
+                        t.pop("last_run", None)
+        return res
+
+    def clear_all_history_logs(self) -> Dict[str, int]:
+        return self.clear_history()
+
+    def clear_account_history(self, account_name: str) -> Dict[str, int]:
+        return self.clear_history(account=account_name)
+
+    def clear_account_history_logs(self, account_name: str) -> Dict[str, int]:
+        return self.clear_history(account=account_name)
+
+    def clear_task_history(
+        self, task_name: str, account_name: Optional[str] = None
+    ) -> Dict[str, int]:
+        return self.clear_history(account=account_name, task=task_name)
+
+    def get_history_trends(self, days: int = 7) -> Dict[str, Any]:
+        return self.history_store.get_history_trends(days=days)
+
+    def _normalize_flow_logs(
+        self, flow_logs: Optional[List[str]]
+    ) -> tuple[List[str], bool, int]:
+        from backend.services.sign_task_history_format import (
+            normalize_and_trim_flow_logs,
+        )
+
+        return normalize_and_trim_flow_logs(
+            flow_logs,
+            repair=self._repair_mojibake,
+            max_lines=self._history_max_flow_lines,
+            max_line_chars=self._history_max_line_chars,
+        )
+
+    def _load_history_entries(
+        self, task_name: str, account_name: str = ""
+    ) -> List[Dict[str, Any]]:
+        from backend.services.sign_task_history_io import load_history_entries
+
+        return load_history_entries(
+            self.run_history_dir, task_name, account_name=account_name
+        )
+
+    def _resolve_existing_history_file(
+        self, task_name: str, account_name: str = ""
+    ) -> Optional[Path]:
+        return self.history_store.resolve_history_file(account_name, task_name)
+
+    def _legacy_history_candidates(
+        self, task_name: str, account_name: str
+    ) -> List[Path]:
+        from backend.services.sign_task_history_io import legacy_history_file_path
+
+        candidates: List[Path] = []
+        if account_name:
+            candidates.append(
+                legacy_history_file_path(
+                    self.run_history_dir, task_name, account_name
+                )
+            )
+        candidates.append(legacy_history_file_path(self.run_history_dir, task_name))
+        target = self._history_file_path(task_name, account_name)
+        return [path for path in candidates if path != target]
+
+    @staticmethod
+    def _load_history_payload_from_file(history_file: Path) -> List[Any]:
+        from backend.services.sign_task_history_io import (
+            load_history_payload_from_file,
+        )
+
+        return load_history_payload_from_file(history_file)
+
+    @staticmethod
+    def _count_history_entries(data: Any) -> int:
+        from backend.services.sign_task_history_io import count_history_entries
+
+        return count_history_entries(data)
 
     def _append_scheduler_log(self, filename: str, message: str) -> None:
         try:
