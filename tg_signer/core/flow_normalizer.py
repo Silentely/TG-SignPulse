@@ -44,6 +44,16 @@ class GraphValidationError(ValueError):
     """图拓扑结构静态校验失败"""
 
 
+AI_ACTION_TYPES = {
+    "CHOOSE_OPTION_BY_IMAGE",
+    "REPLY_BY_IMAGE_RECOGNITION",
+    "CLICK_BUTTON_BY_CALCULATION",
+    "CLICK_BUTTON_BY_CALCULATION_PROBLEM",
+    "REPLY_BY_CALCULATION",
+    "REPLY_BY_CALCULATION_PROBLEM",
+}
+
+
 class GraphNormalizer:
     """负责将旧版 SignChatV3 (actions/steps) 归一化为统一的 ExecutionGraph IR，并支持静态分析与可视化导出"""
 
@@ -121,6 +131,30 @@ class GraphNormalizer:
                 else act.get("skip_if")
             )
 
+            from tg_signer.utils import read_positive_float_env
+
+            base_timeout = read_positive_float_env(
+                "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
+            )
+            ai_default_timeout = read_positive_float_env(
+                "SIGN_TASK_AI_ACTION_TIMEOUT", 60.0, 10.0
+            )
+            if action_type in AI_ACTION_TYPES:
+                step_timeout = max(base_timeout, ai_default_timeout)
+            else:
+                step_timeout = base_timeout
+
+            raw_timeout = (
+                getattr(act, "timeout", None)
+                if not isinstance(act, dict)
+                else (act.get("timeout") or act.get("timeout_seconds"))
+            )
+            if raw_timeout is not None:
+                try:
+                    step_timeout = max(5.0, float(raw_timeout))
+                except (ValueError, TypeError):
+                    pass
+
             node = ActionNode(
                 id=node_id,
                 name=f"Action-{i + 1}",
@@ -129,6 +163,7 @@ class GraphNormalizer:
                 next_node_id=next_id,
                 on_failure_node_id=fail_id,
                 terminal_policy=term_policy,
+                timeout_seconds=step_timeout,
                 run_if=run_if,
                 skip_if=skip_if,
                 metadata={"raw_action": act},
@@ -184,6 +219,30 @@ class GraphNormalizer:
                 )
                 skip_if = step.config.get("skip_if") if step.config else None
 
+                from tg_signer.utils import read_positive_float_env
+
+                base_timeout = read_positive_float_env(
+                    "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
+                )
+                ai_default_timeout = read_positive_float_env(
+                    "SIGN_TASK_AI_ACTION_TIMEOUT", 60.0, 10.0
+                )
+                if action_type in AI_ACTION_TYPES:
+                    step_timeout = max(base_timeout, ai_default_timeout)
+                else:
+                    step_timeout = base_timeout
+
+                if step.config and (
+                    "timeout" in step.config or "timeout_seconds" in step.config
+                ):
+                    raw_to = step.config.get("timeout") or step.config.get(
+                        "timeout_seconds"
+                    )
+                    try:
+                        step_timeout = max(5.0, float(raw_to))
+                    except (ValueError, TypeError):
+                        pass
+
                 node = ActionNode(
                     id=step.step_id,
                     name=f"Step-{step.step_id}",
@@ -193,6 +252,7 @@ class GraphNormalizer:
                     on_failure_node_id=fail_id,
                     loop_policy=loop_pol,
                     terminal_policy=term_policy,
+                    timeout_seconds=step_timeout,
                     run_if=run_if,
                     skip_if=skip_if,
                     metadata={"raw_action": raw_act, "workflow_step": step},
@@ -203,6 +263,36 @@ class GraphNormalizer:
         graph.max_total_steps = max(60, len(graph.nodes) * 2)
         cls.validate_graph(graph)
         return graph
+
+    @staticmethod
+    def _resolve_flow_step_timeout(step: Any) -> float:
+        from tg_signer.utils import read_positive_float_env
+
+        timeout_val = getattr(step, "timeout_seconds", None)
+        if timeout_val is None or timeout_val <= 0:
+            base_timeout = read_positive_float_env(
+                "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
+            )
+            timeout_val = base_timeout
+        else:
+            timeout_val = float(timeout_val)
+
+        from tg_signer.config import FlowNodeType
+
+        if getattr(step, "node_type", None) == FlowNodeType.ACTION:
+            act_type_str = ""
+            if hasattr(step, "action_type") and step.action_type:
+                act_type_str = (
+                    step.action_type.name
+                    if hasattr(step.action_type, "name")
+                    else str(step.action_type)
+                ).upper()
+            if act_type_str in AI_ACTION_TYPES:
+                ai_default = read_positive_float_env(
+                    "SIGN_TASK_AI_ACTION_TIMEOUT", 60.0, 10.0
+                )
+                timeout_val = max(timeout_val, ai_default)
+        return timeout_val
 
     @classmethod
     def _build_node_from_flow_step(
@@ -261,7 +351,7 @@ class GraphNormalizer:
             "terminal_branch_target": term_target,
             "retry_policy": retry_pol,
             "loop_policy": loop_pol,
-            "timeout_seconds": getattr(step, "timeout_seconds", 25.0) or 25.0,
+            "timeout_seconds": cls._resolve_flow_step_timeout(step),
             "run_if": step.run_if,
             "skip_if": step.skip_if,
             "metadata": dict(getattr(step, "metadata", {}) or {}),

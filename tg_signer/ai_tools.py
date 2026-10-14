@@ -419,9 +419,9 @@ def get_openai_client(
     # httpx 超时配置：read 超时动态跟随 AI_VISION_TIMEOUT，避免与 asyncio.wait_for 的总超时竞态。
     # asyncio.wait_for 负责整体超时控制，httpx 超时仅作为底层安全兜底。
     try:
-        _ai_timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+        _ai_timeout = float(os.environ.get("AI_VISION_TIMEOUT", "25"))
     except ValueError:
-        _ai_timeout = 15.0
+        _ai_timeout = 25.0
     _read_timeout = max(_ai_timeout + 15.0, 30.0)
     kwargs.setdefault(
         "timeout",
@@ -471,9 +471,9 @@ class AITools:
     @staticmethod
     def _ai_timeout() -> float:
         try:
-            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "25"))
         except ValueError:
-            return 15.0
+            return 25.0
         return max(3.0, timeout)
 
     @classmethod

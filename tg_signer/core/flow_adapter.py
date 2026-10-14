@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import random
 import re
@@ -54,7 +55,7 @@ class TelegramNodeExecutor:
                 return int(val)
         msg = str(exc)
         exc_type = type(exc).__name__
-        m = re.search(r"FLOOD_WAIT_?(\d+)", f"{exc_type} {msg}", re.IGNORECASE)
+        m = re.search(r"FLOOD_WAIT_?(\d+)", f"{exc_type} msg", re.IGNORECASE)
         if m:
             try:
                 return int(m.group(1))
@@ -113,6 +114,40 @@ class TelegramNodeExecutor:
                 pass
 
         return raw_act or params
+
+    @staticmethod
+    def _runner_supports_timeout(fn: Any) -> bool:
+        """检测 runner.wait_for（包括 mock 对象的 side_effect）是否支持 timeout 参数"""
+        target = getattr(fn, "side_effect", None) or fn
+        try:
+            sig = inspect.signature(target)
+            params = sig.parameters
+            return "timeout" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+        except Exception:
+            return True
+
+    async def _runner_wait_for(
+        self,
+        chat: Any,
+        action: Any,
+        step_timeout: Optional[float] = None,
+        next_action: Any = None,
+    ) -> Any:
+        wait_for_fn = getattr(self.runner, "wait_for", None)
+        if step_timeout is not None and self._runner_supports_timeout(wait_for_fn):
+            return await self.runner.wait_for(
+                chat,
+                action,
+                timeout=step_timeout,
+                next_action=next_action,
+            )
+        return await self.runner.wait_for(
+            chat,
+            action,
+            next_action=next_action,
+        )
 
     async def __call__(
         self, node: BaseFlowNode, context: ScopedFlowContext
@@ -269,8 +304,12 @@ class TelegramNodeExecutor:
 
         try:
             next_action = self.compat.resolve_next_action(node)
-            res = await self.runner.wait_for(
-                self.chat, exec_action, next_action=next_action
+            step_timeout = getattr(node, "timeout_seconds", None)
+            res = await self._runner_wait_for(
+                self.chat,
+                exec_action,
+                step_timeout=step_timeout,
+                next_action=next_action,
             )
             if res is not False:
                 runner_context = getattr(self.runner, "context", None)
@@ -322,8 +361,11 @@ class TelegramNodeExecutor:
                 )
                 await asyncio.sleep(flood_sec + 1)
                 try:
-                    res = await self.runner.wait_for(
-                        self.chat, exec_action, next_action=next_action
+                    res = await self._runner_wait_for(
+                        self.chat,
+                        exec_action,
+                        step_timeout=step_timeout,
+                        next_action=next_action,
                     )
                     if res is not False:
                         runner_context = getattr(self.runner, "context", None)

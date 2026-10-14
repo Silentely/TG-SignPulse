@@ -828,6 +828,19 @@ class SignerActionsMixin:
     ):
         if timeout is None:
             timeout = read_positive_float_env("SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0)
+            if isinstance(
+                action,
+                (
+                    ChooseOptionByImageAction,
+                    ReplyByCalculationProblemAction,
+                    ReplyByImageRecognitionAction,
+                    ClickButtonByCalculationProblemAction,
+                ),
+            ):
+                ai_default = read_positive_float_env(
+                    "SIGN_TASK_AI_ACTION_TIMEOUT", 60.0, 10.0
+                )
+                timeout = max(timeout, ai_default)
         kwargs = {}
         if chat.message_thread_id is not None:
             kwargs["message_thread_id"] = chat.message_thread_id

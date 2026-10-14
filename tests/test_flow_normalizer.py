@@ -275,3 +275,24 @@ def test_graph_normalizer_to_mermaid():
     assert "step_1 -.->|on_failure| step_err" in mermaid_str
     assert "vars.ok == true" in mermaid_str
     assert "ErrorHandler[全局降级错误处理] -.-> step_err" in mermaid_str
+
+
+def test_normalize_ai_action_timeout_adaptation():
+    """验证普通动作使用默认超时（25s），AI 视觉动作自适应放宽超时（60s），显式配置优先。"""
+    chat = SignChatV3(
+        chat_id=12345,
+        actions=[
+            SendTextAction(text="/checkin"),
+            ChooseOptionByImageAction(ai_prompt="识别图片"),
+            PluginAction(plugin_name="custom", mode="active", timeout=90.0),
+        ],
+    )
+    graph = GraphNormalizer.from_chat(chat)
+    node0 = graph.nodes["step_0"]
+    assert node0.timeout_seconds == 25.0
+
+    node1 = graph.nodes["step_1"]
+    assert node1.timeout_seconds >= 60.0
+
+    node2 = graph.nodes["step_2"]
+    assert node2.timeout_seconds == 90.0
