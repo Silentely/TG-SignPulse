@@ -430,19 +430,27 @@ class PluginProcessHost:
                                     call_res = True
                                 elif method == "storage_increment":
                                     key = call_params.get("key", "")
-                                    delta = call_params.get("delta", 1)
+                                    delta = call_params.get(
+                                        "amount", call_params.get("delta", 1)
+                                    )
                                     default = call_params.get("default", 0)
+                                    ttl = call_params.get("ttl", None)
                                     call_res = await target_storage.increment(
-                                        key, delta=delta, default=default
+                                        key,
+                                        amount=delta,
+                                        default=default,
+                                        ttl=ttl,
                                     )
                                 elif method == "storage_delete":
                                     key = call_params.get("key", "")
                                     call_res = await target_storage.delete(key)
                                 elif method == "storage_clear":
                                     call_res = await target_storage.clear()
-                                elif method == "storage_keys":
+                                elif method in ("storage_keys", "storage_list_keys"):
                                     prefix = call_params.get("prefix", "")
                                     call_res = await target_storage.keys(prefix=prefix)
+                                elif method == "storage_get_all_records":
+                                    call_res = await target_storage.get_all_records()
                                 elif method == "storage_get_all":
                                     prefix = call_params.get("prefix", "")
                                     call_res = await target_storage.get_all(

@@ -92,11 +92,20 @@ class ProxyStorageClient:
         )
 
     async def increment(
-        self, key: str, delta: int = 1, default: int = 0
+        self,
+        key: str,
+        amount: int = 1,
+        default: int = 0,
+        ttl: Optional[Union[int, float]] = None,
+        *,
+        delta: Optional[int] = None,
     ) -> Optional[int]:
+        step = delta if delta is not None else amount
         return await self._rpc(
             "storage_increment",
-            **self._scope_kwargs(key=key, delta=delta, default=default),
+            **self._scope_kwargs(
+                key=key, amount=step, delta=step, default=default, ttl=ttl
+            ),
         )
 
     async def delete(self, key: str) -> bool:
@@ -107,6 +116,15 @@ class ProxyStorageClient:
 
     async def keys(self, prefix: str = "") -> List[str]:
         res = await self._rpc("storage_keys", **self._scope_kwargs(prefix=prefix))
+        return list(res or [])
+
+    async def list_keys(self, prefix: str = "") -> List[str]:
+        return await self.keys(prefix=prefix)
+
+    async def get_all_records(self) -> List[Dict[str, Any]]:
+        res = await self._rpc(
+            "storage_get_all_records", **self._scope_kwargs()
+        )
         return list(res or [])
 
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:
@@ -552,6 +570,7 @@ async def run_worker_loop(
         exc_str = traceback.format_exc()
         send_payload_sync({"type": "return", "success": False, "error": exc_str})
     finally:
+        await asyncio.sleep(0)
         await flush_writer()
         for fut in list(pending_calls.values()):
             if not fut.done():

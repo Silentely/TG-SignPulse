@@ -1386,9 +1386,9 @@ async def test_plugin(
 
     if req.reset_storage:
         try:
-            from tg_signer.core.plugins import PluginStorageBackend
+            from tg_signer.core.plugin_storage import PluginStore
 
-            PluginStorageBackend().clear(
+            PluginStore().clear(
                 namespace=_plugin_test_namespace(eff_chat_id, name)
             )
             captured_logs.append("[mock] 已清空该插件测试命名空间持久化存储")
@@ -2797,9 +2797,9 @@ async def get_plugin_storage(
     _user: User = Depends(get_current_user),
 ) -> PluginStorageResponse:
     """获取指定插件当前持久化存储的所有命名空间与结构化数据记录。"""
-    from tg_signer.core.plugins import PluginStorageBackend
+    from tg_signer.core.plugin_storage import PluginStore
 
-    storage = PluginStorageBackend()
+    storage = PluginStore()
     namespaces = storage.list_namespaces(plugin_name=name)
 
     ns_data_list: List[PluginStorageNamespaceData] = []
@@ -2841,7 +2841,7 @@ async def clear_plugin_storage(
     _user: User = Depends(get_current_user),
 ) -> ClearPluginStorageResponse:
     """清理指定插件的持久化存储数据（支持全量清空、指定命名空间清空或删除指定键）。"""
-    from tg_signer.core.plugins import PluginStorageBackend
+    from tg_signer.core.plugin_storage import PluginStore
 
     if key and not namespace:
         raise HTTPException(
@@ -2857,7 +2857,7 @@ async def clear_plugin_storage(
                 detail=f"命名空间 '{namespace}' 不属于插件 '{name}'",
             )
 
-    storage = PluginStorageBackend()
+    storage = PluginStore()
     deleted_count = 0
 
     if namespace:

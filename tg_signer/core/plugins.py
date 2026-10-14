@@ -24,6 +24,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Tuple, Union
 
+from tg_signer.core.plugin_storage import PluginStore
+
 _logger = logging.getLogger("tg_signer.plugins")
 
 
@@ -31,535 +33,134 @@ class PluginTimeoutError(RuntimeError):
     """插件执行超时；该错误不可通过步骤级重试安全恢复。"""
 
 
-class PluginStorageBackend:
-    """基于 SQLite 的线程与多进程安全轻量级 KV 存储后端。"""
-
-    @staticmethod
-    def _escape_like(text: str) -> str:
-        return text.replace("/", "//").replace("%", "/%").replace("_", "/_")
-
-    def __init__(self, db_path: Optional[Union[str, Path]] = None):
-        if db_path is not None:
-            self.db_path = Path(db_path)
-        elif os.getenv("PLUGIN_STORAGE_PATH"):
-            self.db_path = Path(os.getenv("PLUGIN_STORAGE_PATH"))
-        else:
-            base_dir = os.getenv("APP_DATA_DIR") or os.getenv("TG_SIGNER_DATA_DIR")
-            if base_dir:
-                self.db_path = Path(base_dir) / "plugin_storage.db"
-            elif Path("/data").is_dir() and os.access("/data", os.W_OK):
-                self.db_path = Path("/data/plugin_storage.db")
-            else:
-                self.db_path = Path.cwd() / "data" / "plugin_storage.db"
-
-        try:
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._init_db()
-        except Exception as e:
-            _logger.warning("初始化插件持久化存储失败 (%s): %s", self.db_path, e)
-
-    def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
-        conn.execute("PRAGMA busy_timeout=10000;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
-
-    @contextmanager
-    def _conn(self) -> Generator[sqlite3.Connection, None, None]:
-        conn = self._get_conn()
-        try:
-            with conn:
-                yield conn
-        finally:
-            conn.close()
-
-    def close(self) -> None:
-        pass
-
-    def _init_db(self) -> None:
-        with self._conn() as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS plugin_kv (
-                    namespace TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    expires_at REAL,
-                    PRIMARY KEY (namespace, key)
-                );
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_plugin_kv_expires
-                ON plugin_kv (expires_at)
-                WHERE expires_at IS NOT NULL;
-                """
-            )
-            conn.commit()
-
-    def get(self, namespace: str, key: str, default: Any = None) -> Any:
-        now = time.time()
-        try:
-            with self._conn() as conn:
-                cur = conn.execute(
-                    "SELECT value, expires_at FROM plugin_kv WHERE namespace = ? AND key = ?",
-                    (namespace, key),
-                )
-                row = cur.fetchone()
-                if not row:
-                    return default
-                val_str, expires_at = row
-                if expires_at is not None and expires_at < now:
-                    conn.execute(
-                        "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
-                        (namespace, key),
-                    )
-                    conn.commit()
-                    return default
-                try:
-                    return json.loads(val_str)
-                except Exception:
-                    return val_str
-        except Exception as exc:
-            _logger.warning("插件读取存储失败 [%s:%s]: %s", namespace, key, exc)
-            return default
-
-    def set(
-        self, namespace: str, key: str, value: Any, ttl: Optional[float] = None
-    ) -> None:
-        now = time.time()
-        expires_at = (now + ttl) if (ttl is not None and ttl > 0) else None
-        val_str = json.dumps(value, ensure_ascii=False)
-        try:
-            with self._conn() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO plugin_kv (namespace, key, value, expires_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(namespace, key) DO UPDATE SET
-                        value = excluded.value,
-                        expires_at = excluded.expires_at;
-                    """,
-                    (namespace, key, val_str, expires_at),
-                )
-                conn.commit()
-        except Exception as exc:
-            _logger.warning("插件写入存储失败 [%s:%s]: %s", namespace, key, exc)
-
-    def increment(
-        self, namespace: str, key: str, delta: int = 1, default: int = 0
-    ) -> Optional[int]:
-        """在事务锁内原子递增整数值，返回递增后的结果；写入失败返回 None。
-
-        若目标键带有仍有效的 TTL，递增后保留原过期时间；过期键与新建键重置为永久。
-        """
-        now = time.time()
-        try:
-            with self._conn() as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                row = conn.execute(
-                    "SELECT value, expires_at FROM plugin_kv WHERE namespace = ? AND key = ?",
-                    (namespace, key),
-                ).fetchone()
-                current = default
-                if row and (row[1] is None or row[1] >= now):
-                    try:
-                        parsed = json.loads(row[0])
-                        if isinstance(parsed, (int, float)) and not isinstance(
-                            parsed, bool
-                        ):
-                            current = int(parsed)
-                    except (TypeError, ValueError, json.JSONDecodeError):
-                        pass
-                updated = current + int(delta)
-                conn.execute(
-                    """
-                    INSERT INTO plugin_kv (namespace, key, value, expires_at)
-                    VALUES (?, ?, ?, NULL)
-                    ON CONFLICT(namespace, key) DO UPDATE SET
-                        value = excluded.value,
-                        expires_at = CASE
-                            WHEN plugin_kv.expires_at IS NOT NULL
-                                 AND plugin_kv.expires_at >= ?
-                            THEN plugin_kv.expires_at
-                            ELSE NULL
-                        END
-                    """,
-                    (namespace, key, json.dumps(updated), now),
-                )
-                conn.commit()
-                return updated
-        except Exception as exc:
-            _logger.warning("插件原子递增存储失败 [%s:%s]: %s", namespace, key, exc)
-            return None
-
-    def delete(self, namespace: str, key: str) -> bool:
-        try:
-            with self._conn() as conn:
-                cur = conn.execute(
-                    "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
-                    (namespace, key),
-                )
-                conn.commit()
-                return cur.rowcount > 0
-        except Exception as exc:
-            _logger.warning("插件删除存储失败 [%s:%s]: %s", namespace, key, exc)
-            return False
-
-    def clear(self, namespace: Optional[str] = None) -> int:
-        try:
-            with self._conn() as conn:
-                if namespace:
-                    cur = conn.execute(
-                        "DELETE FROM plugin_kv WHERE namespace = ?", (namespace,)
-                    )
-                else:
-                    cur = conn.execute("DELETE FROM plugin_kv")
-                conn.commit()
-                return cur.rowcount
-        except Exception as exc:
-            _logger.warning("插件清空存储失败: %s", exc)
-            return 0
-
-    def purge_expired(self, namespace: Optional[str] = None) -> int:
-        """主动清理已过期的所有记录，返回被清理的记录数。"""
-        now = time.time()
-        try:
-            with self._conn() as conn:
-                if namespace:
-                    cur = conn.execute(
-                        "DELETE FROM plugin_kv WHERE namespace = ? AND expires_at IS NOT NULL AND expires_at < ?",
-                        (namespace, now),
-                    )
-                else:
-                    cur = conn.execute(
-                        "DELETE FROM plugin_kv WHERE expires_at IS NOT NULL AND expires_at < ?",
-                        (now,),
-                    )
-                conn.commit()
-                return cur.rowcount
-        except Exception as exc:
-            _logger.warning("插件清理过期存储失败: %s", exc)
-            return 0
-
-    def keys(self, namespace: str, prefix: str = "") -> List[str]:
-        """列出指定命名空间下未过期的键名（支持前缀匹配），自动淘汰已过期记录。"""
-        now = time.time()
-        try:
-            with self._conn() as conn:
-                if prefix:
-                    escaped_prefix = self._escape_like(prefix)
-                    cur = conn.execute(
-                        "SELECT key, expires_at FROM plugin_kv WHERE namespace = ? AND key LIKE ? ESCAPE '/'",
-                        (namespace, f"{escaped_prefix}%"),
-                    )
-                else:
-                    cur = conn.execute(
-                        "SELECT key, expires_at FROM plugin_kv WHERE namespace = ?",
-                        (namespace,),
-                    )
-                rows = cur.fetchall()
-                valid_keys: List[str] = []
-                expired_keys: List[str] = []
-                for k, exp in rows:
-                    if exp is not None and exp < now:
-                        expired_keys.append(k)
-                    else:
-                        valid_keys.append(k)
-                if expired_keys:
-                    try:
-                        conn.executemany(
-                            "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
-                            [(namespace, ek) for ek in expired_keys],
-                        )
-                        conn.commit()
-                    except Exception as clean_exc:
-                        _logger.debug("延迟清理过期记录异常: %s", clean_exc)
-                return sorted(valid_keys)
-        except Exception as exc:
-            _logger.warning("插件读取存储键列表失败 [%s]: %s", namespace, exc)
-            return []
-
-    def mget(self, namespace: str, keys: List[str]) -> Dict[str, Any]:
-        """批量根据指定键列表读取键值对（自动分片规避 SQLite 变量上限，自动过滤与清理过期记录）。"""
-        if not keys:
-            return {}
-        now = time.time()
-        res: Dict[str, Any] = {}
-        expired_keys: List[str] = []
-        CHUNK_SIZE = 500
-        key_list = list(keys)
-        try:
-            with self._conn() as conn:
-                for i in range(0, len(key_list), CHUNK_SIZE):
-                    chunk = key_list[i : i + CHUNK_SIZE]
-                    placeholders = ",".join("?" for _ in chunk)
-                    params = [namespace] + chunk
-                    cur = conn.execute(
-                        f"SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ? AND key IN ({placeholders})",
-                        params,
-                    )
-                    rows = cur.fetchall()
-                    for k, val_str, exp in rows:
-                        if exp is not None and exp < now:
-                            expired_keys.append(k)
-                            continue
-                        try:
-                            res[k] = json.loads(val_str)
-                        except Exception:
-                            res[k] = val_str
-
-                if expired_keys:
-                    for i in range(0, len(expired_keys), CHUNK_SIZE):
-                        exp_chunk = expired_keys[i : i + CHUNK_SIZE]
-                        del_placeholders = ",".join("?" for _ in exp_chunk)
-                        try:
-                            conn.execute(
-                                f"DELETE FROM plugin_kv WHERE namespace = ? AND key IN ({del_placeholders})",
-                                [namespace] + exp_chunk,
-                            )
-                        except Exception as clean_exc:
-                            _logger.debug("延迟清理过期记录异常: %s", clean_exc)
-                    conn.commit()
-                return res
-        except Exception as exc:
-            _logger.warning("插件批量按键读取存储失败 [%s]: %s", namespace, exc)
-            return {}
-
-    def mset(
-        self,
-        namespace: str,
-        mapping: Dict[str, Any],
-        ttl: Optional[float] = None,
-    ) -> None:
-        """批量写入键值对，支持统一指定过期时间。"""
-        if not mapping:
-            return
-        now = time.time()
-        expires_at = (now + ttl) if (ttl is not None and ttl > 0) else None
-        try:
-            rows = []
-            for k, val in mapping.items():
-                val_str = json.dumps(val, ensure_ascii=False)
-                rows.append((namespace, k, val_str, expires_at))
-            with self._conn() as conn:
-                conn.executemany(
-                    """
-                    INSERT INTO plugin_kv (namespace, key, value, expires_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(namespace, key) DO UPDATE SET
-                        value = excluded.value,
-                        expires_at = excluded.expires_at
-                    """,
-                    rows,
-                )
-                conn.commit()
-        except Exception as exc:
-            _logger.warning("插件批量写入存储失败 [%s]: %s", namespace, exc)
-
-    def get_all(self, namespace: str, prefix: str = "") -> Dict[str, Any]:
-        """批量读取指定命名空间下所有未过期的键值对（支持前缀过滤），自动淘汰已过期记录。"""
-        now = time.time()
-        try:
-            with self._conn() as conn:
-                if prefix:
-                    escaped_prefix = self._escape_like(prefix)
-                    cur = conn.execute(
-                        "SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ? AND key LIKE ? ESCAPE '/'",
-                        (namespace, f"{escaped_prefix}%"),
-                    )
-                else:
-                    cur = conn.execute(
-                        "SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ?",
-                        (namespace,),
-                    )
-                rows = cur.fetchall()
-                res: Dict[str, Any] = {}
-                expired_keys: List[str] = []
-                for k, val_str, exp in rows:
-                    if exp is not None and exp < now:
-                        expired_keys.append(k)
-                        continue
-                    try:
-                        res[k] = json.loads(val_str)
-                    except Exception:
-                        res[k] = val_str
-                if expired_keys:
-                    try:
-                        conn.executemany(
-                            "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
-                            [(namespace, ek) for ek in expired_keys],
-                        )
-                        conn.commit()
-                    except Exception as clean_exc:
-                        _logger.debug("延迟清理过期记录异常: %s", clean_exc)
-                return res
-        except Exception as exc:
-            _logger.warning("插件批量读取存储失败 [%s]: %s", namespace, exc)
-            return {}
-
-    def list_namespaces(self, plugin_name: Optional[str] = None) -> List[str]:
-        """列出当前数据库中存在的所有命名空间，可根据插件名称进行关联匹配。"""
-        try:
-            with self._conn() as conn:
-                if plugin_name:
-                    escaped_name = self._escape_like(plugin_name)
-                    cur = conn.execute(
-                        """
-                        SELECT DISTINCT namespace FROM plugin_kv
-                        WHERE namespace = ?
-                           OR namespace LIKE ? ESCAPE '/'
-                           OR namespace LIKE ? ESCAPE '/'
-                        """,
-                        (
-                            plugin_name,
-                            f"%:{escaped_name}",
-                            f"__test__:%:{escaped_name}",
-                        ),
-                    )
-                else:
-                    cur = conn.execute("SELECT DISTINCT namespace FROM plugin_kv")
-                rows = cur.fetchall()
-                return sorted([r[0] for r in rows if r[0]])
-        except Exception as exc:
-            _logger.warning("查询插件存储命名空间失败: %s", exc)
-            return []
-
-    def get_all_records(self, namespace: str) -> List[Dict[str, Any]]:
-        """获取指定命名空间下的完整结构化记录（含过期时间与剩余 TTL）。"""
-        now = time.time()
-        try:
-            with self._conn() as conn:
-                cur = conn.execute(
-                    "SELECT key, value, expires_at FROM plugin_kv WHERE namespace = ?",
-                    (namespace,),
-                )
-                rows = cur.fetchall()
-                records: List[Dict[str, Any]] = []
-                expired_keys: List[str] = []
-                for k, val_str, exp in rows:
-                    if exp is not None and exp < now:
-                        expired_keys.append(k)
-                        continue
-                    try:
-                        parsed_val = json.loads(val_str)
-                    except Exception:
-                        parsed_val = val_str
-                    records.append(
-                        {
-                            "key": k,
-                            "value": parsed_val,
-                            "expires_at": exp,
-                            "ttl_remaining": round(exp - now, 1)
-                            if exp is not None
-                            else None,
-                        }
-                    )
-                if expired_keys:
-                    try:
-                        conn.executemany(
-                            "DELETE FROM plugin_kv WHERE namespace = ? AND key = ?",
-                            [(namespace, ek) for ek in expired_keys],
-                        )
-                        conn.commit()
-                    except Exception as clean_exc:
-                        _logger.debug("延迟清理过期记录异常: %s", clean_exc)
-                return sorted(records, key=lambda x: x["key"])
-        except Exception as exc:
-            _logger.warning("插件读取存储记录失败 [%s]: %s", namespace, exc)
-            return []
+# 100% 向后兼容别名：PluginStorageBackend 即 PluginStore
+PluginStorageBackend = PluginStore
 
 
 class PluginStorageClient:
     """供插件开发者使用的异步键值存储接口。"""
 
-    def __init__(self, namespace: str, backend: Optional[PluginStorageBackend] = None):
+    def __init__(
+        self,
+        namespace: str,
+        backend: Optional[Union[PluginStore, PluginStorageBackend]] = None,
+        store: Optional[PluginStore] = None,
+    ):
         self.namespace = namespace
-        self._backend = backend or PluginStorageBackend()
+        self._store = store or backend or PluginStore()
+        self._backend = self._store
 
     async def get(self, key: str, default: Any = None) -> Any:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._backend.get, self.namespace, key, default
+                None, self._store.get, self.namespace, key, default
             )
         except RuntimeError:
-            return self._backend.get(self.namespace, key, default)
+            return self._store.get(self.namespace, key, default)
 
-    async def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
+    async def set(
+        self, key: str, value: Any, ttl: Optional[Union[int, float]] = None
+    ) -> None:
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
-                None, self._backend.set, self.namespace, key, value, ttl
+                None, self._store.set, self.namespace, key, value, ttl
             )
         except RuntimeError:
-            self._backend.set(self.namespace, key, value, ttl)
+            self._store.set(self.namespace, key, value, ttl)
 
     async def increment(
-        self, key: str, delta: int = 1, default: int = 0
+        self,
+        key: str,
+        amount: int = 1,
+        default: int = 0,
+        ttl: Optional[Union[int, float]] = None,
+        *,
+        delta: Optional[int] = None,
     ) -> Optional[int]:
+        step = delta if delta is not None else amount
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._backend.increment, self.namespace, key, delta, default
+                None,
+                self._store.increment,
+                self.namespace,
+                key,
+                step,
+                default,
+                ttl,
             )
         except RuntimeError:
-            return self._backend.increment(self.namespace, key, delta, default)
+            return self._store.increment(
+                self.namespace, key, amount=step, default=default, ttl=ttl
+            )
 
     async def delete(self, key: str) -> bool:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._backend.delete, self.namespace, key
+                None, self._store.delete, self.namespace, key
             )
         except RuntimeError:
-            return self._backend.delete(self.namespace, key)
+            return self._store.delete(self.namespace, key)
 
     async def clear(self) -> int:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._backend.clear, self.namespace)
+            return await loop.run_in_executor(None, self._store.clear, self.namespace)
         except RuntimeError:
-            return self._backend.clear(self.namespace)
+            return self._store.clear(self.namespace)
 
     async def keys(self, prefix: str = "") -> List[str]:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._backend.keys, self.namespace, prefix
+                None, self._store.list_keys, self.namespace, prefix
             )
         except RuntimeError:
-            return self._backend.keys(self.namespace, prefix)
+            return self._store.list_keys(self.namespace, prefix)
+
+    async def list_keys(self, prefix: str = "") -> List[str]:
+        return await self.keys(prefix=prefix)
 
     async def mget(self, keys: List[str]) -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._backend.mget, self.namespace, keys
+                None, self._store.mget, self.namespace, keys
             )
         except RuntimeError:
-            return self._backend.mget(self.namespace, keys)
+            return self._store.mget(self.namespace, keys)
 
-    async def mset(self, mapping: Dict[str, Any], ttl: Optional[float] = None) -> None:
+    async def mset(
+        self, mapping: Dict[str, Any], ttl: Optional[Union[int, float]] = None
+    ) -> None:
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
-                None, self._backend.mset, self.namespace, mapping, ttl
+                None, self._store.mset, self.namespace, mapping, ttl
             )
         except RuntimeError:
-            self._backend.mset(self.namespace, mapping, ttl)
+            self._store.mset(self.namespace, mapping, ttl)
 
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._backend.get_all, self.namespace, prefix
+                None, self._store.get_all, self.namespace, prefix
             )
         except RuntimeError:
-            return self._backend.get_all(self.namespace, prefix)
+            return self._store.get_all(self.namespace, prefix)
+
+    async def get_all_records(self) -> List[Dict[str, Any]]:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, self._store.get_all_records, self.namespace
+            )
+        except RuntimeError:
+            return self._store.get_all_records(self.namespace)
 
 
 @dataclass
