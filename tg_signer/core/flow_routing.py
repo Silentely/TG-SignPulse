@@ -109,6 +109,17 @@ def _chat_requires_flow_engine(c: Any) -> bool:
     return False
 
 
+def _chat_has_steps(c: Any) -> bool:
+    """检测会话是否配置了工作流步骤 steps。"""
+    if c is None:
+        return False
+    if isinstance(c, dict):
+        steps = c.get("steps")
+        return bool(steps)
+    steps = getattr(c, "steps", None)
+    return bool(steps)
+
+
 def resolve_execution_engine(
     chat: Optional[Union[SignChatV3, Dict[str, Any]]] = None,
     task_engine: Optional[str] = None,
@@ -121,6 +132,8 @@ def resolve_execution_engine(
        - 若检测到会话使用了 flow_graph 或新控制节点 FlowStepConfig：
          - 若配置强制为 'v3'：抛出 ValueError 拒绝（经典引擎无法表达图结构）；
          - 否则：自动提升路由为 'v4' (PulseFlow)。
+    0.5. 紧急环境强控过渡窗口覆盖 (Transition Window Emergency Override):
+       - PULSEFLOW_ENGINE_OVERRIDE=v3 或 v4 (来源: 'override')
     1. 任务/目标级覆盖 (Task/Chat Override):
        - chat.execution_engine 为 'v4' 或 'v3' (来源: 'task')
        - task_engine 为 'v4' 或 'v3' (来源: 'task')
@@ -129,7 +142,9 @@ def resolve_execution_engine(
        - 若设置 canary_percentage 或环境变量 CANARY_PULSEFLOW_PERCENTAGE (0~100)
        - 依据 chat_id / name 计算稳定哈希分流 (来源: 'canary')
     4. 环境变量兜底 (Environment Variable): USE_PULSEFLOW_ENGINE=1/true/yes/v4/v3 (来源: 'env'/'settings')
-    5. 默认经典模式 (Default): 'v3' (来源: 'default')
+    5. 系统默认 (Default):
+       - 工作流步骤任务 (chat.steps) 默认切流至 'v4' (PulseFlow) (来源: 'default')
+       - 经典动作流任务 (chat.actions) 默认保持 'v3' (来源: 'default')
 
     Returns:
         EngineResolutionResult(engine_code, engine_display_name, source)
@@ -148,7 +163,17 @@ def resolve_execution_engine(
     elif target_chat is not None:
         requires_flow = _chat_requires_flow_engine(target_chat)
 
+    has_steps = False
+    if task_cfg_chats is not None:
+        has_steps = any(_chat_has_steps(c) for c in task_cfg_chats)
+    elif target_chat is not None:
+        has_steps = _chat_has_steps(target_chat)
+
+    env_engine_override = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
+
     explicit_v3 = False
+    if env_engine_override == ENGINE_V3:
+        explicit_v3 = True
     if task_engine is not None and str(task_engine).strip().lower() == ENGINE_V3:
         explicit_v3 = True
     if target_chat is not None:
@@ -174,6 +199,8 @@ def resolve_execution_engine(
                 "工作流包含图结构/控制节点，无法在经典执行引擎上运行，请移除 execution_engine='v3' 或配置为 'v4'"
             )
         explicit_v4 = False
+        if env_engine_override == ENGINE_V4:
+            explicit_v4 = True
         if task_engine is not None and str(task_engine).strip().lower() == ENGINE_V4:
             explicit_v4 = True
         if target_chat is not None:
@@ -182,9 +209,21 @@ def resolve_execution_engine(
                 raw_ce = target_chat.get("execution_engine")
             if raw_ce is not None and str(raw_ce).strip().lower() == ENGINE_V4:
                 explicit_v4 = True
-        source = "task" if explicit_v4 else "auto"
+        source = (
+            "task"
+            if explicit_v4
+            else ("override" if env_engine_override == ENGINE_V4 else "auto")
+        )
         return EngineResolutionResult(
             ENGINE_V4, ENGINE_DISPLAY_NAMES[ENGINE_V4], source
+        )
+
+    # 0.5 紧急环境强控过渡窗口覆盖 (Transition Window Emergency Override)
+    if env_engine_override in {ENGINE_V4, ENGINE_V3}:
+        return EngineResolutionResult(
+            env_engine_override,
+            ENGINE_DISPLAY_NAMES[env_engine_override],
+            "override",
         )
 
     # 1a. 单目标 Chat 级显式指定
@@ -265,7 +304,14 @@ def resolve_execution_engine(
             source,
         )
 
-    # 5. 系统默认
+    # 5. 系统默认：工作流 steps 默认切流至 PulseFlow (v4)，actions 默认保持 Classic (v3)
+    if has_steps:
+        return EngineResolutionResult(
+            ENGINE_V4,
+            ENGINE_DISPLAY_NAMES[ENGINE_V4],
+            "default",
+        )
+
     return EngineResolutionResult(
         ENGINE_V3,
         ENGINE_DISPLAY_NAMES[ENGINE_V3],

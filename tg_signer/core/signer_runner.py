@@ -193,7 +193,7 @@ class SignerRunnerMixin:
             # 1. 显式开启 PULSEFLOW_AUTO_FALLBACK=1/true/yes；
             # 2. 或当 engine_source 非 task 显式指定（灰度 canary、系统 settings、环境变量 env、默认 default 切流）且未显式关闭降级时自动开启降级保护。
             allow_fallback = auto_fallback_env in {"1", "true", "yes", "on"} or (
-                engine_source in {"canary", "settings", "env", "default"}
+                engine_source in {"canary", "settings", "env", "default", "override"}
                 and auto_fallback_env not in {"0", "false", "no", "off"}
             )
             self.context.pulseflow_side_effect_started = False
@@ -236,7 +236,48 @@ class SignerRunnerMixin:
                     ctx = ScopedFlowContext(
                         account={"name": getattr(self, "_account", "")}
                     )
-                    executor = TelegramNodeExecutor(self, chat, graph)
+                    flow_executed_path = []
+
+                    class _CutoverNodeExecutor(TelegramNodeExecutor):
+                        async def _call_unlocked(self, node, context):
+                            flow_executed_path.append(node.id)
+                            if graph and getattr(graph, "nodes", None):
+                                node_keys = list(graph.nodes.keys())
+                                if node.id in node_keys:
+                                    curr_idx = node_keys.index(node.id) + 1
+                                    total = len(node_keys)
+                                    def _aligned_set(idx, tot, act, c_idx=curr_idx, t_tot=total):
+                                        if hasattr(self.runner, "_set_current_action_context"):
+                                            return self.runner._set_current_action_context(c_idx, t_tot, act)
+
+                                    self.compat.set_current_action_context = _aligned_set
+
+                                    if hasattr(self.runner, "_resolve_action_delay"):
+                                        orig_resolve = getattr(self.runner, "_orig_resolve_delay", None) or self.runner._resolve_action_delay
+                                        self.runner._orig_resolve_delay = orig_resolve
+                                        def _aligned_delay(act, interval=0.0, c_idx=curr_idx):
+                                            eff_interval = 0.0 if c_idx == 1 else float(getattr(chat, "action_interval", 0.0) or 0.0)
+                                            try:
+                                                return orig_resolve(act, eff_interval)
+                                            except TypeError:
+                                                return orig_resolve(act)
+                                        self.runner._resolve_action_delay = _aligned_delay
+                            outcome = await super()._call_unlocked(node, context)
+                            if not outcome.output_text:
+                                raw_act = node.metadata.get("raw_action") or getattr(node, "params", {})
+                                if isinstance(raw_act, dict):
+                                    act_txt = raw_act.get("text", "")
+                                else:
+                                    act_txt = getattr(raw_act, "text", "")
+                                if act_txt:
+                                    outcome.output_text = act_txt
+                            if getattr(self.runner.context, "stop_after_current_action", False) or outcome.matched_terminal:
+                                from tg_signer.core.flow_models import FlowSignal
+                                outcome.signal = FlowSignal.HALT_SUCCESS
+                                self.runner.context.stop_after_current_action = False
+                            return outcome
+
+                    executor = _CutoverNodeExecutor(self, chat, graph)
                     try:
                         flow_res = await engine.run(graph, ctx, executor, event_bus=bus)
                         if flow_res.get("status") == "success":
@@ -256,15 +297,17 @@ class SignerRunnerMixin:
                             for idx, (node_id, outcome) in enumerate(
                                 ctx.step_outcomes.items(), start=1
                             ):
-                                if outcome.output_text:
-                                    out_dict = {"output": outcome.output_text}
-                                    self.context.step_outputs[node_id] = out_dict
-                                    self.context.step_outputs[idx] = out_dict
-                                    self.context.step_outputs[str(idx)] = out_dict
+                                out_text = outcome.output_text or ""
+                                out_dict = {"output": out_text}
+                                self.context.step_outputs[node_id] = out_dict
+                                self.context.step_outputs[idx] = out_dict
+                                self.context.step_outputs[str(idx)] = out_dict
                             flow_path = flow_res.get("path")
                             if flow_path:
                                 self.context.workflow_path = list(flow_path)
-                            self.context.workflow_steps = steps
+                            elif flow_executed_path:
+                                self.context.workflow_path = list(flow_executed_path)
+                            self.context.workflow_steps = steps or len(flow_executed_path)
                             self.context.flow_trace = flow_res.get("trace")
                             self.context.flow_metrics = flow_res.get("metrics")
                             flow_succeeded = True
@@ -274,8 +317,12 @@ class SignerRunnerMixin:
                         flow_path = flow_res.get("path")
                         if flow_path:
                             self.context.workflow_path = list(flow_path)
+                        elif flow_executed_path:
+                            self.context.workflow_path = list(flow_executed_path)
                         if flow_res.get("steps"):
                             self.context.workflow_steps = flow_res.get("steps")
+                        elif flow_executed_path:
+                            self.context.workflow_steps = len(flow_executed_path)
                         if ctx.last_output:
                             self.context.last_output = ctx.last_output
                             self.context.last_received_text = ctx.last_output
@@ -283,9 +330,12 @@ class SignerRunnerMixin:
                             flow_res.get("error")
                             or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
                         )
-                        last_error = RuntimeError(f"PulseFlow 执行失败: {err_detail}")
+                        last_error = RuntimeError(f"PulseFlow 执行失败（工作流节点执行失败）: {err_detail}")
                     except Exception as exc:
                         last_error = exc
+                        if flow_executed_path:
+                            self.context.workflow_path = list(flow_executed_path)
+                            self.context.workflow_steps = len(flow_executed_path)
                     if flow_attempt < max_flow_attempts:
                         if getattr(
                             self.context, "pulseflow_side_effect_started", False
@@ -323,8 +373,13 @@ class SignerRunnerMixin:
                                 level="ERROR",
                             )
                         if last_error is not None:
+                            from tg_signer.core.flow_models import FlowLoopLimitExceededError
+                            from tg_signer.core.workflow_engine import WorkflowLoopExceededError
+
+                            if isinstance(last_error, FlowLoopLimitExceededError):
+                                raise WorkflowLoopExceededError(str(last_error)) from last_error
                             raise last_error
-                        raise RuntimeError("PulseFlow 执行失败：没有得到执行结果")
+                        raise RuntimeError("PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果")
 
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。
@@ -342,6 +397,12 @@ class SignerRunnerMixin:
                 except Exception as exc:
                     last_error = exc
                     if attempt >= max_workflow_attempts:
+                        raise
+                    if getattr(self.context, "pulseflow_side_effect_started", False):
+                        self.log(
+                            "工作流已产生外部副作用，跳过整流程重试以避免重复执行",
+                            level="ERROR",
+                        )
                         raise
                     self.log(
                         f"工作流第 {attempt}/{max_workflow_attempts} 次执行失败，准备重试: {exc}",

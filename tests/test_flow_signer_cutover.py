@@ -368,3 +368,161 @@ def test_flow_normalizer_dict_actions_preserves_policy():
     node = graph.nodes["step_0"]
     assert node.terminal_policy == TerminalPolicy.STOP_FLOW
     assert node.on_failure_node_id == TERMINAL_COMPLETE_ID
+
+@pytest.mark.asyncio
+async def test_user_signer_workflow_steps_executes_via_pulseflow_by_default():
+    """验证工作流步骤任务 (chat.steps) 默认走 PulseFlow (v4) 执行。"""
+    from tg_signer.config import SupportAction, WorkflowStepConfig
+    from tg_signer.core.context import UserSignerWorkerContext
+
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    signer.log = MagicMock()
+    signer.wait_for = AsyncMock(return_value=True)
+
+    chat = SignChatV3(
+        chat_id=88888,
+        initial_step_id="step1",
+        steps=[
+            WorkflowStepConfig(
+                step_id="step1",
+                action_type=SupportAction.SEND_TEXT,
+                config={"text": "/checkin"},
+                next_step_id="COMPLETE",
+            )
+        ],
+    )
+
+    with patch.dict("os.environ", {}, clear=True):
+        res = await signer.sign_a_chat(chat)
+        assert res is True
+        log_msgs = [call[0][0] for call in signer.log.call_args_list]
+        assert any("PulseFlow (v4)" in m and "default" in m for m in log_msgs)
+        assert signer.context.workflow_path == ["step1"]
+        assert signer.context.workflow_steps == 1
+        assert "step1" in signer.context.step_outputs
+
+
+@pytest.mark.asyncio
+async def test_user_signer_workflow_steps_explicit_v3_override_and_env_override():
+    """验证显式 execution_engine="v3" 或环境变量 PULSEFLOW_ENGINE_OVERRIDE=v3 保持走 V3 执行。"""
+    from tg_signer.config import SupportAction, WorkflowStepConfig
+    from tg_signer.core.context import UserSignerWorkerContext
+
+    # 1. 显式 chat.execution_engine = "v3"
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    signer.log = MagicMock()
+    signer.wait_for = AsyncMock(return_value=True)
+
+    chat_v3 = SignChatV3(
+        chat_id=88888,
+        initial_step_id="step1",
+        steps=[
+            WorkflowStepConfig(
+                step_id="step1",
+                action_type=SupportAction.SEND_TEXT,
+                config={"text": "/checkin"},
+                next_step_id="COMPLETE",
+            )
+        ],
+        execution_engine="v3",
+    )
+
+    with patch.dict("os.environ", {}, clear=True):
+        res = await signer.sign_a_chat(chat_v3)
+        assert res is True or res is None
+        log_msgs = [call[0][0] for call in signer.log.call_args_list]
+        assert not any("PulseFlow (v4)" in m for m in log_msgs)
+        assert signer.context.workflow_path == ["step1"]
+
+    # 2. 环境变量 PULSEFLOW_ENGINE_OVERRIDE=v3 强控
+    signer2 = UserSigner.__new__(UserSigner)
+    signer2._account = "test_acc"
+    signer2.app = MagicMock()
+    signer2.app.get_chat = AsyncMock()
+    signer2.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    signer2.log = MagicMock()
+    signer2.wait_for = AsyncMock(return_value=True)
+
+    chat_default = SignChatV3(
+        chat_id=88888,
+        initial_step_id="step1",
+        steps=[
+            WorkflowStepConfig(
+                step_id="step1",
+                action_type=SupportAction.SEND_TEXT,
+                config={"text": "/checkin"},
+                next_step_id="COMPLETE",
+            )
+        ],
+    )
+
+    with patch.dict("os.environ", {"PULSEFLOW_ENGINE_OVERRIDE": "v3"}):
+        res2 = await signer2.sign_a_chat(chat_default)
+        assert res2 is True or res2 is None
+        log_msgs2 = [call[0][0] for call in signer2.log.call_args_list]
+        assert not any("PulseFlow (v4)" in m for m in log_msgs2)
+        assert signer2.context.workflow_path == ["step1"]
+
+
+@pytest.mark.asyncio
+async def test_user_signer_side_effect_barrier_blocks_fallback_and_retry():
+    """验证硬副作用屏障：已产生外部写操作后，严禁因切流降级回退至经典引擎或整流重试。"""
+    from tg_signer.config import SupportAction, WorkflowStepConfig
+    from tg_signer.core.context import UserSignerWorkerContext
+
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    signer.log = MagicMock()
+
+    call_count = 0
+
+    async def wait_for_with_side_effect(chat, action, next_action=None):
+        nonlocal call_count
+        call_count += 1
+        # 产生真实外部副作用：标记 pulseflow_side_effect_started
+        signer.context.pulseflow_side_effect_started = True
+        if call_count >= 1:
+            # 外部写动作发出后发生异常（如网络中断或远端报错）
+            raise RuntimeError("Telegram network drop after send_message")
+        return True
+
+    signer.wait_for = wait_for_with_side_effect
+
+    chat = SignChatV3(
+        chat_id=88888,
+        initial_step_id="step1",
+        steps=[
+            WorkflowStepConfig(
+                step_id="step1",
+                action_type=SupportAction.SEND_TEXT,
+                config={"text": "/pay"},
+                next_step_id="COMPLETE",
+            )
+        ],
+    )
+
+    token = task_retry_count_var.set(3)
+    try:
+        with pytest.raises(RuntimeError, match="Telegram network drop after send_message"):
+            await signer.sign_a_chat(chat)
+    finally:
+        task_retry_count_var.reset(token)
+
+    # 验证：产生副作用后立即熔断，严禁重试整个流程导致重复写操作
+    assert call_count == 1
+    # 验证：严禁回退 Classic 经典引擎执行
+    assert getattr(signer.context, "pulseflow_fallback_occurred", False) is False
+    log_msgs = [call[0][0] for call in signer.log.call_args_list]
+    assert any("已产生外部副作用" in m and "禁止自动回退 Classic" in m for m in log_msgs)
+
