@@ -173,6 +173,7 @@ def append_index_entry(
     entry: Dict[str, Any],
     *,
     max_lines: int = DEFAULT_MAX_LINES,
+    publish_event: bool = True,
 ) -> None:
     """追加一条索引；超出 max_lines 时截断尾部旧行。"""
     run_history_dir = Path(run_history_dir)
@@ -190,12 +191,13 @@ def append_index_entry(
     _clear_filtered_cache()  # 新条目落地后过滤缓存失效
     _maybe_trim_index_file(path, max_lines=max_lines)
     # 实时推送：有 SSE 订阅者时即时通知（无订阅则为空操作）
-    try:
-        from backend.services.sign_history_events import publish_sign_history
+    if publish_event:
+        try:
+            from backend.services.sign_history_events import publish_sign_history
 
-        publish_sign_history(entry)
-    except Exception as exc:
-        logger.debug("发布历史事件失败: %s", exc)
+            publish_sign_history(entry)
+        except Exception as exc:
+            logger.debug("发布历史事件失败: %s", exc)
 
 
 def _maybe_trim_index_file(path: Path, *, max_lines: int) -> None:
