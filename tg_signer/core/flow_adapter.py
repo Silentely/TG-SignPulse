@@ -30,11 +30,19 @@ logger = logging.getLogger("tg_signer.flow_adapter")
 class TelegramNodeExecutor:
     """隔离旧系统副作用的动作执行适配器，支持跳过判定、动态模板渲染、延迟与容错重试闭环"""
 
-    def __init__(self, runner: Any, chat: SignChatV3, graph: Any = None):
+    def __init__(
+        self,
+        runner: Any,
+        chat: SignChatV3,
+        graph: Any = None,
+        state_lock: Optional[asyncio.Lock] = None,
+    ):
         self.runner = runner
         self.chat = chat
         self.compat = FlowCompatibilityBridge(runner, chat, graph)
-        self._runner_state_lock = asyncio.Lock()
+        self._runner_state_lock = (
+            state_lock if state_lock is not None else asyncio.Lock()
+        )
 
     def _log(self, msg: str, level: str = "INFO") -> None:
         """同时向 runner 日志流（供前端实时查看）和系统标准日志输出"""
@@ -154,8 +162,12 @@ class TelegramNodeExecutor:
     ) -> StepOutcome:
         # The legacy runner and Pyrogram client are stateful. Keep the complete
         # action transaction serialized even when graph branches are concurrent.
-        async with self._runner_state_lock:
+        await self._runner_state_lock.acquire()
+        try:
             return await self._call_unlocked(node, context)
+        finally:
+            if self._runner_state_lock.locked():
+                self._runner_state_lock.release()
 
     async def _call_unlocked(
         self, node: BaseFlowNode, context: ScopedFlowContext
@@ -294,13 +306,7 @@ class TelegramNodeExecutor:
         elif node.id.isdigit():
             step_idx = int(node.id)
 
-        if hasattr(self.runner, "_set_current_action_context"):
-            try:
-                self.runner._set_current_action_context(
-                    step_idx, total_nodes, exec_action
-                )
-            except Exception:
-                pass
+        self.compat.set_current_action_context(step_idx, total_nodes, exec_action)
 
         try:
             next_action = self.compat.resolve_next_action(node)
@@ -312,9 +318,7 @@ class TelegramNodeExecutor:
                 next_action=next_action,
             )
             if res is not False:
-                runner_context = getattr(self.runner, "context", None)
-                if runner_context is not None:
-                    runner_context.pulseflow_side_effect_started = True
+                self.compat.mark_side_effect_started()
                 msg_id = getattr(res, "id", None)
                 if msg_id:
                     context.system["last_sent_message_id"] = msg_id
@@ -322,7 +326,7 @@ class TelegramNodeExecutor:
                 import time as _t
 
                 context.system["last_action_finished_at"] = _t.time()
-            matched_term = self.compat.consume_matched_terminal()
+            matched_term = self.compat.consume_stop_signal()
             output_text = self.compat.output_text(res=res, action=exec_action)
 
             if res is False:
@@ -368,10 +372,8 @@ class TelegramNodeExecutor:
                         next_action=next_action,
                     )
                     if res is not False:
-                        runner_context = getattr(self.runner, "context", None)
-                        if runner_context is not None:
-                            runner_context.pulseflow_side_effect_started = True
-                    matched_term = self.compat.consume_matched_terminal()
+                        self.compat.mark_side_effect_started()
+                    matched_term = self.compat.consume_stop_signal()
                     output_text = self.compat.output_text(res=res, action=exec_action)
                     if res is not False:
                         self._log(f"步骤 {node.id} FloodWait 休眠后重试执行成功")
@@ -400,8 +402,4 @@ class TelegramNodeExecutor:
             # 未配置 continue_on_error 的异常向上抛出，使 PulseFlowEngine 的 RetryPolicy 重试机制生效
             raise
         finally:
-            if hasattr(self.runner, "_clear_current_action_context"):
-                try:
-                    self.runner._clear_current_action_context()
-                except Exception:
-                    pass
+            self.compat.clear_current_action_context()

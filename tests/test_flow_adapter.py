@@ -1,4 +1,5 @@
 # tests/test_flow_adapter.py
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,8 +16,10 @@ from tg_signer.core.flow_models import (
     ActionNode,
     ExecutionGraph,
     NodeStatus,
+    ParallelNode,
     RetryPolicy,
     StepOutcome,
+    SubflowNode,
 )
 from tg_signer.core.flow_normalizer import GraphNormalizer
 
@@ -389,3 +392,207 @@ async def test_adapter_tracks_last_sent_message_id_in_system_context():
     result = await engine.run(graph, ctx, executor)
     assert result["status"] == "success"
     assert ctx.system.get("last_sent_message_id") == 10086
+
+
+# ---------------------------------------------------------------------------
+# Lock release and lifecycle tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adapter_lock_release_on_cancellation():
+    """验证当动作被外部 asyncio 取消时，_runner_state_lock 在 finally 块中可靠释放。"""
+    chat = SignChatV3(chat_id=1234, actions=[SendTextAction(text="/hang")])
+    graph = GraphNormalizer.from_chat(chat)
+    ctx = ScopedFlowContext()
+
+    entered_wait_for = asyncio.Event()
+    release_wait_for = asyncio.Event()
+
+    mock_runner = MagicMock()
+
+    async def hanging_wait_for(chat_obj, action_obj, next_action=None, timeout=None):
+        entered_wait_for.set()
+        await release_wait_for.wait()
+        return True
+
+    mock_runner.wait_for = AsyncMock(side_effect=hanging_wait_for)
+    mock_runner.context = MagicMock()
+
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
+    engine = PulseFlowEngine()
+
+    run_task = asyncio.create_task(engine.run(graph, ctx, executor))
+    await entered_wait_for.wait()
+
+    # 验证执行中已持有锁
+    assert executor._runner_state_lock.locked() is True
+
+    # 外部取消任务
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    # 核心断言：任务取消后，锁必须被可靠释放
+    assert executor._runner_state_lock.locked() is False
+
+    # 验证后续执行能够无死锁正常获取锁
+    mock_runner.wait_for = AsyncMock(return_value=True)
+    followup_outcome = await executor(graph.nodes["step_0"], ctx)
+    assert followup_outcome.status == NodeStatus.SUCCESS
+    assert executor._runner_state_lock.locked() is False
+
+
+@pytest.mark.asyncio
+async def test_adapter_lock_release_on_unhandled_exception():
+    """验证在抛出未捕获异常时，_runner_state_lock 在 finally 块中可靠释放。"""
+    chat = SignChatV3(chat_id=1234, actions=[])
+    node = ActionNode(
+        id="s_err",
+        metadata={"raw_action": SendTextAction(text="/crash")},
+    )
+    ctx = ScopedFlowContext()
+
+    mock_runner = MagicMock()
+    mock_runner.wait_for = AsyncMock(
+        side_effect=RuntimeError("Simulated unhandled error")
+    )
+    mock_runner.context = MagicMock()
+
+    executor = TelegramNodeExecutor(mock_runner, chat)
+
+    with pytest.raises(RuntimeError, match="Simulated unhandled error"):
+        await executor(node, ctx)
+
+    # 核心断言：异常抛出后，锁必须被可靠释放
+    assert executor._runner_state_lock.locked() is False
+
+
+@pytest.mark.asyncio
+async def test_adapter_lock_release_during_parallel_branches():
+    """验证在并行分支执行期间互斥串行化，且在正常完成与异常时均可靠释放锁。"""
+    chat = SignChatV3(chat_id=8888, actions=[])
+    branch_a = ExecutionGraph(
+        entry_node_id="act_a",
+        nodes={
+            "act_a": ActionNode(
+                id="act_a",
+                metadata={"raw_action": SendTextAction(text="/a")},
+            )
+        },
+    )
+    branch_b = ExecutionGraph(
+        entry_node_id="act_b",
+        nodes={
+            "act_b": ActionNode(
+                id="act_b",
+                metadata={"raw_action": SendTextAction(text="/b")},
+            )
+        },
+    )
+    parallel_node = ParallelNode(
+        id="par_node",
+        branches=[branch_a, branch_b],
+    )
+    graph = ExecutionGraph(
+        entry_node_id="par_node",
+        nodes={"par_node": parallel_node},
+    )
+    ctx = ScopedFlowContext()
+
+    active_executions = 0
+    max_active_executions = 0
+
+    mock_runner = MagicMock()
+    mock_runner.context = MagicMock()
+
+    async def concurrent_wait_for(
+        chat_obj, action_obj, next_action=None, timeout=None
+    ):
+        nonlocal active_executions, max_active_executions
+        active_executions += 1
+        if active_executions > max_active_executions:
+            max_active_executions = active_executions
+        await asyncio.sleep(0.01)
+        active_executions -= 1
+        return True
+
+    mock_runner.wait_for = AsyncMock(side_effect=concurrent_wait_for)
+
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
+    engine = PulseFlowEngine()
+
+    result = await engine.run(graph, ctx, executor)
+    assert result["status"] == "success"
+
+    # 由于 _runner_state_lock 的保护，即使两个分支并行启动，对底层 runner 的调用始终是串行的
+    assert max_active_executions == 1
+    # 核心断言：并行分支结束后锁处于释放状态
+    assert executor._runner_state_lock.locked() is False
+
+
+@pytest.mark.asyncio
+async def test_adapter_lock_release_during_subflows():
+    """验证子图（SubflowNode）执行及其异常情况下锁的获取与释放生命周期。"""
+    chat = SignChatV3(chat_id=9999, actions=[])
+    subflow_graph = ExecutionGraph(
+        entry_node_id="sub_step1",
+        nodes={
+            "sub_step1": ActionNode(
+                id="sub_step1",
+                next_node_id="sub_step2",
+                metadata={"raw_action": SendTextAction(text="/sub1")},
+            ),
+            "sub_step2": ActionNode(
+                id="sub_step2",
+                metadata={"raw_action": SendTextAction(text="/sub2")},
+            ),
+        },
+    )
+    root_node = SubflowNode(
+        id="subflow_root",
+        subflow_graph=subflow_graph,
+    )
+    graph = ExecutionGraph(
+        entry_node_id="subflow_root",
+        nodes={"subflow_root": root_node},
+    )
+    ctx = ScopedFlowContext()
+
+    mock_runner = MagicMock()
+    mock_runner.context = MagicMock()
+    mock_runner.wait_for = AsyncMock(return_value=True)
+
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
+    engine = PulseFlowEngine()
+
+    res = await engine.run(graph, ctx, executor)
+    assert res["status"] == "success"
+    assert mock_runner.wait_for.call_count == 2
+    # 核心断言：子图执行完成后锁完全释放
+    assert executor._runner_state_lock.locked() is False
+
+
+@pytest.mark.asyncio
+async def test_adapter_action_context_and_side_effects_routed_via_bridge():
+    """验证 action context 与 side_effect 标记完整经由 compat bridge 治理，且在异常时可靠清理。"""
+    chat = SignChatV3(chat_id=777, actions=[SendTextAction(text="/test_action")])
+    graph = GraphNormalizer.from_chat(chat)
+    ctx = ScopedFlowContext()
+
+    mock_runner = MagicMock()
+    mock_runner.context = MagicMock()
+    mock_runner.context.pulseflow_side_effect_started = False
+    mock_runner.wait_for = AsyncMock(return_value=MagicMock(id=999, text="ack"))
+
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
+    engine = PulseFlowEngine()
+
+    res = await engine.run(graph, ctx, executor)
+    assert res["status"] == "success"
+
+    # 验证 set 与 clear 动作上下文均被调用
+    mock_runner._set_current_action_context.assert_called_once()
+    mock_runner._clear_current_action_context.assert_called_once()
+    # 验证副作用标记被正确更新
+    assert mock_runner.context.pulseflow_side_effect_started is True
