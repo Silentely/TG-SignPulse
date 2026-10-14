@@ -1,20 +1,18 @@
 """
-签到历史读写 Mixin
-
-从 SignTaskService 抽出的历史查询/删除/落盘逻辑，保持公开 API 不变。
-依赖宿主：run_history_dir, signs_dir, _tasks_cache, _history_max_* 与路径/列表 helper。
+backend.services.sign_task_history_ops (DEPRECATED):
+向后兼容薄代理层。核心历史逻辑已全部迁移并深化至 SignTaskHistoryStore。
+保留 SignTaskHistoryMixin 及相关重导出以兼容存量测试与外部引用，消除跨边界状态侵入。
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.services.sign_task_failure import classify_failure
 from backend.services.sign_task_history_format import (
+    build_history_list_item,
     build_history_run_entry,
     clamp_limit,
     normalize_and_trim_flow_logs,
@@ -24,6 +22,8 @@ from backend.services.sign_task_history_index import (
     append_index_entry,
     build_index_entry,
     list_recent_from_index,
+    read_index_entries,
+    rebuild_index_from_history_files,
     remove_index_entries_matching,
 )
 from backend.services.sign_task_history_index import (
@@ -33,10 +33,24 @@ from backend.services.sign_task_history_index import (
     ensure_index as ensure_history_index,
 )
 from backend.services.sign_task_history_io import (
-    count_history_entries as count_history_entries_io,
+    cleanup_old_history_files,
+    count_history_entries,
+    filter_history_entries,
+    history_file_owner,
+    history_file_path,
+    legacy_history_file_path,
+    load_history_entries,
+    load_history_payload_from_file,
+    merge_history_payloads,
+    migrate_legacy_history_file,
+    patch_tasks_cache_last_run,
+    resolve_existing_history_file,
+    safe_history_key,
+    split_history_entries_by_account,
+    unsafe_history_key,
 )
 from backend.services.sign_task_history_io import (
-    history_file_owner,
+    count_history_entries as count_history_entries_io,
 )
 from backend.services.sign_task_history_io import (
     legacy_history_file_path as legacy_history_file_path_io,
@@ -58,6 +72,7 @@ from backend.services.sign_task_history_query import (
     find_history_item_by_time,
     sort_history_items_desc,
 )
+from backend.services.sign_task_history_store import SignTaskHistoryStore
 from backend.utils.atomic_io import (
     path_write_lock,
     read_json_safe,
@@ -70,54 +85,67 @@ _logger = logging.getLogger("backend.sign_task_history_ops")
 
 
 class SignTaskHistoryMixin:
-    """历史相关方法；由 SignTaskService 继承。"""
+    """历史相关方法向后兼容 Mixin；历史领域业务委托至 SignTaskHistoryStore。"""
 
-    # 以下方法是对历史 IO/格式化模块的偏函数封装：
-    # 将 SignTaskService 实例属性（repair 函数、limits、目录）预埋为默认参数，
-    # 避免调用方每次都手动传入。并非冗余透传，而是"实例配置 → 纯函数"的适配层。
+    @property
+    def history_store(self) -> SignTaskHistoryStore:
+        store = getattr(self, "_history_store_instance", None)
+        if (
+            store is None
+            or getattr(store, "history_dir", None)
+            != getattr(self, "run_history_dir", None)
+        ):
+            signs_dir = getattr(self, "signs_dir", None)
+            store = SignTaskHistoryStore(
+                self.run_history_dir,
+                signs_dir,
+                max_entries_per_file=getattr(self, "_history_max_entries", 50),
+                max_flow_lines=getattr(self, "_history_max_flow_lines", 200),
+                max_line_chars=getattr(self, "_history_max_line_chars", 500),
+            )
+            self._history_store_instance = store
+        return store
 
     def _normalize_flow_logs(
         self, flow_logs: Optional[List[str]]
     ) -> tuple[List[str], bool, int]:
         return normalize_and_trim_flow_logs(
             flow_logs,
-            repair=self._repair_mojibake,
-            max_lines=self._history_max_flow_lines,
-            max_line_chars=self._history_max_line_chars,
+            repair=getattr(self, "_repair_mojibake", lambda s: s),
+            max_lines=getattr(self, "_history_max_flow_lines", 200),
+            max_line_chars=getattr(self, "_history_max_line_chars", 500),
         )
 
     def _load_history_entries(
         self, task_name: str, account_name: str = ""
     ) -> List[Dict[str, Any]]:
-        return load_history_entries_io(
+        return load_history_entries(
             self.run_history_dir, task_name, account_name=account_name
         )
 
     def _resolve_existing_history_file(
         self, task_name: str, account_name: str = ""
     ) -> Optional[Path]:
-        return resolve_existing_history_file_io(
-            self.run_history_dir, task_name, account_name
-        )
+        return self.history_store.resolve_history_file(account_name, task_name)
 
     def _legacy_history_candidates(
         self, task_name: str, account_name: str
     ) -> List[Path]:
-        """升级前可能落盘的遗留历史文件：账号维度旧编码 + 旧版单账号共享布局。"""
-        candidates: List[Path] = []
-        if account_name:
-            candidates.append(
-                legacy_history_file_path_io(
-                    self.run_history_dir, task_name, account_name
-                )
-            )
-        candidates.append(legacy_history_file_path_io(self.run_history_dir, task_name))
-        target = self._history_file_path(task_name, account_name)
-        return [path for path in candidates if path != target]
+        return self.history_store.legacy_history_candidates(account_name, task_name)
 
     @staticmethod
     def _load_history_payload_from_file(history_file: Path) -> List[Any]:
-        return load_history_payload_from_file_io(history_file)
+        return load_history_payload_from_file(history_file)
+
+    @staticmethod
+    def _count_history_entries(data: Any) -> int:
+        return count_history_entries(data)
+
+    def _safe_history_key(self, name: str) -> str:
+        return safe_history_key(name)
+
+    def _history_file_path(self, task_name: str, account_name: str = "") -> Path:
+        return self.history_store.get_history_file_path(account_name, task_name)
 
     def _set_task_last_run_metadata(
         self,
@@ -133,8 +161,6 @@ class SignTaskHistoryMixin:
         if task_dir is not None:
             config_file = task_dir / "config.json"
             if config_file.exists():
-                # 读-改-写全程持路径锁：签到回写 last_run 与任务 CRUD 常并发，
-                # 无锁时后写者会覆盖对方的字段（丢失更新）
                 try:
                     with path_write_lock(config_file):
                         config = read_json_safe(config_file, default=None)
@@ -145,12 +171,11 @@ class SignTaskHistoryMixin:
                                 config.pop("last_run", None)
                             write_json_atomic(config_file, config)
                 except Exception as exc:
-                    _logger.warning(
-                        "回写任务元数据 last_run 失败: %s (%s)", config_file, exc
-                    )
+                    _logger.warning("回写任务元数据 last_run 失败: %s (%s)", config_file, exc)
 
-        if self._tasks_cache is not None:
-            for task in self._tasks_cache:
+        tasks_cache = getattr(self, "_tasks_cache", None)
+        if tasks_cache is not None:
+            for task in tasks_cache:
                 if not isinstance(task, dict):
                     continue
                 if (
@@ -163,279 +188,6 @@ class SignTaskHistoryMixin:
                 else:
                     task.pop("last_run", None)
                 break
-
-    def get_account_history_logs(self, account_name: str) -> List[Dict[str, Any]]:
-        """获取某账号下所有任务的最近历史日志"""
-        account_name = validate_storage_name(account_name, field_name="account_name")
-        all_history: List[Dict[str, Any]] = []
-        if not self.run_history_dir.exists():
-            return []
-
-        # 仅读取该账号任务相关历史，避免全目录扫描
-        tasks = self.list_tasks(account_name=account_name)
-        seen_tasks: set[str] = set()
-
-        for task in tasks:
-            task_name = str(task.get("name") or "").strip()
-            if not task_name or task_name in seen_tasks:
-                continue
-            seen_tasks.add(task_name)
-
-            all_history.extend(
-                collect_formatted_history_items(
-                    self._load_history_entries(task_name, account_name=account_name),
-                    task_name=task_name,
-                    account_name=account_name,
-                    repair=self._repair_mojibake,
-                    extract_last_target=extract_last_target_message,
-                )
-            )
-
-        return sort_history_items_desc(all_history)
-
-    def get_recent_history_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """最近历史：优先读轻量索引（O(尾部)），避免全任务扫盘。"""
-        limit = clamp_limit(limit, minimum=1, maximum=200)
-        try:
-            ensure_history_index(self.run_history_dir)
-            indexed = list_recent_from_index(
-                self.run_history_dir,
-                limit=limit,
-                prefer_memory=True,
-            )
-            if indexed is not None:
-                # 索引条目已是列表展示结构（无 flow_logs）；补齐兼容字段
-                return [
-                    {
-                        **item,
-                        "created_at": item.get("created_at") or item.get("time") or "",
-                        "flow_logs": item.get("flow_logs") or [],
-                        "flow_truncated": bool(item.get("flow_truncated", False)),
-                        "flow_line_count": int(item.get("flow_line_count") or 0),
-                        "last_target_message": str(
-                            item.get("last_target_message") or ""
-                        ),
-                        "bot_message": str(item.get("message") or ""),
-                    }
-                    for item in indexed
-                ]
-        except Exception as exc:
-            _logger.debug("历史索引读取失败，回退全量扫描: %s", exc)
-
-        # 回退：全任务扫描（索引缺失或损坏时）
-        recent: List[Dict[str, Any]] = []
-        seen_pairs: set[tuple[str, str]] = set()
-
-        for task in self.list_tasks(force_refresh=False, aggregate=False):
-            task_name = str(task.get("name") or "").strip()
-            account_name = str(task.get("account_name") or "").strip()
-            if not task_name or not account_name:
-                continue
-
-            pair = (account_name, task_name)
-            if pair in seen_pairs:
-                continue
-            seen_pairs.add(pair)
-
-            history = self._load_history_entries(task_name, account_name=account_name)
-            recent.extend(
-                collect_formatted_history_items(
-                    history[:limit],
-                    task_name=task_name,
-                    account_name=account_name,
-                    repair=self._repair_mojibake,
-                    extract_last_target=extract_last_target_message,
-                )
-            )
-
-        return sort_history_items_desc(recent, limit=limit)
-
-    def get_filtered_history_logs(
-        self,
-        account_name: Optional[str] = None,
-        date: Optional[str] = None,
-        limit: int = 200,
-    ) -> List[Dict[str, Any]]:
-        """按账号/日期筛选历史。列表场景优先索引；需要 flow_logs 时仍读详情接口。"""
-        limit = clamp_limit(limit, minimum=1, maximum=1000)
-
-        normalized_account = (
-            validate_storage_name(account_name, field_name="account_name")
-            if account_name
-            else None
-        )
-        normalized_date = str(date or "").strip()[:10]
-
-        try:
-            ensure_history_index(self.run_history_dir)
-            # 无账号/日期过滤时优先读进程内内存索引（O(1) 取尾部），
-            # 避免每次列表请求都整文件 readlines 扫索引文件
-            prefer_memory = not normalized_account and not normalized_date
-            indexed = list_recent_from_index(
-                self.run_history_dir,
-                limit=limit,
-                account_name=normalized_account,
-                date_prefix=normalized_date,
-                prefer_memory=prefer_memory,
-            )
-            if indexed is not None:
-                return [
-                    {
-                        **item,
-                        "created_at": item.get("created_at") or item.get("time") or "",
-                        "flow_logs": item.get("flow_logs") or [],
-                        "flow_truncated": bool(item.get("flow_truncated", False)),
-                        "flow_line_count": int(item.get("flow_line_count") or 0),
-                        "last_target_message": str(
-                            item.get("last_target_message") or ""
-                        ),
-                        "bot_message": str(item.get("message") or ""),
-                    }
-                    for item in indexed
-                ]
-        except Exception as exc:
-            _logger.debug("筛选历史索引失败，回退全量: %s", exc)
-
-        history_items: List[Dict[str, Any]] = []
-        seen_pairs: set[tuple[str, str]] = set()
-
-        for task in self.list_tasks(
-            account_name=normalized_account,
-            force_refresh=False,
-            aggregate=False,
-        ):
-            task_name = str(task.get("name") or "").strip()
-            current_account = str(task.get("account_name") or "").strip()
-            if not task_name or not current_account:
-                continue
-
-            pair = (current_account, task_name)
-            if pair in seen_pairs:
-                continue
-            seen_pairs.add(pair)
-
-            history = self._load_history_entries(
-                task_name, account_name=current_account
-            )
-            history_items.extend(
-                collect_formatted_history_items(
-                    history,
-                    task_name=task_name,
-                    account_name=current_account,
-                    repair=self._repair_mojibake,
-                    extract_last_target=extract_last_target_message,
-                    date_prefix=normalized_date,
-                )
-            )
-
-        return sort_history_items_desc(history_items, limit=limit)
-
-    def get_history_log_detail(
-        self,
-        account_name: str,
-        task_name: str,
-        created_at: str,
-    ) -> Optional[Dict[str, Any]]:
-        normalized_account = validate_storage_name(
-            account_name, field_name="account_name"
-        )
-        normalized_task = validate_storage_name(task_name, field_name="task_name")
-        return find_history_item_by_time(
-            self._load_history_entries(
-                normalized_task, account_name=normalized_account
-            ),
-            target_time=created_at,
-            task_name=normalized_task,
-            account_name=normalized_account,
-            repair=self._repair_mojibake,
-            extract_last_target=extract_last_target_message,
-        )
-
-    def delete_history_log(
-        self,
-        account_name: str,
-        task_name: str,
-        created_at: str,
-    ) -> bool:
-        normalized_account = validate_storage_name(
-            account_name, field_name="account_name"
-        )
-        normalized_task = validate_storage_name(task_name, field_name="task_name")
-        target_time = str(created_at or "").strip()
-        if not target_time:
-            return False
-
-        history_file = self._resolve_existing_history_file(
-            normalized_task, normalized_account
-        )
-        if history_file is None:
-            return False
-
-        raw_entries = self._load_history_payload_from_file(history_file)
-        kept_entries: List[Any] = []
-        deleted = False
-
-        for entry in raw_entries:
-            if not isinstance(entry, dict):
-                kept_entries.append(entry)
-                continue
-
-            entry_time = str(entry.get("time") or "")
-            entry_account = str(entry.get("account_name") or "")
-            # 无 account_name 的旧格式条目：仅在请求方就是该文件的宿主账号时
-            # 才视为可删，避免删到其他账号共享文件里的条目
-            account_matches = entry_account == normalized_account or (
-                not entry_account
-                and history_file_owner(history_file) == normalized_account
-            )
-
-            if not deleted and entry_time == target_time and account_matches:
-                deleted = True
-                continue
-
-            kept_entries.append(entry)
-
-        if not deleted:
-            return False
-
-        if kept_entries:
-            write_json_atomic(history_file, kept_entries)
-        else:
-            try:
-                history_file.unlink()
-            except FileNotFoundError:
-                pass
-
-        remaining_entries = [
-            entry
-            for entry in kept_entries
-            if isinstance(entry, dict)
-            and str(entry.get("account_name") or normalized_account)
-            == normalized_account
-        ]
-        remaining_entries.sort(
-            key=lambda item: str(item.get("time") or ""), reverse=True
-        )
-        latest_entry = remaining_entries[0] if remaining_entries else None
-        self._set_task_last_run_metadata(
-            normalized_task,
-            normalized_account,
-            latest_entry if isinstance(latest_entry, dict) else None,
-        )
-        try:
-            remove_index_entries_matching(
-                self.run_history_dir,
-                account_name=normalized_account,
-                task_name=normalized_task,
-                created_at=target_time,
-            )
-        except Exception as exc:
-            _logger.debug("删除历史索引条目失败: %s", exc)
-        return True
-
-    @staticmethod
-    def _count_history_entries(data: Any) -> int:
-        return count_history_entries_io(data)
 
     def _clear_task_last_run_metadata(
         self, task_name: str, account_name: str = ""
@@ -461,184 +213,18 @@ class SignTaskHistoryMixin:
         except Exception as exc:
             _logger.debug("清理 last_run 元数据失败: %s (%s)", config_file, exc)
 
-    def clear_all_history_logs(self) -> Dict[str, int]:
-        removed_files = 0
-        removed_entries = 0
-
-        if not self.run_history_dir.exists():
-            return {"removed_files": 0, "removed_entries": 0}
-
-        seen_tasks: set[tuple[str, str]] = set()
-        for task in self.list_tasks(force_refresh=True, aggregate=False):
-            task_name = str(task.get("name") or "").strip()
-            account_name = str(task.get("account_name") or "").strip()
-            if not task_name:
-                continue
-            key = (account_name, task_name)
-            if key in seen_tasks:
-                continue
-            seen_tasks.add(key)
-            self._clear_task_last_run_metadata(task_name, account_name)
-
-        if self._tasks_cache is not None:
-            for task in self._tasks_cache:
-                if isinstance(task, dict):
-                    task.pop("last_run", None)
-
-        for history_file in self.run_history_dir.glob("*.json"):
-            try:
-                data = read_json_safe(history_file, default=[])
-                removed_entries += self._count_history_entries(data)
-            except Exception as exc:
-                _logger.warning("读取历史文件失败: %s (%s)", history_file, exc)
-            try:
-                history_file.unlink()
-                removed_files += 1
-            except Exception as exc:
-                _logger.warning("删除历史文件失败: %s (%s)", history_file, exc)
-
-        try:
-            clear_history_index(self.run_history_dir)
-        except Exception as exc:
-            _logger.debug("清空历史索引失败: %s", exc)
-
-        return {"removed_files": removed_files, "removed_entries": removed_entries}
-
-    def clear_account_history_logs(self, account_name: str) -> Dict[str, int]:
-        """清理某账号的历史日志，不影响其他账号"""
-        account_name = validate_storage_name(account_name, field_name="account_name")
-        removed_files = 0
-        removed_entries = 0
-
-        if not self.run_history_dir.exists():
-            return {"removed_files": 0, "removed_entries": 0}
-
-        tasks = self.list_tasks(account_name=account_name)
-        for task in tasks:
-            task_name = task.get("name") or ""
-            if not task_name:
-                continue
-
-            self._clear_task_last_run_metadata(task_name, account_name)
-            if self._tasks_cache is not None:
-                for t in self._tasks_cache:
-                    if not isinstance(t, dict):
-                        continue
-                    if t["name"] == task_name and t.get("account_name") == account_name:
-                        t.pop("last_run", None)
-                        break
-
-            history_file = self._history_file_path(task_name, account_name)
-            if history_file.exists():
-                try:
-                    data = read_json_safe(history_file, default=[])
-                    entries = data if isinstance(data, list) else [data]
-                    # 按下标切分，避免用 dict 相等性误伤完全相同的重复条目
-                    own_idx = [
-                        i
-                        for i, e in enumerate(entries)
-                        if isinstance(e, dict)
-                        and str(e.get("account_name") or account_name) == account_name
-                    ]
-                    own_set = set(own_idx)
-                    removed_entries += len(own_idx)
-                    others = [e for i, e in enumerate(entries) if i not in own_set]
-                except Exception as exc:
-                    _logger.warning("读取历史文件失败: %s (%s)", history_file, exc)
-                    others = None
-                # 仅当剩余条目全部属于该账号时才整文件删除，
-                # 否则文件里还混着其他账号的条目（多账号共享文件名时会发生）
-                if not others:
-                    try:
-                        history_file.unlink()
-                        removed_files += 1
-                    except Exception as exc:
-                        _logger.warning("删除历史文件失败: %s (%s)", history_file, exc)
-                elif others is not None:
-                    try:
-                        write_json_atomic(history_file, others)
-                    except Exception as exc:
-                        _logger.warning("回写历史文件失败: %s (%s)", history_file, exc)
-                continue
-
-            # 遗留文件可能有两种布局（升级前的账号维度命名、旧版单账号共享文件），
-            # 只清当前编码路径会留下孤儿文件，账号改名/删除后历史仍残留在磁盘
-            for legacy_file in self._legacy_history_candidates(task_name, account_name):
-                if not legacy_file.exists():
-                    continue
-
-                try:
-                    data = read_json_safe(legacy_file, default=[])
-                    if isinstance(data, dict):
-                        data_list = [data]
-                    elif isinstance(data, list):
-                        data_list = data
-                    else:
-                        data_list = []
-                except Exception as exc:
-                    _logger.warning(
-                        "读取遗留历史文件失败，跳过: %s (%s)", legacy_file, exc
-                    )
-                    continue
-
-                if not data_list:
-                    try:
-                        legacy_file.unlink()
-                        removed_files += 1
-                    except Exception as exc:
-                        _logger.warning(
-                            "删除遗留历史文件失败: %s (%s)", legacy_file, exc
-                        )
-                    continue
-
-                from backend.services.sign_task_history_io import (
-                    plan_legacy_history_clear,
-                )
-
-                plan = plan_legacy_history_clear(data_list, account_name)
-                removed_entries += int(plan.get("removed_entries") or 0)
-                if plan.get("remove_file"):
-                    try:
-                        legacy_file.unlink()
-                        removed_files += 1
-                    except Exception as exc:
-                        _logger.warning(
-                            "删除遗留历史文件失败: %s (%s)", legacy_file, exc
-                        )
-                else:
-                    try:
-                        write_json_atomic(legacy_file, plan.get("kept") or [])
-                    except Exception as exc:
-                        _logger.warning(
-                            "回写遗留历史文件失败: %s (%s)", legacy_file, exc
-                        )
-
-        try:
-            remove_index_entries_matching(
-                self.run_history_dir,
-                account_name=account_name,
-            )
-        except Exception as exc:
-            _logger.debug("按账号清理历史索引失败: %s", exc)
-
-        return {"removed_files": removed_files, "removed_entries": removed_entries}
-
     def _get_last_run_info(
         self, task_dir: Path, account_name: str = ""
     ) -> Optional[Dict[str, Any]]:
-        """
-        获取任务的最后执行信息
-        """
-        # 与 load_history_entries 共用同一套解析：当前编码路径 → 旧编码路径 →
-        # 旧版单账号布局，避免只认新路径时把升级前的历史判成「无记录」
-        history_file = self._resolve_existing_history_file(task_dir.name, account_name)
+        history_file = self.history_store.resolve_history_file(
+            account_name, task_dir.name
+        )
         if history_file is None:
             return None
-
         try:
             data = read_json_safe(history_file, default=None)
             if isinstance(data, list) and len(data) > 0:
-                return data[0]  # 最近的一条
+                return data[0]
             elif isinstance(data, dict):
                 return data
             return None
@@ -653,189 +239,276 @@ class SignTaskHistoryMixin:
         account_name: str = "",
         flow_logs: Optional[List[str]] = None,
         workflow_path: Optional[List[str]] = None,
-    ):
-        """保存任务执行历史 (保留列表)"""
-        from backend.utils.time import utc_now_iso
+    ) -> Dict[str, Any]:
+        store = self.history_store
+        if hasattr(self, "_history_max_entries"):
+            store.max_entries_per_file = self._history_max_entries
+        if hasattr(self, "_history_max_flow_lines"):
+            store.max_flow_lines = self._history_max_flow_lines
+        if hasattr(self, "_history_max_line_chars"):
+            store.max_line_chars = self._history_max_line_chars
 
-        history_file = self._history_file_path(task_name, account_name)
-        # 编码变更前的旧文件先迁移到当前路径：否则本次写入会让旧历史条目被新文件
-        # 「顶掉」而不可见（名称含 _ / % 的账号或任务必然命中），旧文件也会残留
-        migrate_legacy_history_file_io(
-            self.run_history_dir,
-            task_name,
-            account_name,
-            max_entries=self._history_max_entries,
+        entry_payload = {
+            "success": success,
+            "message": message,
+            "flow_logs": flow_logs,
+            "workflow_path": workflow_path,
+        }
+        run_entry = store.record_run(
+            account=account_name,
+            task=task_name,
+            entry=entry_payload,
+            publish_event=True,
         )
-        normalized_logs, flow_truncated, flow_line_count = self._normalize_flow_logs(
-            flow_logs
-        )
-        last_target_message = extract_last_target_message(normalized_logs)
 
-        category = classify_failure(
-            error=None if success else message,
-            output="\n".join(normalized_logs[-50:]) if normalized_logs else message,
-            success=success,
-        )
-        new_entry = build_history_run_entry(
-            success=success,
-            message=message,
+        self._set_task_last_run_metadata(task_name, account_name, run_entry)
+
+        patch_tasks_cache_last_run(
+            getattr(self, "_tasks_cache", None),
+            task_name=task_name,
             account_name=account_name,
-            # 与 background_job/SSE 等全局时间源一致（UTC 带时区），
-            # 避免 naive 本地时间被前端按浏览器时区误解析
-            timestamp=utc_now_iso(),
-            normalized_logs=normalized_logs,
-            flow_truncated=flow_truncated,
-            flow_line_count=flow_line_count,
-            last_target_message=last_target_message,
-            failure_category=category.value,
-            repair=self._repair_mojibake,
-            workflow_path=workflow_path,
+            last_run=run_entry,
         )
+        sync_fn = getattr(self, "_sync_tasks_list_ttl", None)
+        if callable(sync_fn):
+            sync_fn()
+        return run_entry
 
-        history_raw: Any = []
-        if history_file.exists():
-            try:
-                history_raw = read_json_safe(history_file, default=[])
-            except (
-                OSError,
-                json.JSONDecodeError,
-                UnicodeDecodeError,
-                TypeError,
-                ValueError,
-            ) as exc:
-                _logger.warning(
-                    "读取历史失败 task=%s account=%s file=%s: %s",
-                    task_name,
-                    account_name,
-                    history_file,
-                    exc,
-                )
-                history_raw = []
-
-        history = prepend_history_entry(
-            history_raw,
-            new_entry,
-            max_entries=self._history_max_entries,
-        )
-
-        try:
-            write_json_atomic(history_file, history)
-
-            # 同时更新任务配置中的 last_run（统一走 _set_task_last_run_metadata，
-            # 消除 read-modify-write 双份实现与每次签到多一次的 get_task 读盘）
-            from backend.services.sign_task_history_io import (
-                patch_tasks_cache_last_run,
-            )
-
-            self._set_task_last_run_metadata(task_name, account_name, new_entry)
-
-            # 更新内存缓存（避免置空 self._tasks_cache）
-            patch_tasks_cache_last_run(
-                self._tasks_cache,
-                task_name=task_name,
-                account_name=account_name,
-                last_run=new_entry,
-            )
-            self._sync_tasks_list_ttl()
-
-            # 轻量索引：供 SSE / 最近日志 O(1) 读取
-            try:
-                append_index_entry(
-                    self.run_history_dir,
-                    build_index_entry(
-                        time=str(new_entry.get("time") or ""),
-                        account_name=account_name,
-                        task_name=task_name,
-                        success=bool(success),
-                        message=str(new_entry.get("message") or message or ""),
-                        failure_category=str(
-                            new_entry.get("failure_category") or category.value or ""
-                        ),
-                        workflow_path=workflow_path,
-                    ),
-                )
-            except Exception as idx_exc:
-                _logger.debug(
-                    "追加历史索引失败 task=%s account=%s: %s",
-                    task_name,
-                    account_name,
-                    idx_exc,
-                )
-
-        except (OSError, TypeError, ValueError) as e:
-            _logger.warning(
-                "保存运行信息失败 task=%s account=%s: %s",
-                task_name,
-                account_name,
-                e,
-            )
-
-    def get_history_trends(self, days: int = 7) -> Dict[str, Any]:
-        """按天聚合最近 N 天的签到历史趋势与成功率指标。"""
-        days = max(1, min(int(days), 90))
-        cutoff_date = datetime.now() - timedelta(days=days - 1)
-        start_date_str = cutoff_date.strftime("%Y-%m-%d")
-
-        daily_buckets: Dict[str, Dict[str, Any]] = {}
-        for i in range(days):
-            d_str = (cutoff_date + timedelta(days=i)).strftime("%Y-%m-%d")
-            daily_buckets[d_str] = {
-                "date": d_str,
-                "total": 0,
-                "success": 0,
-                "failed": 0,
-                "success_rate": 1.0,
-            }
-
+    def get_recent_history_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        limit = clamp_limit(limit, minimum=1, maximum=200)
         try:
             ensure_history_index(self.run_history_dir)
-            from backend.services.sign_task_history_index import read_index_entries
-
-            entries = read_index_entries(self.run_history_dir, limit=5000)
-        except Exception as e:
-            _logger.debug("读取历史索引趋势失败: %s", e)
-            entries = []
-
-        total_runs = 0
-        total_success = 0
-        categories: Dict[str, int] = {}
-
-        for entry in entries:
-            ts_str = str(entry.get("time") or entry.get("created_at") or "")
-            date_key = ts_str[:10] if len(ts_str) >= 10 else ""
-            if not date_key or date_key < start_date_str:
-                continue
-
-            if date_key in daily_buckets:
-                daily_buckets[date_key]["total"] += 1
-                total_runs += 1
-                if entry.get("success"):
-                    daily_buckets[date_key]["success"] += 1
-                    total_success += 1
-                else:
-                    daily_buckets[date_key]["failed"] += 1
-                    cat = str(entry.get("failure_category") or "unknown")
-                    if cat:
-                        categories[cat] = categories.get(cat, 0) + 1
-
-        trends_list = []
-        for d_str in sorted(daily_buckets.keys()):
-            item = daily_buckets[d_str]
-            item["success_rate"] = (
-                round(item["success"] / item["total"], 2) if item["total"] > 0 else 1.0
+            indexed = list_recent_from_index(
+                self.run_history_dir,
+                limit=limit,
+                prefer_memory=True,
             )
-            trends_list.append(item)
+            if indexed is not None:
+                return [
+                    {
+                        **item,
+                        "created_at": item.get("created_at") or item.get("time") or "",
+                        "flow_logs": item.get("flow_logs") or [],
+                        "flow_truncated": bool(item.get("flow_truncated", False)),
+                        "flow_line_count": int(item.get("flow_line_count") or 0),
+                        "last_target_message": str(
+                            item.get("last_target_message") or ""
+                        ),
+                        "bot_message": str(item.get("message") or ""),
+                    }
+                    for item in indexed
+                ]
+        except Exception as exc:
+            _logger.debug("历史索引读取失败，回退全量扫描: %s", exc)
 
-        overall_success_rate = (
-            round(total_success / total_runs, 2) if total_runs > 0 else 1.0
+        recent: List[Dict[str, Any]] = []
+        seen_pairs: set[tuple[str, str]] = set()
+        list_tasks = getattr(self, "list_tasks", None)
+        tasks = (
+            list_tasks(force_refresh=False, aggregate=False)
+            if callable(list_tasks)
+            else []
+        )
+        for task in tasks:
+            task_name = str(task.get("name") or "").strip()
+            account_name = str(task.get("account_name") or "").strip()
+            if not task_name or not account_name:
+                continue
+            pair = (account_name, task_name)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            history = self._load_history_entries(task_name, account_name=account_name)
+            recent.extend(
+                collect_formatted_history_items(
+                    history[:limit],
+                    task_name=task_name,
+                    account_name=account_name,
+                    repair=getattr(self, "_repair_mojibake", lambda s: s),
+                    extract_last_target=extract_last_target_message,
+                )
+            )
+        return sort_history_items_desc(recent, limit=limit)
+
+    def get_filtered_history_logs(
+        self,
+        account_name: Optional[str] = None,
+        date: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        limit = clamp_limit(limit, minimum=1, maximum=1000)
+        normalized_account = (
+            validate_storage_name(account_name, field_name="account_name")
+            if account_name
+            else None
+        )
+        normalized_date = str(date or "").strip()[:10]
+        try:
+            ensure_history_index(self.run_history_dir)
+            prefer_memory = not normalized_account and not normalized_date
+            indexed = list_recent_from_index(
+                self.run_history_dir,
+                limit=limit,
+                account_name=normalized_account,
+                date_prefix=normalized_date,
+                prefer_memory=prefer_memory,
+            )
+            if indexed is not None:
+                return [
+                    {
+                        **item,
+                        "created_at": item.get("created_at") or item.get("time") or "",
+                        "flow_logs": item.get("flow_logs") or [],
+                        "flow_truncated": bool(item.get("flow_truncated", False)),
+                        "flow_line_count": int(item.get("flow_line_count") or 0),
+                        "last_target_message": str(
+                            item.get("last_target_message") or ""
+                        ),
+                        "bot_message": str(item.get("message") or ""),
+                    }
+                    for item in indexed
+                ]
+        except Exception as exc:
+            _logger.debug("历史索引按条件读取失败，回退全量扫描: %s", exc)
+
+        recent: List[Dict[str, Any]] = []
+        seen_pairs: set[tuple[str, str]] = set()
+        list_tasks = getattr(self, "list_tasks", None)
+        tasks = (
+            list_tasks(account_name=normalized_account)
+            if normalized_account and callable(list_tasks)
+            else list_tasks(force_refresh=False, aggregate=False)
+            if callable(list_tasks)
+            else []
+        )
+        for task in tasks:
+            task_name = str(task.get("name") or "").strip()
+            item_account = str(task.get("account_name") or "").strip()
+            if not task_name or not item_account:
+                continue
+            pair = (item_account, task_name)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            history = self._load_history_entries(task_name, account_name=item_account)
+            recent.extend(
+                collect_formatted_history_items(
+                    history,
+                    task_name=task_name,
+                    account_name=item_account,
+                    repair=getattr(self, "_repair_mojibake", lambda s: s),
+                    extract_last_target=extract_last_target_message,
+                    date_prefix=normalized_date,
+                )
+            )
+        return sort_history_items_desc(recent, limit=limit)
+
+    def get_account_history_logs(self, account_name: str) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(account=account_name)
+
+    def get_history(
+        self,
+        account: Optional[str] = None,
+        task: Optional[str] = None,
+        limit: int = 50,
+        date_filter: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(
+            account=account, task=task, limit=limit, date_filter=date_filter
         )
 
-        return {
-            "days": days,
-            "total_runs": total_runs,
-            "total_success": total_success,
-            "total_failed": total_runs - total_success,
-            "overall_success_rate": overall_success_rate,
-            "trends": trends_list,
-            "categories": categories,
-        }
+    def get_history_page(
+        self,
+        account: Optional[str] = None,
+        task: Optional[str] = None,
+        limit: int = 50,
+        date_filter: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.get_history(
+            account=account, task=task, limit=limit, date_filter=date_filter
+        )
+
+    def get_task_history(
+        self,
+        task_name: str,
+        account_name: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(
+            account=account_name, task=task_name, limit=limit
+        )
+
+    def get_history_log_detail(
+        self, account_name: str, task_name: str, created_at: str
+    ) -> Optional[Dict[str, Any]]:
+        return self.history_store.get_history_entry(
+            account=account_name, task=task_name, created_at=created_at
+        )
+
+    def get_history_detail(
+        self, account: str, task: str, created_at: str
+    ) -> Optional[Dict[str, Any]]:
+        return self.history_store.get_history_entry(
+            account=account, task=task, created_at=created_at
+        )
+
+    def delete_history_log(
+        self, account_name: str, task_name: str, created_at: str
+    ) -> bool:
+        deleted = self.history_store.delete_history_entry(
+            account=account_name, task=task_name, created_at=created_at
+        )
+        if deleted:
+            latest = self.history_store.query_history(
+                account=account_name, task=task_name, limit=1
+            )
+            latest_entry = latest[0] if latest else None
+            self._set_task_last_run_metadata(task_name, account_name, latest_entry)
+        return deleted
+
+    def delete_history_item(
+        self, account: str, task: str, created_at: str
+    ) -> bool:
+        return self.delete_history_log(account, task, created_at)
+
+    def clear_all_history_logs(self) -> Dict[str, int]:
+        res = self.history_store.clear_history()
+        list_tasks = getattr(self, "list_tasks", None)
+        if callable(list_tasks):
+            for t in list_tasks():
+                t_name = str(t.get("name") or "")
+                acc = str(t.get("account_name") or "")
+                if t_name:
+                    self._clear_task_last_run_metadata(t_name, acc)
+        return res
+
+    def clear_account_history_logs(self, account_name: str) -> Dict[str, int]:
+        res = self.history_store.clear_history(account=account_name)
+        list_tasks = getattr(self, "list_tasks", None)
+        if callable(list_tasks):
+            for t in list_tasks(account_name=account_name):
+                t_name = str(t.get("name") or "")
+                if t_name:
+                    self._clear_task_last_run_metadata(t_name, account_name)
+        return res
+
+    def clear_task_history(
+        self, task_name: str, account_name: Optional[str] = None
+    ) -> Dict[str, int]:
+        res = self.history_store.clear_history(account=account_name, task=task_name)
+        self._clear_task_last_run_metadata(task_name, account_name or "")
+        return res
+
+    def get_history_trends(self, days: int = 7) -> Dict[str, Any]:
+        return self.history_store.get_history_trends(days=days)
+
+    def _cleanup_old_logs(self):
+        try:
+            days = (
+                self._history_max_age_days()
+                if callable(getattr(self, "_history_max_age_days", None))
+                else int(getattr(self, "_history_max_age_days", 30))
+            )
+        except Exception:
+            days = 30
+        return self.history_store.cleanup_expired(max_age_days=days)

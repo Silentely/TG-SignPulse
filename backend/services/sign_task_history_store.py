@@ -65,6 +65,12 @@ logger = logging.getLogger("backend.services.sign_task_history_store")
 class SignTaskHistoryStore:
     """语义完备的签到任务历史数据存储层。"""
 
+    safe_history_key = staticmethod(safe_history_key)
+    unsafe_history_key = staticmethod(unsafe_history_key)
+    load_payload_from_file = staticmethod(load_history_payload_from_file)
+    count_history_entries = staticmethod(count_history_entries)
+    normalize_flow_logs = staticmethod(normalize_and_trim_flow_logs)
+
     def __init__(
         self,
         history_dir: Path | str,
@@ -88,6 +94,25 @@ class SignTaskHistoryStore:
     def resolve_history_file(self, account: str, task: str) -> Optional[Path]:
         """解析任务已存在的历史文件路径（支持向前兼容的旧版编码文件）。"""
         return resolve_existing_history_file(self.history_dir, task, account)
+
+    def load_entries(self, account: str = "", task: str = "") -> List[Dict[str, Any]]:
+        """加载特定账号/任务的历史记录列表。"""
+        return load_history_entries(self.history_dir, task, account_name=account)
+
+    def legacy_history_candidates(
+        self, account: str = "", task: str = ""
+    ) -> List[Path]:
+        """获取旧版历史文件候选路径列表（用于兼容检查）。"""
+        from backend.services.sign_task_history_io import legacy_history_file_path
+
+        candidates: List[Path] = []
+        if account:
+            candidates.append(
+                legacy_history_file_path(self.history_dir, task, account)
+            )
+        candidates.append(legacy_history_file_path(self.history_dir, task))
+        target = self.get_history_file_path(account, task)
+        return [path for path in candidates if path != target]
 
     def record_run(
         self,
@@ -264,7 +289,7 @@ class SignTaskHistoryStore:
                     date_prefix=date_prefix,
                     prefer_memory=False,
                 )
-                if indexed:
+                if indexed is not None:
                     return [
                         {
                             **item,
@@ -311,7 +336,7 @@ class SignTaskHistoryStore:
                 date_prefix=date_prefix,
                 prefer_memory=prefer_memory,
             )
-            if indexed:
+            if indexed is not None:
                 return [
                     {
                         **item,

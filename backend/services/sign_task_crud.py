@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.services.keyword_monitor.rules import validate_action_regex_safety
-from backend.services.sign_task_history_index import rebuild_index_from_history_files
+from backend.services.sign_task_history_store import SignTaskHistoryStore
+
+
+def rebuild_index_from_history_files(run_history_dir: Path) -> int:
+    """向后兼容存根：委托给 SignTaskHistoryStore.rebuild_index()。"""
+    return SignTaskHistoryStore(run_history_dir).rebuild_index()
 from backend.utils.atomic_io import (
     path_write_lock,
     read_json_safe,
@@ -385,7 +390,7 @@ class SignTaskCrudMixin:
         new_name: str,
         account_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """克隆签到任务为新名称（清除运行态字段）。"""
+        """克隆签到任务为新名称（清除运行时字段）。"""
         new_name = validate_storage_name(new_name, field_name="new_name")
         src = self.get_task(task_name, account_name=account_name)
         if not src:
@@ -426,7 +431,7 @@ class SignTaskCrudMixin:
             notify_on_failure=bool(src.get("notify_on_failure", True)),
             notify_on_success=bool(src.get("notify_on_success", True)),
             retry_count=src.get("retry_count"),
-            tags=list(src.get("tags") or []),
+            tags=list(src.get("tags") or []),\
             adaptive_schedule_enabled=bool(src.get("adaptive_schedule_enabled", False)),
             adaptive_schedule_patterns=list(
                 src.get("adaptive_schedule_patterns") or []
@@ -736,18 +741,16 @@ class SignTaskCrudMixin:
             write_json_atomic(config_path, config)
 
         # Delegate history file renaming and account rewriting to history_store primitives
-        from backend.services.sign_task_history_io import (
-            safe_history_key,
-            unsafe_history_key,
-        )
+        safe_history_key = SignTaskHistoryStore.safe_history_key
+        unsafe_history_key = SignTaskHistoryStore.unsafe_history_key
 
         history_store = getattr(self, "history_store", None)
-        if history_store is None and hasattr(self, "run_history_dir") and isinstance(self.run_history_dir, Path):
+        if (
+            history_store is None
+            and hasattr(self, "run_history_dir")
+            and isinstance(self.run_history_dir, Path)
+        ):
             try:
-                from backend.services.sign_task_history_store import (
-                    SignTaskHistoryStore,
-                )
-
                 history_store = SignTaskHistoryStore(
                     self.run_history_dir, getattr(self, "signs_dir", None)
                 )

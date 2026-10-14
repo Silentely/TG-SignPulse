@@ -251,11 +251,12 @@ fastapi、uvicorn、sqlalchemy、apscheduler、pyjwt、bcrypt/passlib、pyotp、
 
 并发边界：账号级 `get_account_lock` + 全局 `get_global_semaphore`；同账号任务串行，跨账号可并行。
 
-### 历史栈（`sign_task_history_*.py`）
+### 历史栈（`sign_task_history_*.py` / `SignTaskHistoryStore`）
 
 | 模块 | 职责 |
 |------|------|
-| `history_ops.SignTaskHistoryMixin` | 对外：列表/筛选/详情/删除/清理；对内 `_save_run_info` |
+| `sign_task_history_store.SignTaskHistoryStore` | 核心领域 Deep Module：持久化、索引维护、查询、单条删除、清理、趋势聚合、重命名原语 |
+| `history_ops.SignTaskHistoryMixin` | （已废弃向后兼容层）薄代理层：委托 SignTaskHistoryStore，兼容存量测试 |
 | `history_io` | 路径、JSON 读写、过期文件清理、`last_run` 缓存补丁 |
 | `history_format` | 条目构造、flow_logs 截断规范化、列表项投影 |
 | `history_query` | 格式化收集、按时间倒序、按 `created_at` 定位 |

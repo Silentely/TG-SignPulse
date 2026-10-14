@@ -31,24 +31,7 @@ from backend.services.sign_task_crud import SignTaskCrudMixin
 from backend.services.sign_task_failure import (
     message_indicates_strong_failure,
 )
-from backend.services.sign_task_history_format import (
-    clamp_limit,
-)
-from backend.services.sign_task_history_io import (
-    cleanup_old_history_files,
-)
-from backend.services.sign_task_history_io import (
-    history_file_path as history_file_path_io,
-)
-from backend.services.sign_task_history_io import (
-    safe_history_key as safe_history_key_io,
-)
-from backend.services.sign_task_history_ops import SignTaskHistoryMixin
 from backend.services.sign_task_history_store import SignTaskHistoryStore
-from backend.services.sign_task_history_query import (
-    collect_formatted_history_items,
-    sort_history_items_desc,
-)
 from backend.services.sign_task_message import (
     format_target_message_summary,
     message_matches_thread,
@@ -453,18 +436,13 @@ class SignTaskService(SignTaskCrudMixin):
             )
         except Exception:
             days = 30
-        store = getattr(self, "history_store", None)
-        if store is not None:
-            return store.cleanup_expired(max_age_days=days)
-        cleanup_old_history_files(
-            self.run_history_dir, max_age_days=days
-        )
+        return self.history_store.cleanup_expired(max_age_days=days)
 
     def _safe_history_key(self, name: str) -> str:
-        return safe_history_key_io(name)
+        return SignTaskHistoryStore.safe_history_key(name)
 
     def _history_file_path(self, task_name: str, account_name: str = "") -> Path:
-        return history_file_path_io(self.run_history_dir, task_name, account_name)
+        return self.history_store.get_history_file_path(account_name, task_name)
 
     @staticmethod
     def _move_storage_path(source: Path, target: Path) -> None:
@@ -947,15 +925,6 @@ class SignTaskService(SignTaskCrudMixin):
         )
 
         self._set_task_last_run_metadata(task_name, account_name, run_entry)
-
-        from backend.services.sign_task_history_io import patch_tasks_cache_last_run
-
-        patch_tasks_cache_last_run(
-            self._tasks_cache,
-            task_name=task_name,
-            account_name=account_name,
-            last_run=run_entry,
-        )
         self._sync_tasks_list_ttl()
         return run_entry
 
@@ -1204,11 +1173,7 @@ class SignTaskService(SignTaskCrudMixin):
     def _normalize_flow_logs(
         self, flow_logs: Optional[List[str]]
     ) -> tuple[List[str], bool, int]:
-        from backend.services.sign_task_history_format import (
-            normalize_and_trim_flow_logs,
-        )
-
-        return normalize_and_trim_flow_logs(
+        return SignTaskHistoryStore.normalize_flow_logs(
             flow_logs,
             repair=self._repair_mojibake,
             max_lines=self._history_max_flow_lines,
@@ -1218,11 +1183,7 @@ class SignTaskService(SignTaskCrudMixin):
     def _load_history_entries(
         self, task_name: str, account_name: str = ""
     ) -> List[Dict[str, Any]]:
-        from backend.services.sign_task_history_io import load_history_entries
-
-        return load_history_entries(
-            self.run_history_dir, task_name, account_name=account_name
-        )
+        return self.history_store.load_entries(account_name, task_name)
 
     def _resolve_existing_history_file(
         self, task_name: str, account_name: str = ""
@@ -1232,32 +1193,15 @@ class SignTaskService(SignTaskCrudMixin):
     def _legacy_history_candidates(
         self, task_name: str, account_name: str
     ) -> List[Path]:
-        from backend.services.sign_task_history_io import legacy_history_file_path
-
-        candidates: List[Path] = []
-        if account_name:
-            candidates.append(
-                legacy_history_file_path(
-                    self.run_history_dir, task_name, account_name
-                )
-            )
-        candidates.append(legacy_history_file_path(self.run_history_dir, task_name))
-        target = self._history_file_path(task_name, account_name)
-        return [path for path in candidates if path != target]
+        return self.history_store.legacy_history_candidates(account_name, task_name)
 
     @staticmethod
     def _load_history_payload_from_file(history_file: Path) -> List[Any]:
-        from backend.services.sign_task_history_io import (
-            load_history_payload_from_file,
-        )
-
-        return load_history_payload_from_file(history_file)
+        return SignTaskHistoryStore.load_payload_from_file(history_file)
 
     @staticmethod
     def _count_history_entries(data: Any) -> int:
-        from backend.services.sign_task_history_io import count_history_entries
-
-        return count_history_entries(data)
+        return SignTaskHistoryStore.count_history_entries(data)
 
     def _append_scheduler_log(self, filename: str, message: str) -> None:
         try:
@@ -1287,10 +1231,9 @@ class SignTaskService(SignTaskCrudMixin):
     def get_task_history_logs(
         self, task_name: str, account_name: Optional[str] = None, limit: int = 20
     ) -> List[Dict[str, Any]]:
-        limit = clamp_limit(limit, minimum=1, maximum=200)
+        limit = max(1, min(int(limit), 200))
 
         if account_name:
-            history = self._load_history_entries(task_name, account_name=account_name)
             result: List[Dict[str, Any]] = []
             try:
                 from backend.services.keyword_monitor import get_keyword_monitor_service
@@ -1306,17 +1249,13 @@ class SignTaskService(SignTaskCrudMixin):
                     "获取监控历史条目失败 %s/%s: %s", account_name, task_name, exc
                 )
 
-            result.extend(
-                collect_formatted_history_items(
-                    history[:limit],
-                    task_name=task_name,
-                    account_name=str(account_name),
-                    repair=self._repair_mojibake,
-                    extract_last_target=extract_last_target_message,
-                    prefer_entry_account=True,
-                )
+            history_items = self.history_store.query_history(
+                account=account_name,
+                task=task_name,
+                limit=limit,
             )
-            return result
+            result.extend(history_items)
+            return result[:limit]
 
         merged: List[Dict[str, Any]] = []
         task = self.get_task(task_name, aggregate=True)
@@ -1334,7 +1273,11 @@ class SignTaskService(SignTaskCrudMixin):
                 )
             )
 
-        return sort_history_items_desc(merged, limit=limit)
+        return sorted(
+            merged,
+            key=lambda x: str(x.get("time") or x.get("created_at") or ""),
+            reverse=True,
+        )[:limit]
 
     def list_tasks(
         self,
