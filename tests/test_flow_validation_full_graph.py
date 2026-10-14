@@ -123,3 +123,48 @@ def test_to_mermaid_sanitizes_node_ids_with_special_characters():
     assert "node with spaces (and brackets)[" not in mermaid
     assert "node_with_spaces__and_brackets_[" in mermaid
     assert "-->|next| target_id_with_dots" in mermaid
+
+
+def test_compile_cross_chat_budget_legacy_keys():
+    """验证以 legacy key {'total_nodes': N} 传递 budget 时能正确累计与熔断。"""
+    nodes = {
+        "step_0": ActionNode(id="step_0", next_node_id="_TERMINAL_COMPLETE"),
+    }
+    graph = ExecutionGraph(entry_node_id="step_0", nodes=nodes)
+    budget = {"total_nodes": 149}
+    compiled = ExecutionGraph.compile(graph, budget=budget)
+    assert compiled.entry_node_id == "step_0"
+    assert budget["total_nodes"] == 150
+    assert budget["current_total_nodes"] == 150
+
+    # 再编译一个节点即超限 (150 + 1 > 150)
+    with pytest.raises(GraphValidationError, match="全任务流程图节点总数超过上限"):
+        ExecutionGraph.compile(graph, budget=budget)
+
+
+def test_compile_subflow_and_parallel_accumulate_budget_and_warnings():
+    """验证子图与并行分支中的节点同样计入 budget 并收集 warnings。"""
+    from tg_signer.core.flow_models import SubflowNode
+
+    sub_orphan = ExecutionGraph(
+        entry_node_id="sub_entry",
+        nodes={
+            "sub_entry": ActionNode(id="sub_entry", next_node_id="_TERMINAL_COMPLETE"),
+            "sub_orphan": ActionNode(id="sub_orphan", next_node_id="_TERMINAL_COMPLETE"),
+        },
+    )
+    root = ExecutionGraph(
+        entry_node_id="root_entry",
+        nodes={
+            "root_entry": SubflowNode(id="root_entry", subflow_graph=sub_orphan, next_node_id="_TERMINAL_COMPLETE"),
+        },
+    )
+
+    budget = {"current_total_nodes": 0}
+    warnings = []
+    compiled = ExecutionGraph.compile(root, budget=budget, warnings=warnings)
+    assert compiled.entry_node_id == "root_entry"
+    # root 有 1 个节点，sub_orphan 有 2 个节点，总计 3 个节点
+    assert budget["total_nodes"] == 3
+    # sub_orphan 中的孤立节点告警应被递归收集
+    assert any("sub_orphan" in w for w in warnings)

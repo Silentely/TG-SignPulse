@@ -172,7 +172,7 @@ class SignerRunnerMixin:
             from tg_signer.core.flow_adapter import TelegramNodeExecutor
             from tg_signer.core.flow_context import ScopedFlowContext
             from tg_signer.core.flow_engine import PulseFlowEngine
-            from tg_signer.core.flow_normalizer import GraphNormalizer
+            from tg_signer.core.flow_models import ExecutionGraph
 
             def _reset_v4_legacy_context() -> None:
                 # v4 使用独立 ScopedFlowContext；清理旧 runner context，避免跨 chat
@@ -200,7 +200,7 @@ class SignerRunnerMixin:
 
             graph = None
             try:
-                graph = GraphNormalizer.from_chat(chat)
+                graph = ExecutionGraph.compile(chat)
             except Exception as norm_err:
                 if allow_fallback and not getattr(
                     self.context, "pulseflow_side_effect_started", False

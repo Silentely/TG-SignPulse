@@ -674,59 +674,44 @@ class SignChatV3(BaseJSONConfig):
             if len(steps) == 0:
                 raise WorkflowConfigError("工作流 steps 列表不能为空")
 
+            # 统一校验 step_id 唯一性与非空
+            step_ids = []
+            for s in steps:
+                s_id = getattr(s, "step_id", None) or (
+                    s.get("step_id") if isinstance(s, dict) else None
+                )
+                if not s_id:
+                    raise WorkflowConfigError("步骤必须包含非空 step_id")
+                if s_id in step_ids:
+                    raise WorkflowConfigError(f"存在重复的 step_id: {s_id}")
+                step_ids.append(s_id)
+
             has_flow_step = any(isinstance(s, FlowStepConfig) for s in steps)
             if not has_flow_step:
-                # 纯旧版 WorkflowStepConfig 流程：完整保留旧校验
                 if not initial_step_id or not str(initial_step_id).strip():
                     raise WorkflowConfigError(
                         "配置工作流 steps 时必须提供 initial_step_id"
                     )
-                step_ids = []
-                for s in steps:
-                    s_id = getattr(s, "step_id", None) or (
-                        s.get("step_id") if isinstance(s, dict) else None
-                    )
-                    if not s_id:
-                        raise WorkflowConfigError("步骤必须包含非空 step_id")
-                    if s_id in step_ids:
-                        raise WorkflowConfigError(f"存在重复的 step_id: {s_id}")
-                    step_ids.append(s_id)
                 if initial_step_id not in step_ids:
                     raise WorkflowConfigError(
                         f"initial_step_id '{initial_step_id}' 不在 steps 列表中"
                     )
 
-                # 静态拓扑校验
-                from tg_signer.core.workflow_engine import (
-                    WorkflowDefinition,
-                    WorkflowEngine,
-                )
+            # 静态拓扑校验：统一通过 ExecutionGraph.compile 进行闭环图校验，替代旧版 WorkflowEngine 校验
+            from tg_signer.core.flow_models import ExecutionGraph
+            from tg_signer.core.flow_normalizer import GraphValidationError
 
-                wf_steps = [
-                    s.to_workflow_step()
-                    if hasattr(s, "to_workflow_step")
-                    else WorkflowStepConfig(**s).to_workflow_step()
-                    for s in steps
-                ]
-                wf_def = WorkflowDefinition(
-                    steps=wf_steps, initial_step_id=initial_step_id
-                )
-                try:
-                    WorkflowEngine.validate_topology(wf_def)
-                except Exception as err:
-                    raise WorkflowConfigError(f"工作流拓扑结构无效: {err}") from err
-            else:
-                # 含有新版 FlowStepConfig 的流程：校验 step_id 唯一性
-                step_ids = []
-                for s in steps:
-                    s_id = getattr(s, "step_id", None) or (
-                        s.get("step_id") if isinstance(s, dict) else None
-                    )
-                    if not s_id:
-                        raise WorkflowConfigError("步骤必须包含非空 step_id")
-                    if s_id in step_ids:
-                        raise WorkflowConfigError(f"存在重复的 step_id: {s_id}")
-                    step_ids.append(s_id)
+            dummy_chat = cls.construct(
+                chat_id=values.get("chat_id", 0),
+                steps=steps,
+                initial_step_id=initial_step_id,
+            )
+            try:
+                ExecutionGraph.compile(dummy_chat)
+            except GraphValidationError as err:
+                raise WorkflowConfigError(f"工作流拓扑结构无效: {err}") from err
+            except Exception as err:
+                raise WorkflowConfigError(f"工作流拓扑结构无效: {err}") from err
 
         return values
 

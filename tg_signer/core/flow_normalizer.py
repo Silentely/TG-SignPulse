@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import html
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from tg_signer.config import (
     ChooseOptionByImageAction,
@@ -58,20 +58,81 @@ class GraphNormalizer:
     """负责将旧版 SignChatV3 (actions/steps) 归一化为统一的 ExecutionGraph IR，并支持静态分析与可视化导出"""
 
     @classmethod
-    def from_chat(cls, chat: SignChatV3) -> ExecutionGraph:
-        if getattr(chat, "flow_graph", None):
-            return cls._from_flow_graph(chat)
-        if getattr(chat, "steps", None) and len(chat.steps) > 0:
-            return cls._from_workflow_steps(chat)
-        return cls._from_linear_actions(chat)
+    def compile(
+        cls,
+        source: Union[SignChatV3, Dict[str, Any], ExecutionGraph],
+        *,
+        budget: Optional[Dict[str, int]] = None,
+        warnings: Optional[List[str]] = None,
+    ) -> ExecutionGraph:
+        """统一图编译入口：
+        1. 保证输入非破坏性（调用方传入的 dict 不会被原地修改）
+        2. 将 SignChatV3 / 字典 / 图对象规范化为 ExecutionGraph
+        3. 统一执行拓扑与连通性校验，支持跨 chat 预算累积与 warnings 收集
+        """
+        import copy
+
+        if isinstance(source, ExecutionGraph):
+            graph = source.copy(deep=True)
+            cls.validate_graph(graph, budget=budget, warnings=warnings)
+            return graph
+
+        if isinstance(source, dict):
+            src = copy.deepcopy(source)
+            if "nodes" in src and ("entry_node_id" in src or "max_total_steps" in src):
+                graph = ExecutionGraph.from_dict(src)
+                graph.max_total_steps = max(60, len(graph.nodes) * 2)
+                cls.validate_graph(graph, budget=budget, warnings=warnings)
+                return graph
+            else:
+                from tg_signer.config import SignChatV3, SupportAction
+
+                src.setdefault("chat_id", 0)
+                if "actions" in src and isinstance(src["actions"], list):
+                    for act in src["actions"]:
+                        if isinstance(act, dict) and isinstance(act.get("action"), str):
+                            try:
+                                act["action"] = SupportAction[act["action"].upper()]
+                            except (KeyError, ValueError):
+                                pass
+                chat_obj = SignChatV3(**src)
+                return cls.from_chat(chat_obj, budget=budget, warnings=warnings)
+
+        from tg_signer.config import SignChatV3
+
+        if isinstance(source, SignChatV3):
+            return cls.from_chat(source, budget=budget, warnings=warnings)
+
+        raise GraphValidationError(f"无法从类型 {type(source).__name__} 编译执行图")
 
     @classmethod
-    def _from_flow_graph(cls, chat: SignChatV3) -> ExecutionGraph:
+    def from_chat(
+        cls,
+        chat: SignChatV3,
+        *,
+        budget: Optional[Dict[str, int]] = None,
+        warnings: Optional[List[str]] = None,
+    ) -> ExecutionGraph:
+        if getattr(chat, "flow_graph", None):
+            return cls._from_flow_graph(chat, budget=budget, warnings=warnings)
+        if getattr(chat, "steps", None) and len(chat.steps) > 0:
+            return cls._from_workflow_steps(chat, budget=budget, warnings=warnings)
+        return cls._from_linear_actions(chat, budget=budget, warnings=warnings)
+
+    @classmethod
+    def _from_flow_graph(
+        cls,
+        chat: SignChatV3,
+        budget: Optional[Dict[str, int]] = None,
+        warnings: Optional[List[str]] = None,
+    ) -> ExecutionGraph:
+        import copy
+
         raw_graph = chat.flow_graph
         if isinstance(raw_graph, ExecutionGraph):
-            graph = raw_graph
+            graph = raw_graph.copy(deep=True)
         elif isinstance(raw_graph, dict):
-            graph = ExecutionGraph.from_dict(raw_graph)
+            graph = ExecutionGraph.from_dict(copy.deepcopy(raw_graph))
         else:
             raise GraphValidationError("flow_graph 必须为字典对象或 ExecutionGraph")
 
@@ -83,11 +144,16 @@ class GraphNormalizer:
 
         # 动态对齐单流程最大执行步数
         graph.max_total_steps = max(60, len(graph.nodes) * 2)
-        cls.validate_graph(graph)
+        cls.validate_graph(graph, budget=budget, warnings=warnings)
         return graph
 
     @classmethod
-    def _from_linear_actions(cls, chat: SignChatV3) -> ExecutionGraph:
+    def _from_linear_actions(
+        cls,
+        chat: SignChatV3,
+        budget: Optional[Dict[str, int]] = None,
+        warnings: Optional[List[str]] = None,
+    ) -> ExecutionGraph:
         nodes: Dict[str, BaseFlowNode] = {}
         raw_actions = getattr(chat, "actions", None) or []
         actions = list(raw_actions)
@@ -171,11 +237,16 @@ class GraphNormalizer:
             nodes[node_id] = node
 
         graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
-        cls.validate_graph(graph)
+        cls.validate_graph(graph, budget=budget, warnings=warnings)
         return graph
 
     @classmethod
-    def _from_workflow_steps(cls, chat: SignChatV3) -> ExecutionGraph:
+    def _from_workflow_steps(
+        cls,
+        chat: SignChatV3,
+        budget: Optional[Dict[str, int]] = None,
+        warnings: Optional[List[str]] = None,
+    ) -> ExecutionGraph:
         from tg_signer.config import FlowStepConfig
 
         nodes: Dict[str, BaseFlowNode] = {}
@@ -261,7 +332,7 @@ class GraphNormalizer:
 
         graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
         graph.max_total_steps = max(60, len(graph.nodes) * 2)
-        cls.validate_graph(graph)
+        cls.validate_graph(graph, budget=budget, warnings=warnings)
         return graph
 
     @staticmethod
@@ -589,13 +660,31 @@ class GraphNormalizer:
                 f"子图嵌套深度超过上限: 当前 {depth} > 最大允许 {MAX_SUBFLOW_DEPTH}"
             )
 
-        if budget is None:
-            budget = {"total_nodes": 0}
-        budget["total_nodes"] += len(graph.nodes)
-        if budget["total_nodes"] > MAX_TOTAL_TASK_NODES:
-            raise GraphValidationError(
-                f"全任务流程图节点总数超过上限: 当前 {budget['total_nodes']} > 最大允许 {MAX_TOTAL_TASK_NODES}"
+        if budget is not None:
+            current_total = budget.get(
+                "current_total_nodes", budget.get("total_nodes", 0)
             )
+            max_limit = budget.get(
+                "max_total_task_nodes", budget.get("max_nodes", MAX_TOTAL_TASK_NODES)
+            )
+            new_total = current_total + len(graph.nodes)
+            if new_total > max_limit:
+                raise GraphValidationError(
+                    f"全任务流程图节点总数超过上限: 当前 {new_total} > 最大允许 {max_limit}"
+                )
+            budget["current_total_nodes"] = new_total
+            budget["total_nodes"] = new_total
+        else:
+            if depth == 1:
+                budget = {
+                    "current_total_nodes": len(graph.nodes),
+                    "total_nodes": len(graph.nodes),
+                    "max_total_task_nodes": MAX_TOTAL_TASK_NODES,
+                }
+                if len(graph.nodes) > MAX_TOTAL_TASK_NODES:
+                    raise GraphValidationError(
+                        f"全任务流程图节点总数超过上限: 当前 {len(graph.nodes)} > 最大允许 {MAX_TOTAL_TASK_NODES}"
+                    )
 
         if graph.entry_node_id not in graph.nodes:
             raise GraphValidationError(f"初始步骤 {graph.entry_node_id} 不在图节点中")
@@ -697,7 +786,10 @@ class GraphNormalizer:
                     neighbors.append(cur_node.default_target_id)
             if isinstance(cur_node, SubflowNode) and cur_node.subflow_graph:
                 cls.validate_graph(
-                    cur_node.subflow_graph, depth=depth + 1, budget=budget
+                    cur_node.subflow_graph,
+                    depth=depth + 1,
+                    budget=budget,
+                    warnings=warnings,
                 )
             if isinstance(cur_node, ParallelNode) and cur_node.branches:
                 if len(cur_node.branches) > MAX_PARALLEL_BRANCHES:
@@ -705,7 +797,12 @@ class GraphNormalizer:
                         f"并行分支数超过上限: 当前 {len(cur_node.branches)} > 最大允许 {MAX_PARALLEL_BRANCHES}"
                     )
                 for branch in cur_node.branches:
-                    cls.validate_graph(branch, depth=depth + 1, budget=budget)
+                    cls.validate_graph(
+                        branch,
+                        depth=depth + 1,
+                        budget=budget,
+                        warnings=warnings,
+                    )
 
             for nxt in neighbors:
                 _dfs(nxt)

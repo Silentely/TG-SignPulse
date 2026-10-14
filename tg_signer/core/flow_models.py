@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, root_validator
 
@@ -256,6 +256,23 @@ class ExecutionGraph(BaseModel):
     error_handler_node_id: Optional[str] = None
     resume_from_node_id: Optional[str] = None
     consecutive_failure_limit: Optional[int] = None
+
+    @classmethod
+    def compile(
+        cls,
+        source: Union[Any, Dict[str, Any]],
+        *,
+        budget: Optional[Dict[str, int]] = None,
+        warnings: Optional[List[str]] = None,
+    ) -> ExecutionGraph:
+        """从 SignChatV3、字典或现有图编译并校验为闭环 ExecutionGraph。
+
+        保证入参非破坏性（不会修改调用方传入的 dict/对象），
+        支持跨 chat 节点预算累计与 warnings 收集。
+        """
+        from tg_signer.core.flow_normalizer import GraphNormalizer
+
+        return GraphNormalizer.compile(source, budget=budget, warnings=warnings)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ExecutionGraph:

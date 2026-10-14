@@ -296,3 +296,182 @@ def test_normalize_ai_action_timeout_adaptation():
 
     node2 = graph.nodes["step_2"]
     assert node2.timeout_seconds == 90.0
+
+
+def test_execution_graph_compile_non_mutating_input_dict():
+    """验证 ExecutionGraph.compile 对传入的原始字典具有严格的非破坏性（不变异）。"""
+    import copy
+
+    source_dict = {
+        "chat_id": 99999,
+        "name": "non_mutating_test",
+        "flow_graph": {
+            "entry_node_id": "wait_step",
+            "nodes": {
+                "wait_step": {
+                    "node_type": "wait_event",
+                    "event_type": "NEW_MESSAGE",
+                    "filter_patterns": [r"code: (\d+)"],
+                    "next_node_id": "act_step",
+                    "metadata": {"custom_meta": 123},
+                },
+                "act_step": {
+                    "node_type": "action",
+                    "action_type": "SEND_TEXT",
+                    "params": {"text": "done"},
+                    "next_node_id": "_TERMINAL_COMPLETE",
+                },
+            },
+        },
+    }
+
+    snapshot = copy.deepcopy(source_dict)
+    graph = ExecutionGraph.compile(source_dict)
+
+    # 1. 编译结果正确生成
+    assert isinstance(graph, ExecutionGraph)
+    assert graph.entry_node_id == "wait_step"
+    assert len(graph.nodes) == 2
+    # 2. 编译出的节点元数据包含了自动注入的上下文
+    assert graph.nodes["wait_step"].metadata.get("chat_id") == 99999
+    # 3. 严格断言调用方的原始字典未被任何原地变异
+    assert source_dict == snapshot
+    assert "chat_id" not in source_dict["flow_graph"]["nodes"]["wait_step"]["metadata"]
+
+
+def test_execution_graph_compile_non_mutating_chat_flow_graph():
+    """验证以 SignChatV3 编译时，其内部的 flow_graph 字典对象同样不被变异。"""
+    import copy
+
+    flow_graph_dict = {
+        "entry_node_id": "wait_step",
+        "nodes": {
+            "wait_step": {
+                "node_type": "wait_event",
+                "event_type": "NEW_MESSAGE",
+                "filter_patterns": ["hello"],
+                "next_node_id": "_TERMINAL_COMPLETE",
+                "metadata": {"init": True},
+            }
+        },
+    }
+    chat = SignChatV3(
+        chat_id=88888,
+        name="chat_with_fg",
+        flow_graph=copy.deepcopy(flow_graph_dict),
+    )
+
+    fg_snapshot = copy.deepcopy(chat.flow_graph)
+    graph = ExecutionGraph.compile(chat)
+
+    assert isinstance(graph, ExecutionGraph)
+    assert graph.nodes["wait_step"].metadata.get("chat_id") == 88888
+    # 原始 chat.flow_graph 保持纯净未被修改
+    assert chat.flow_graph == fg_snapshot
+    assert "chat_id" not in chat.flow_graph["nodes"]["wait_step"]["metadata"]
+
+
+def test_execution_graph_compile_cross_chat_budget_tracking():
+    """验证跨 chat 编译时，节点预算累积与超限熔断机制。"""
+    chat1 = SignChatV3(
+        chat_id=101,
+        actions=[
+            SendTextAction(text="1"),
+            SendTextAction(text="2"),
+        ],
+    )
+    chat2 = SignChatV3(
+        chat_id=102,
+        actions=[
+            SendTextAction(text="3"),
+            SendTextAction(text="4"),
+        ],
+    )
+
+    budget = {"current_total_nodes": 0, "max_total_task_nodes": 5}
+    g1 = ExecutionGraph.compile(chat1, budget=budget)
+    assert len(g1.nodes) == 2
+    assert budget["current_total_nodes"] == 2
+    assert budget["total_nodes"] == 2
+
+    g2 = ExecutionGraph.compile(chat2, budget=budget)
+    assert len(g2.nodes) == 2
+    assert budget["current_total_nodes"] == 4
+    assert budget["total_nodes"] == 4
+
+    # 第三个 chat 包含 2 个节点，4 + 2 = 6 > 5，预期触发 GraphValidationError
+    chat3 = SignChatV3(
+        chat_id=103,
+        actions=[
+            SendTextAction(text="5"),
+            SendTextAction(text="6"),
+        ],
+    )
+    with pytest.raises(GraphValidationError, match="全任务流程图节点总数超过上限"):
+        ExecutionGraph.compile(chat3, budget=budget)
+
+
+def test_execution_graph_compile_collects_warnings():
+    """验证 ExecutionGraph.compile 收集孤立不可达节点告警。"""
+    fg_data = {
+        "entry_node_id": "start",
+        "nodes": {
+            "start": {
+                "node_type": "action",
+                "action_type": "SEND_TEXT",
+                "params": {"text": "hi"},
+                "next_node_id": "_TERMINAL_COMPLETE",
+            },
+            "orphan_step": {
+                "node_type": "action",
+                "action_type": "SEND_TEXT",
+                "params": {"text": "unreachable"},
+                "next_node_id": "_TERMINAL_COMPLETE",
+            },
+        },
+    }
+    warn_list = []
+    graph = ExecutionGraph.compile(fg_data, warnings=warn_list)
+    assert len(graph.nodes) == 2
+    assert len(warn_list) == 1
+    assert "orphan_step" in warn_list[0]
+    assert "不可达" in warn_list[0]
+
+
+def test_execution_graph_compile_polymorphic_sources():
+    """验证 ExecutionGraph.compile 支持 SignChatV3、字典、直接 ExecutionGraph 以及拒绝非法类型。"""
+    # 1. 直接 ExecutionGraph 对象
+    base_graph = ExecutionGraph(
+        entry_node_id="n1",
+        nodes={"n1": ActionNode(id="n1", next_node_id="_TERMINAL_COMPLETE")},
+    )
+    compiled_1 = ExecutionGraph.compile(base_graph)
+    assert compiled_1.entry_node_id == "n1"
+    assert compiled_1 is not base_graph  # 拷贝副本
+
+    # 2. 纯 flow_graph 格式 dict
+    fg_dict = {
+        "entry_node_id": "n1",
+        "nodes": {
+            "n1": {
+                "node_type": "action",
+                "action_type": "SEND_TEXT",
+                "params": {"text": "hi"},
+                "next_node_id": "_TERMINAL_COMPLETE",
+            }
+        },
+    }
+    compiled_2 = ExecutionGraph.compile(fg_dict)
+    assert compiled_2.entry_node_id == "n1"
+
+    # 3. SignChatV3 dict
+    chat_dict = {
+        "chat_id": 1234,
+        "actions": [{"action": "SEND_TEXT", "text": "foo"}],
+    }
+    compiled_3 = ExecutionGraph.compile(chat_dict)
+    assert compiled_3.entry_node_id == "step_0"
+
+    # 4. 非法类型拒绝
+    with pytest.raises(GraphValidationError, match="无法从类型 int 编译执行图"):
+        ExecutionGraph.compile(12345)

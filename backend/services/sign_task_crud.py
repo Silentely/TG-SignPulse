@@ -15,17 +15,17 @@ from typing import Any, Dict, List, Optional
 
 from backend.services.keyword_monitor.rules import validate_action_regex_safety
 from backend.services.sign_task_history_store import SignTaskHistoryStore
-
-
-def rebuild_index_from_history_files(run_history_dir: Path) -> int:
-    """向后兼容存根：委托给 SignTaskHistoryStore.rebuild_index()。"""
-    return SignTaskHistoryStore(run_history_dir).rebuild_index()
 from backend.utils.atomic_io import (
     path_write_lock,
     read_json_safe,
     write_json_atomic,
 )
 from backend.utils.names import validate_storage_name
+
+
+def rebuild_index_from_history_files(run_history_dir: Path) -> int:
+    """向后兼容存根：委托给 SignTaskHistoryStore.rebuild_index()。"""
+    return SignTaskHistoryStore(run_history_dir).rebuild_index()
 
 _logger = logging.getLogger("backend.sign_task_crud")
 
@@ -132,7 +132,7 @@ def _validate_chats_workflow(
     if not chats:
         return
     from tg_signer.config import FlowStepConfig, SignChatV3, WorkflowConfigError
-    from tg_signer.core.flow_normalizer import GraphNormalizer, GraphValidationError
+    from tg_signer.core.flow_normalizer import GraphValidationError
     from tg_signer.core.flow_routing import resolve_execution_engine
 
     validator = getattr(SignChatV3, "model_validate", None) or getattr(
@@ -172,9 +172,10 @@ def _validate_chats_workflow(
                 isinstance(s, FlowStepConfig) for s in (chat_obj.steps or [])
             )
             if has_flow:
-                # 1. 建图及拓扑/预算校验（全任务多 chat 共享节点总预算）
-                graph = GraphNormalizer.from_chat(chat_obj)
-                GraphNormalizer.validate_graph(graph, budget=task_budget)
+                # 1. 统一编译并校验拓扑与跨 chat 节点预算
+                from tg_signer.core.flow_models import ExecutionGraph
+
+                ExecutionGraph.compile(chat_obj, budget=task_budget)
                 # 2. 前置引擎路由冲突校验（拦截高级图强配 v3 导致后续运行时报错）
                 resolve_execution_engine(chat_obj, task_engine=task_engine)
         except GraphValidationError as exc:
