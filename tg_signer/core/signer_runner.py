@@ -373,8 +373,12 @@ class SignerRunnerMixin:
                                 level="ERROR",
                             )
                         if last_error is not None:
-                            from tg_signer.core.flow_models import FlowLoopLimitExceededError
-                            from tg_signer.core.workflow_engine import WorkflowLoopExceededError
+                            from tg_signer.core.flow_models import (
+                                FlowLoopLimitExceededError,
+                            )
+                            from tg_signer.core.workflow_engine import (
+                                WorkflowLoopExceededError,
+                            )
 
                             if isinstance(last_error, FlowLoopLimitExceededError):
                                 raise WorkflowLoopExceededError(str(last_error)) from last_error
@@ -729,6 +733,10 @@ class SignerRunnerMixin:
         return success_count
 
     async def _run_workflow_chat(self, chat: SignChatV3):
+        self.log(
+            "WorkflowEngine 已废弃，建议迁移至 PulseFlowEngine (v4)",
+            level="WARNING",
+        )
         from tg_signer.config import action_from_step
         from tg_signer.core.workflow_engine import (
             WorkflowContext,

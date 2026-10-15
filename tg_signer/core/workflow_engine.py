@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+from tg_signer.core.flow_models import FlowLoopLimitExceededError
+from tg_signer.core.flow_normalizer import GraphValidationError
 
 logger = logging.getLogger("tg_signer.workflow_engine")
 
 
-class WorkflowTopologyError(ValueError):
-    """工作流拓扑结构不合法或存在非法环路"""
+class WorkflowTopologyError(GraphValidationError):
+    """[已废弃] 工作流拓扑结构不合法或存在非法环路，请改用 GraphValidationError"""
 
 
-class WorkflowLoopExceededError(RuntimeError):
-    """工作流执行超过最大步数熔断"""
+class WorkflowLoopExceededError(FlowLoopLimitExceededError):
+    """[已废弃] 工作流执行超过最大步数熔断，请改用 FlowLoopLimitExceededError"""
 
 
 @dataclass
 class WorkflowStep:
+    """[已废弃] 旧版工作流步骤定义，请改用 FlowStepConfig 或 FlowNode"""
+
     step_id: str
     action_type: Any  # SupportAction / str / int
     next_step_id: Optional[str] = None
@@ -25,15 +31,33 @@ class WorkflowStep:
     max_retries: Optional[int] = None
     config: Dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self):
+        warnings.warn(
+            "WorkflowStep is deprecated, use FlowStepConfig or FlowNode instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
 
 @dataclass
 class WorkflowDefinition:
+    """[已废弃] 旧版工作流图定义，请改用 ExecutionGraph"""
+
     steps: List[WorkflowStep]
     initial_step_id: str
+
+    def __post_init__(self):
+        warnings.warn(
+            "WorkflowDefinition is deprecated, use ExecutionGraph instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
 
 @dataclass
 class WorkflowContext:
+    """[已废弃] 旧版工作流运行上下文，请改用 FlowExecutionContext"""
+
     run_id: str
     account_name: str
     task_name: str
@@ -42,10 +66,34 @@ class WorkflowContext:
     total_steps_executed: int = 0
     max_total_steps: int = 25
 
+    def __post_init__(self):
+        warnings.warn(
+            "WorkflowContext is deprecated, use FlowExecutionContext instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
 
 class WorkflowEngine:
+    """[已废弃] 旧版工作流调度引擎别名兼容层。
+
+    请全面迁移至 tg_signer.core.flow_engine.PulseFlowEngine。
+    """
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "WorkflowEngine is deprecated, use PulseFlowEngine instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     @classmethod
     def validate_topology(cls, wf: WorkflowDefinition) -> None:
+        warnings.warn(
+            "WorkflowEngine is deprecated, use PulseFlowEngine instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         step_map = {s.step_id: s for s in wf.steps}
         if wf.initial_step_id not in step_map:
             raise WorkflowTopologyError(f"初始步骤 {wf.initial_step_id} 不存在")
@@ -112,7 +160,7 @@ class WorkflowEngine:
 
         _dfs(wf.initial_step_id)
 
-        # 确保所有步骤即使不可达也没隐藏非法未声明死循环
+        # 确保所有步骤即使不可达也没隐匿非法未声明死循环
         for s in wf.steps:
             if s.step_id not in visited:
                 _dfs(s.step_id)
@@ -169,3 +217,13 @@ class WorkflowEngine:
             "path": ctx.execution_path,
             "steps": ctx.total_steps_executed,
         }
+
+
+__all__ = [
+    "WorkflowTopologyError",
+    "WorkflowLoopExceededError",
+    "WorkflowStep",
+    "WorkflowDefinition",
+    "WorkflowContext",
+    "WorkflowEngine",
+]

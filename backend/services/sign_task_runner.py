@@ -28,14 +28,21 @@ from backend.services.sign_task_run_status import (
 )
 from backend.utils.task_logs import extract_last_target_message
 from tg_signer.core import get_client_refcount
-from tg_signer.core.workflow_engine import WorkflowLoopExceededError
+
 try:
     from tg_signer.core.flow_models import FlowLoopLimitExceededError
 except ImportError:
     try:
-        from tg_signer.core.flow_engine import FlowLoopLimitExceededError  # type: ignore
+        from tg_signer.core.flow_engine import (
+            FlowLoopLimitExceededError,  # type: ignore
+        )
     except ImportError:
         FlowLoopLimitExceededError = None  # type: ignore
+
+try:
+    from tg_signer.core.workflow_engine import WorkflowLoopExceededError
+except ImportError:
+    WorkflowLoopExceededError = FlowLoopLimitExceededError  # type: ignore
 from tg_signer.log_utils import safe_exception_summary, safe_traceback_preview
 from tg_signer.utils import extract_flood_wait_seconds
 

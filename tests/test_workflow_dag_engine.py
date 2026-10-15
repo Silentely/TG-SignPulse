@@ -254,3 +254,52 @@ async def test_runtime_enforces_max_25_steps_limit():
     with pytest.raises(WorkflowLoopExceededError):
         await engine.run(wf, ctx)
     assert ctx.total_steps_executed == 25
+
+def test_workflow_engine_deprecation_warning():
+    import warnings
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        _ = WorkflowEngine()
+        assert any(
+            issubclass(w.category, DeprecationWarning)
+            and "WorkflowEngine is deprecated, use PulseFlowEngine instead" in str(w.message)
+            for w in recorded
+        )
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        step = WorkflowStep(step_id="s1", action_type="noop")
+        assert any(
+            issubclass(w.category, DeprecationWarning)
+            and "WorkflowStep is deprecated" in str(w.message)
+            for w in recorded
+        )
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        wf = WorkflowDefinition(steps=[step], initial_step_id="s1")
+        assert any(
+            issubclass(w.category, DeprecationWarning)
+            and "WorkflowDefinition is deprecated" in str(w.message)
+            for w in recorded
+        )
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        _ = WorkflowContext(run_id="r", account_name="a", task_name="t")
+        assert any(
+            issubclass(w.category, DeprecationWarning)
+            and "WorkflowContext is deprecated" in str(w.message)
+            for w in recorded
+        )
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        WorkflowEngine.validate_topology(wf)
+        assert any(
+            issubclass(w.category, DeprecationWarning)
+            and "WorkflowEngine is deprecated, use PulseFlowEngine instead" in str(w.message)
+            for w in recorded
+        )
+
