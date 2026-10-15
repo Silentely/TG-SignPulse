@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, List, Optional, Set
 
 from tg_signer.core.flow_models import (
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
-    BaseFlowNode,
     ConditionNode,
     ExecutionGraph,
     ParallelNode,

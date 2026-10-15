@@ -1,5 +1,6 @@
 import asyncio
 from unittest.mock import MagicMock
+
 import pytest
 
 from backend.services.sign_task_failure import (
@@ -13,6 +14,8 @@ from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_engine import FlowLoopLimitExceededError, PulseFlowEngine
 from tg_signer.core.flow_models import (
     FlowLoopLimitExceededError as FlowLoopLimitExceededErrorModel,
+)
+from tg_signer.core.flow_models import (
     NodeStatus,
     StepOutcome,
     TerminalPolicy,
@@ -26,7 +29,6 @@ from tg_signer.core.workflow_engine import (
     WorkflowStep,
     WorkflowTopologyError,
 )
-
 
 # ─── Part 1: Failure Classification Tests ───
 

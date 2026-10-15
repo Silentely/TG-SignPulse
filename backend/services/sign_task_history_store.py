@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Optional
 
 from backend.services.sign_task_failure import classify_failure
 from backend.services.sign_task_history_format import (
-    build_history_list_item,
     build_history_run_entry,
     clamp_limit,
     normalize_and_trim_flow_logs,

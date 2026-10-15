@@ -29,11 +29,11 @@ import asyncio
 import copy
 import datetime
 import json
-from pathlib import Path
 import sqlite3
 import time
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from typing import Any, Dict
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -44,10 +44,6 @@ from backend.services.sign_history_events import (
     subscribe,
     subscriber_count,
     unsubscribe,
-)
-from backend.services.sign_task_history_format import (
-    build_history_list_item,
-    normalize_flow_logs,
 )
 from backend.services.sign_task_history_io import (
     count_history_entries,
@@ -63,35 +59,27 @@ from backend.services.sign_task_history_io import (
     unsafe_history_key,
 )
 
-# Step 2 imports
-from tg_signer.core.plugins import PluginStorageBackend
-
 # Step 3 imports
 from tg_signer.config import (
-    ChooseOptionByImageAction,
     ClickKeyboardByTextAction,
     SendTextAction,
     SignChatV3,
-    WorkflowStepConfig,
 )
 from tg_signer.core.flow_models import (
     TERMINAL_COMPLETE_ID,
     ActionNode,
     ExecutionGraph,
-    LoopPolicy,
     TerminalPolicy,
 )
 from tg_signer.core.flow_normalizer import GraphNormalizer
 from tg_signer.core.plugin_ipc import (
-    ProxyButton,
-    ProxyChat,
     ProxyMessage,
-    ProxyUser,
     decode_ipc_payload,
     encode_ipc_payload,
-    serialize_message_for_worker,
 )
 
+# Step 2 imports
+from tg_signer.core.plugins import PluginStorageBackend
 
 # ==============================================================================
 # Step 1: 历史文件样本测试集 (Historical File Layout & Migration Baseline)

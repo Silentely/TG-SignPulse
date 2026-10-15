@@ -17,18 +17,15 @@ Validates the full deep module interface of SignTaskHistoryStore:
 
 from __future__ import annotations
 
-import asyncio
 import datetime
-import json
-from pathlib import Path
 import time
-from typing import Any, Dict, List
+from pathlib import Path
+
 import pytest
 
 from backend.services.sign_history_events import (
     reset_for_tests,
     subscribe,
-    subscriber_count,
     unsubscribe,
 )
 from backend.services.sign_task_history_store import SignTaskHistoryStore

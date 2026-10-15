@@ -239,8 +239,13 @@ class SignerRunnerMixin:
                     flow_executed_path = []
 
                     class _CutoverNodeExecutor(TelegramNodeExecutor):
+                        def __init__(self, *args, executed_path=None, **kwargs):
+                            super().__init__(*args, **kwargs)
+                            self._executed_path = executed_path
+
                         async def _call_unlocked(self, node, context):
-                            flow_executed_path.append(node.id)
+                            if self._executed_path is not None:
+                                self._executed_path.append(node.id)
                             if graph and getattr(graph, "nodes", None):
                                 node_keys = list(graph.nodes.keys())
                                 if node.id in node_keys:
@@ -277,7 +282,7 @@ class SignerRunnerMixin:
                                 self.runner.context.stop_after_current_action = False
                             return outcome
 
-                    executor = _CutoverNodeExecutor(self, chat, graph)
+                    executor = _CutoverNodeExecutor(self, chat, graph, executed_path=flow_executed_path)
                     try:
                         flow_res = await engine.run(graph, ctx, executor, event_bus=bus)
                         if flow_res.get("status") == "success":

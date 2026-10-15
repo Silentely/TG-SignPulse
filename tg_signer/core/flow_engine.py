@@ -13,7 +13,6 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Pattern
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_event_bus import TelegramEventBus
 from tg_signer.core.flow_models import (
-    FlowLoopLimitExceededError,
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
     BaseFlowNode,
@@ -21,6 +20,7 @@ from tg_signer.core.flow_models import (
     DelayNode,
     ExecutionGraph,
     ExtractorNode,
+    FlowLoopLimitExceededError,
     FlowSignal,
     NodeStatus,
     ParallelMode,

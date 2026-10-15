@@ -61,7 +61,6 @@ from backend.utils.atomic_io import (
 from backend.utils.cache import TTLCache
 from backend.utils.names import validate_storage_name
 from backend.utils.storage import move_storage_path
-from backend.utils.task_logs import extract_last_target_message
 from backend.utils.tg_session import (
     is_string_session_mode,
     list_account_names,

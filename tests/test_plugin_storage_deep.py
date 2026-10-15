@@ -1,20 +1,16 @@
-import asyncio
-import os
 import sqlite3
 import threading
 import time
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
 from tg_signer.core.plugin_storage import PluginStore
+from tg_signer.core.plugin_worker import ProxyStorageClient
 from tg_signer.core.plugins import (
-    PluginContext,
     PluginStorageBackend,
     PluginStorageClient,
 )
-from tg_signer.core.plugin_worker import ProxyStorageClient
 
 
 def test_schema_and_pragmas(tmp_path):

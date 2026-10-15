@@ -1,7 +1,6 @@
 # tests/test_flow_mermaid_adapter.py
 import ast
 from pathlib import Path
-import pytest
 
 from tg_signer.core.flow_mermaid_adapter import (
     MermaidGraphAdapter,

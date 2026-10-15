@@ -10,66 +10,25 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.services.sign_task_failure import classify_failure
 from backend.services.sign_task_history_format import (
-    build_history_list_item,
-    build_history_run_entry,
     clamp_limit,
     normalize_and_trim_flow_logs,
-    prepend_history_entry,
-)
-from backend.services.sign_task_history_index import (
-    append_index_entry,
-    build_index_entry,
-    list_recent_from_index,
-    read_index_entries,
-    rebuild_index_from_history_files,
-    remove_index_entries_matching,
-)
-from backend.services.sign_task_history_index import (
-    clear_index as clear_history_index,
 )
 from backend.services.sign_task_history_index import (
     ensure_index as ensure_history_index,
 )
+from backend.services.sign_task_history_index import (
+    list_recent_from_index,
+)
 from backend.services.sign_task_history_io import (
-    cleanup_old_history_files,
     count_history_entries,
-    filter_history_entries,
-    history_file_owner,
-    history_file_path,
-    legacy_history_file_path,
     load_history_entries,
     load_history_payload_from_file,
-    merge_history_payloads,
-    migrate_legacy_history_file,
     patch_tasks_cache_last_run,
-    resolve_existing_history_file,
     safe_history_key,
-    split_history_entries_by_account,
-    unsafe_history_key,
-)
-from backend.services.sign_task_history_io import (
-    count_history_entries as count_history_entries_io,
-)
-from backend.services.sign_task_history_io import (
-    legacy_history_file_path as legacy_history_file_path_io,
-)
-from backend.services.sign_task_history_io import (
-    load_history_entries as load_history_entries_io,
-)
-from backend.services.sign_task_history_io import (
-    load_history_payload_from_file as load_history_payload_from_file_io,
-)
-from backend.services.sign_task_history_io import (
-    migrate_legacy_history_file as migrate_legacy_history_file_io,
-)
-from backend.services.sign_task_history_io import (
-    resolve_existing_history_file as resolve_existing_history_file_io,
 )
 from backend.services.sign_task_history_query import (
     collect_formatted_history_items,
-    find_history_item_by_time,
     sort_history_items_desc,
 )
 from backend.services.sign_task_history_store import SignTaskHistoryStore
