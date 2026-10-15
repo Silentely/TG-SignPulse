@@ -336,7 +336,19 @@ class PluginProcessHost:
             encoded_init = encode_ipc_payload(init_payload).encode("utf-8")
             assert self.process.stdin is not None
             self.process.stdin.write(encoded_init)
-            await self.process.stdin.drain()
+            if self.timeout is not None:
+                elapsed = time.perf_counter() - start_time
+                drain_timeout = max(0.001, self.timeout - elapsed)
+                try:
+                    await asyncio.wait_for(self.process.stdin.drain(), timeout=drain_timeout)
+                except asyncio.TimeoutError:
+                    self.process_terminated_by_kill = True
+                    kill_process_tree(self.process.pid)
+                    raise TimeoutError(
+                        f"Plugin execution timed out during initialization after {self.timeout} seconds"
+                    )
+            else:
+                await self.process.stdin.drain()
 
             loop = asyncio.get_running_loop()
             result_future: asyncio.Future[Any] = loop.create_future()
@@ -563,9 +575,14 @@ class PluginProcessHost:
 
             process_wait_task = asyncio.create_task(wait_process())
 
+            wait_timeout = None
+            if self.timeout is not None:
+                elapsed = time.perf_counter() - start_time
+                wait_timeout = max(0.001, self.timeout - elapsed)
+
             done, pending = await asyncio.wait(
                 [result_future, process_wait_task],
-                timeout=self.timeout,
+                timeout=wait_timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
 

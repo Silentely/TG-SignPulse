@@ -377,7 +377,7 @@ class TelegramNodeExecutor:
                     node_id=node.id,
                     status=NodeStatus.FAILED,
                     matched_terminal=matched_term,
-                    output_text=output_text,
+                    output_text=output_text or f"Action {node.id} execution returned False",
                 )
 
             self._log(f"步骤 [{node.id}] 执行完成（成功）", level="INFO")

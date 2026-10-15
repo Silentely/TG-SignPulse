@@ -32,6 +32,7 @@ from tg_signer.config import (
 )
 from tg_signer.context_vars import task_retry_count_var
 from tg_signer.core.client import Client, get_now
+from tg_signer.core.flow_adapter import TelegramNodeExecutor
 from tg_signer.core.template import render_template, render_template_recursive
 from tg_signer.log_utils import safe_text_preview
 from tg_signer.utils import read_positive_float_env, read_positive_int_env
@@ -45,6 +46,44 @@ def _copy_action_with(action, **kwargs):
     elif hasattr(action, "copy"):
         return action.copy(update=kwargs)
     return action
+
+
+class _CutoverNodeExecutor(TelegramNodeExecutor):
+    def __init__(self, *args, executed_path=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._executed_path = executed_path
+
+    async def _call_unlocked(self, node, context):
+        if self._executed_path is not None:
+            self._executed_path.append(node.id)
+        outcome = await super()._call_unlocked(node, context)
+        if not outcome.output_text:
+            raw_act = node.metadata.get("raw_action") or getattr(node, "params", {})
+            if isinstance(raw_act, dict):
+                act_txt = raw_act.get("text", "")
+            else:
+                act_txt = getattr(raw_act, "text", "")
+            if act_txt:
+                outcome.output_text = act_txt
+        stop_signal = (
+            bool(getattr(self.runner.context, "stop_after_current_action", False))
+            or outcome.matched_terminal
+        )
+        if stop_signal:
+            self.runner.context.stop_after_current_action = False
+            from tg_signer.core.flow_models import (
+                FlowSignal,
+                NodeStatus,
+            )
+            if outcome.status in (
+                NodeStatus.SUCCESS,
+                NodeStatus.TERMINAL_EARLY,
+                NodeStatus.SKIPPED,
+            ):
+                outcome.signal = FlowSignal.HALT_SUCCESS
+            else:
+                outcome.signal = FlowSignal.HALT_FAIL
+        return outcome
 
 
 class SignerRunnerMixin:
@@ -169,7 +208,6 @@ class SignerRunnerMixin:
         )
         if engine_code == ENGINE_V4:
             self.log(f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})")
-            from tg_signer.core.flow_adapter import TelegramNodeExecutor
             from tg_signer.core.flow_context import ScopedFlowContext
             from tg_signer.core.flow_engine import PulseFlowEngine
             from tg_signer.core.flow_models import ExecutionGraph
@@ -237,43 +275,6 @@ class SignerRunnerMixin:
                         account={"name": getattr(self, "_account", "")}
                     )
                     flow_executed_path = []
-
-                    class _CutoverNodeExecutor(TelegramNodeExecutor):
-                        def __init__(self, *args, executed_path=None, **kwargs):
-                            super().__init__(*args, **kwargs)
-                            self._executed_path = executed_path
-
-                        async def _call_unlocked(self, node, context):
-                            if self._executed_path is not None:
-                                self._executed_path.append(node.id)
-                            outcome = await super()._call_unlocked(node, context)
-                            if not outcome.output_text:
-                                raw_act = node.metadata.get("raw_action") or getattr(node, "params", {})
-                                if isinstance(raw_act, dict):
-                                    act_txt = raw_act.get("text", "")
-                                else:
-                                    act_txt = getattr(raw_act, "text", "")
-                                if act_txt:
-                                    outcome.output_text = act_txt
-                            stop_signal = (
-                                bool(getattr(self.runner.context, "stop_after_current_action", False))
-                                or outcome.matched_terminal
-                            )
-                            if stop_signal:
-                                self.runner.context.stop_after_current_action = False
-                                from tg_signer.core.flow_models import (
-                                    FlowSignal,
-                                    NodeStatus,
-                                )
-                                if outcome.status in (
-                                    NodeStatus.SUCCESS,
-                                    NodeStatus.TERMINAL_EARLY,
-                                    NodeStatus.SKIPPED,
-                                ):
-                                    outcome.signal = FlowSignal.HALT_SUCCESS
-                                else:
-                                    outcome.signal = FlowSignal.HALT_FAIL
-                            return outcome
 
                     executor = _CutoverNodeExecutor(self, chat, graph, executed_path=flow_executed_path)
                     try:

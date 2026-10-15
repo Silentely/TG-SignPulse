@@ -159,31 +159,50 @@ async def test_cutover_executor_failed_action_with_matched_terminal_reports_fail
 
 @pytest.mark.asyncio
 async def test_cutover_executor_stop_after_current_action_branching():
-    """验证 stop_after_current_action 只有在动作成功时才赋予 HALT_SUCCESS，失败赋予 HALT_FAIL"""
+    """验证 _CutoverNodeExecutor 真正调用时，stop_after_current_action 只有在动作成功时才赋予 HALT_SUCCESS，失败赋予 HALT_FAIL"""
+    from tg_signer.core.flow_adapter import TelegramNodeExecutor
+    from tg_signer.core.flow_models import ExecutionGraph, StepOutcome
+    from tg_signer.core.signer_runner import _CutoverNodeExecutor
+
+    chat = SignChatV3(
+        chat_id=12345,
+        execution_engine="v4",
+        actions=[SendTextAction(text="/checkin")],
+    )
+    graph = ExecutionGraph.compile(chat)
+    node = graph.nodes["step_0"]
+
     runner = MagicMock()
     runner.context = MagicMock()
+    flow_ctx = MagicMock()
 
-    # 场景 1：成功动作 + stop_after_current_action
-    runner.context.stop_after_current_action = True
-    outcome_succ = MagicMock(node_id="step_0", status=NodeStatus.SUCCESS, matched_terminal=False, signal=FlowSignal.PROCEED)
-    if getattr(runner.context, "stop_after_current_action", False):
-        runner.context.stop_after_current_action = False
-        if outcome_succ.status in (NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY, NodeStatus.SKIPPED):
-            outcome_succ.signal = FlowSignal.HALT_SUCCESS
-        else:
-            outcome_succ.signal = FlowSignal.HALT_FAIL
-    assert outcome_succ.signal == FlowSignal.HALT_SUCCESS
+    executor = _CutoverNodeExecutor(runner, chat, graph)
 
-    # 场景 2：失败动作 + stop_after_current_action
+    # 场景 1：动作失败 + stop_after_current_action=True -> 必须赋 HALT_FAIL
     runner.context.stop_after_current_action = True
-    outcome_fail = MagicMock(node_id="step_0", status=NodeStatus.FAILED, matched_terminal=False, signal=FlowSignal.PROCEED)
-    if getattr(runner.context, "stop_after_current_action", False):
-        runner.context.stop_after_current_action = False
-        if outcome_fail.status in (NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY, NodeStatus.SKIPPED):
-            outcome_fail.signal = FlowSignal.HALT_SUCCESS
-        else:
-            outcome_fail.signal = FlowSignal.HALT_FAIL
-    assert outcome_fail.signal == FlowSignal.HALT_FAIL
+    fail_outcome = StepOutcome(
+        node_id="step_0",
+        status=NodeStatus.FAILED,
+        matched_terminal=False,
+        output_text="Action failed",
+    )
+    with patch.object(TelegramNodeExecutor, "_call_unlocked", AsyncMock(return_value=fail_outcome)):
+        outcome = await executor(node, flow_ctx)
+        assert outcome.signal == FlowSignal.HALT_FAIL
+        assert runner.context.stop_after_current_action is False
+
+    # 场景 2：动作成功 + stop_after_current_action=True -> 赋予 HALT_SUCCESS
+    runner.context.stop_after_current_action = True
+    succ_outcome = StepOutcome(
+        node_id="step_0",
+        status=NodeStatus.SUCCESS,
+        matched_terminal=False,
+        output_text="Action success",
+    )
+    with patch.object(TelegramNodeExecutor, "_call_unlocked", AsyncMock(return_value=succ_outcome)):
+        outcome = await executor(node, flow_ctx)
+        assert outcome.signal == FlowSignal.HALT_SUCCESS
+        assert runner.context.stop_after_current_action is False
 
 
 # ==============================================================================
@@ -328,37 +347,123 @@ async def test_workflow_engine_delegates_to_pulse_flow_engine():
     assert ctx.total_steps_executed == 2
 
 
+@pytest.mark.asyncio
+async def test_pulse_flow_engine_halt_fail_retains_error():
+    """验证 PulseFlowEngine 在收到 HALT_FAIL 信号时，保留失败节点的错误信息并体现在返回的 error 字段中"""
+    from tg_signer.core.flow_engine import PulseFlowEngine
+    from tg_signer.core.flow_models import (
+        ActionNode,
+        ExecutionGraph,
+        FlowSignal,
+        NodeStatus,
+        StepOutcome,
+    )
+
+    graph = ExecutionGraph(
+        entry_node_id="node_1",
+        nodes={
+            "node_1": ActionNode(id="node_1", action_type="SEND_TEXT", params={"text": "hello"}),
+        },
+    )
+    engine = PulseFlowEngine()
+    ctx = MagicMock()
+    ctx.variables = {}
+    ctx.execution_path = []
+    ctx.metrics = {}
+
+    async def mock_executor(node, context):
+        return StepOutcome(
+            node_id=node.id,
+            status=NodeStatus.FAILED,
+            signal=FlowSignal.HALT_FAIL,
+            output_text="Explicit failure detail from remote bot",
+        )
+
+    res = await engine.run(graph, ctx, mock_executor)
+    assert res["status"] == "failed"
+    assert res.get("error") == "Explicit failure detail from remote bot"
+
+
+@pytest.mark.asyncio
+async def test_workflow_engine_propagates_underlying_res_error():
+    """验证 WorkflowEngine 兼容层在底层 PulseFlowEngine 返回失败时，完整透传 res['error']"""
+    from tg_signer.core.workflow_engine import (
+        WorkflowDefinition,
+        WorkflowEngine,
+        WorkflowStep,
+    )
+
+    wf = WorkflowDefinition(
+        initial_step_id="step_1",
+        steps=[WorkflowStep(step_id="step_1", action_type="send_text")],
+    )
+    engine = WorkflowEngine()
+    ctx = MagicMock()
+    ctx.total_steps_executed = 0
+    ctx.max_total_steps = 10
+    ctx.execution_path = []
+    ctx.current_step_id = "step_1"
+
+    async def failing_step_executor(step, c):
+        return False
+
+    res = await engine.run(wf, ctx, failing_step_executor)
+    assert res["status"] == "failed"
+    assert "error" in res
+    assert res["error"] is not None
+
+
 # ==============================================================================
 # 6. Grok Regression 1: Mojibake repair hook restored in history store
 # ==============================================================================
 
 
 def test_history_store_mojibake_repair(tmp_path):
-    """验证 SignTaskHistoryStore 默认配置 repair_mojibake，且支持自定义 repair 函数进行乱码修复"""
+    """验证 SignTaskHistoryStore 默认配置 repair_mojibake，且能真实修复 GBK 乱码样本"""
     from backend.services.sign_task_text import repair_mojibake
 
     store = SignTaskHistoryStore(history_dir=tmp_path / "history", signs_dir=tmp_path / "signs")
     assert store.repair is repair_mojibake
 
-    repair_store = SignTaskHistoryStore(
+    # 使用真实 GBK 误读样本测试默认 repair 钩子
+    original = "签到任务"
+    mojibake_text = original.encode("utf-8").decode("gbk", errors="strict")  # 产生 绛惧埌浠诲姟
+    assert mojibake_text != original
+
+    store.record_run(
+        account="acc_test",
+        task="task_test",
+        entry={
+            "success": True,
+            "message": mojibake_text,
+            "flow_logs": [mojibake_text],
+        },
+    )
+
+    entries = store.query_history(account="acc_test", task="task_test")
+    assert len(entries) == 1
+    assert entries[0]["message"] == "签到任务"
+    assert entries[0]["flow_logs"][0] == "签到任务"
+
+    # 自定义 repair 钩子同样支持
+    custom_store = SignTaskHistoryStore(
         history_dir=tmp_path / "history2",
         signs_dir=tmp_path / "signs2",
         repair=lambda s: s.replace("MOJIBAKE", "REPAIRED"),
     )
-    repair_store.record_run(
-        account="acc_test",
-        task="task_test",
+    custom_store.record_run(
+        account="acc_test2",
+        task="task_test2",
         entry={
             "success": True,
             "message": "Status: MOJIBAKE",
             "flow_logs": ["Log line: MOJIBAKE"],
         },
     )
-
-    entries = repair_store.query_history(account="acc_test", task="task_test")
-    assert len(entries) == 1
-    assert "REPAIRED" in entries[0]["message"]
-    assert "REPAIRED" in entries[0]["flow_logs"][0]
+    custom_entries = custom_store.query_history(account="acc_test2", task="task_test2")
+    assert len(custom_entries) == 1
+    assert "REPAIRED" in custom_entries[0]["message"]
+    assert "REPAIRED" in custom_entries[0]["flow_logs"][0]
 
 
 # ==============================================================================

@@ -275,11 +275,14 @@ class WorkflowEngine:
                     f"执行已达最大步数硬上限 {ctx.max_total_steps}"
                 )
             status_result = "success" if res.get("status") == "success" else "failed"
-            return {
+            out = {
                 "status": status_result,
                 "path": list(ctx.execution_path),
                 "steps": ctx.total_steps_executed,
             }
+            if "error" in res:
+                out["error"] = res["error"]
+            return out
         except FlowLoopLimitExceededError as err:
             err_msg = str(err)
             if "Max total step limit exceeded" in err_msg or ctx.total_steps_executed >= ctx.max_total_steps:

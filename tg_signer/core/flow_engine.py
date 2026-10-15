@@ -357,6 +357,11 @@ class PulseFlowEngine:
                     break
                 elif outcome.signal == FlowSignal.HALT_FAIL:
                     current_id = TERMINAL_FAIL_ID
+                    last_failure_error = (
+                        outcome.output_text
+                        or (str(outcome.error) if outcome.error else None)
+                        or f"Node {node.id} halted with failure"
+                    )
                     break
                 elif outcome.signal == FlowSignal.BRANCH and outcome.target_node_id:
                     current_id = self._normalize_target(outcome.target_node_id)
@@ -423,7 +428,9 @@ class PulseFlowEngine:
             "trace": self._build_trace(executed_path, ctx),
             "metrics": self._calculate_metrics(executed_path, ctx, total_duration),
         }
-        if not is_success and last_failure_error:
+        if not is_success:
+            if not last_failure_error:
+                last_failure_error = f"Workflow failed at node {current_id or 'unknown'}"
             res["error"] = _redact_trace_text(last_failure_error)
         return res
 
