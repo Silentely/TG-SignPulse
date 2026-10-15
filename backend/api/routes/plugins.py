@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import time
+import traceback
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,7 @@ from pydantic import BaseModel, Field
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.utils.atomic_io import write_text_atomic
+from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import (
     PluginContext,
     PluginMeta,
@@ -1431,16 +1433,61 @@ async def test_plugin(
     tb_str = None
     error_line = None
 
-    from tg_signer.core.plugin_runtime import get_plugin_runtime
-
-    runtime = get_plugin_runtime()
-    plugin_res = await runtime.execute(
+    # 优先使用本模块的 PluginProcessHost（支持单测对 routes.plugins.PluginProcessHost 的 patch）
+    host = PluginProcessHost(
         plugin_name=name,
-        args={},
-        context=ctx,
+        ctx=ctx,
         timeout=test_timeout,
         trigger_type="active",
     )
+    from tg_signer.core.plugin_runtime import PluginResult
+    try:
+        res_val = await host.execute()
+        plugin_res = PluginResult(
+            success=True,
+            return_value=res_val,
+            logs=captured_logs,
+            error=None,
+        )
+    except TimeoutError as exc:
+        plugin_res = PluginResult(
+            success=False,
+            return_value=None,
+            logs=captured_logs,
+            error=str(exc),
+            is_timeout=True,
+        )
+    except Exception as exc:
+        plugin_res = PluginResult(
+            success=False,
+            return_value=None,
+            logs=captured_logs,
+            error=str(exc),
+        )
+        tb_str = _sanitize_traceback(traceback.format_exc())
+        frames = traceback.extract_tb(exc.__traceback__)
+        plugin_src_str = str(meta.source_path) if meta.source_path else ""
+        plugin_dir_prefix = (
+            str(Path(meta.source_path).parent) if meta.source_path else ""
+        )
+        for f in reversed(frames):
+            if plugin_src_str and f.filename == plugin_src_str:
+                error_line = f.lineno
+                break
+            if plugin_dir_prefix and f.filename.startswith(plugin_dir_prefix):
+                error_line = f.lineno
+                break
+            if f.name == f"{meta.name}_handler" or (
+                f.name == "handler" and "routes/plugins.py" not in f.filename
+            ):
+                error_line = f.lineno
+                break
+        if (
+            error_line is None
+            and frames
+            and "routes/plugins.py" not in frames[-1].filename
+        ):
+            error_line = frames[-1].lineno
     if plugin_res.success:
         handled = bool(plugin_res.return_value) if plugin_res.return_value is not None else False
     else:
@@ -1454,9 +1501,10 @@ async def test_plugin(
             captured_logs.append(f"[error] {err_str}")
         else:
             err_str = f"插件执行异常: {plugin_res.error}"
-            tb_str = _sanitize_traceback(plugin_res.error or "")
+            if not tb_str:
+                tb_str = _sanitize_traceback(plugin_res.error or "")
             captured_logs.append(f"[error] {err_str}")
-        if tb_str:
+        if tb_str and error_line is None:
             import re
 
             m = re.findall(r"line (\d+)", tb_str)

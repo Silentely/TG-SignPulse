@@ -197,6 +197,7 @@ class SignerRunnerMixin:
                 )
                 raise RuntimeError(f"预热会话失败 chat_id={chat.chat_id}: {e}") from e
         self.log(self._describe_chat_run(chat))
+        self.context.pulseflow_side_effect_started = False
         from tg_signer.core.flow_routing import ENGINE_V4, resolve_execution_engine
 
         task_engine = getattr(getattr(self, "config", None), "execution_engine", None)
