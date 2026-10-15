@@ -40,7 +40,7 @@ from tg_signer.core.workflow_engine import (
 )
 
 # ==============================================================================
-# 1. Codex HIGH & MEDIUM 1: _CutoverNodeExecutor terminal handling & no monkeypatch
+# 1. Cutover Node Executor terminal handling & modular class definition
 # ==============================================================================
 
 
@@ -208,7 +208,7 @@ async def test_cutover_executor_stop_after_current_action_branching():
 
 
 # ==============================================================================
-# 2. Codex MEDIUM 2: Cross-chat side effect isolation
+# 2. Cross-chat side effect isolation & runner state hygiene
 # ==============================================================================
 
 
@@ -262,7 +262,7 @@ async def test_cross_chat_side_effect_started_isolation():
 
 
 # ==============================================================================
-# 3. Codex MEDIUM 3: Worker initialization drain exception in finally
+# 3. Worker initialization drain exception handling and timeout cleanup
 # ==============================================================================
 
 
@@ -344,7 +344,7 @@ async def test_worker_init_drain_timeout_cleans_up():
 
 
 # ==============================================================================
-# 4. Codex MEDIUM 4: PluginRuntime production seam
+# 4. PluginRuntime production seam and singleton access
 # ==============================================================================
 
 
@@ -356,7 +356,7 @@ def test_plugin_runtime_production_seam_registered():
 
 
 # ==============================================================================
-# 5. Codex MEDIUM 5: WorkflowEngine delegates to PulseFlowEngine
+# 5. WorkflowEngine delegates to PulseFlowEngine and propagates errors
 # ==============================================================================
 
 
@@ -455,7 +455,7 @@ async def test_workflow_engine_propagates_underlying_res_error():
 
 
 # ==============================================================================
-# 6. Grok Regression 1: Mojibake repair hook restored in history store
+# 6. Mojibake repair hook restored in history store
 # ==============================================================================
 
 
@@ -508,7 +508,7 @@ def test_history_store_mojibake_repair(tmp_path):
 
 
 # ==============================================================================
-# 7. Grok Regression 2: Account history not truncated to 50 when limit=None
+# 7. Account history not truncated to 50 when limit=None
 # ==============================================================================
 
 
@@ -544,7 +544,7 @@ def test_account_history_logs_untruncated(tmp_path):
 
 
 # ==============================================================================
-# 8. Grok Issue 3: PluginContext write operations trigger side effect marker
+# 8. PluginContext write operations trigger side effect marker
 # ==============================================================================
 
 
@@ -600,7 +600,7 @@ async def test_plugin_context_write_methods_trigger_side_effect():
 
 
 # ==============================================================================
-# 9. Grok M7: Task loop exceeded classification not masked by proxy output
+# 9. Task loop exceeded classification not masked by proxy output
 # ==============================================================================
 
 
