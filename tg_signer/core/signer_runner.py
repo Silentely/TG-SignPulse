@@ -75,6 +75,7 @@ class _CutoverNodeExecutor(TelegramNodeExecutor):
                 FlowSignal,
                 NodeStatus,
             )
+
             if outcome.status in (
                 NodeStatus.SUCCESS,
                 NodeStatus.TERMINAL_EARLY,
@@ -277,7 +278,9 @@ class SignerRunnerMixin:
                     )
                     flow_executed_path = []
 
-                    executor = _CutoverNodeExecutor(self, chat, graph, executed_path=flow_executed_path)
+                    executor = _CutoverNodeExecutor(
+                        self, chat, graph, executed_path=flow_executed_path
+                    )
                     try:
                         flow_res = await engine.run(graph, ctx, executor, event_bus=bus)
                         if flow_res.get("status") == "success":
@@ -307,7 +310,9 @@ class SignerRunnerMixin:
                                 self.context.workflow_path = list(flow_path)
                             elif flow_executed_path:
                                 self.context.workflow_path = list(flow_executed_path)
-                            self.context.workflow_steps = steps or len(flow_executed_path)
+                            self.context.workflow_steps = steps or len(
+                                flow_executed_path
+                            )
                             self.context.flow_trace = flow_res.get("trace")
                             self.context.flow_metrics = flow_res.get("metrics")
                             flow_succeeded = True
@@ -330,7 +335,9 @@ class SignerRunnerMixin:
                             flow_res.get("error")
                             or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
                         )
-                        last_error = RuntimeError(f"PulseFlow 执行失败（工作流节点执行失败）: {err_detail}")
+                        last_error = RuntimeError(
+                            f"PulseFlow 执行失败（工作流节点执行失败）: {err_detail}"
+                        )
                     except Exception as exc:
                         last_error = exc
                         if flow_executed_path:
@@ -381,9 +388,13 @@ class SignerRunnerMixin:
                             )
 
                             if isinstance(last_error, FlowLoopLimitExceededError):
-                                raise WorkflowLoopExceededError(str(last_error)) from last_error
+                                raise WorkflowLoopExceededError(
+                                    str(last_error)
+                                ) from last_error
                             raise last_error
-                        raise RuntimeError("PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果")
+                        raise RuntimeError(
+                            "PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果"
+                        )
 
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。

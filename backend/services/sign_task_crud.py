@@ -27,6 +27,7 @@ def rebuild_index_from_history_files(run_history_dir: Path) -> int:
     """向后兼容存根：委托给 SignTaskHistoryStore.rebuild_index()。"""
     return SignTaskHistoryStore(run_history_dir).rebuild_index()
 
+
 _logger = logging.getLogger("backend.sign_task_crud")
 
 
@@ -432,7 +433,7 @@ class SignTaskCrudMixin:
             notify_on_failure=bool(src.get("notify_on_failure", True)),
             notify_on_success=bool(src.get("notify_on_success", True)),
             retry_count=src.get("retry_count"),
-            tags=list(src.get("tags") or []),\
+            tags=list(src.get("tags") or []),
             adaptive_schedule_enabled=bool(src.get("adaptive_schedule_enabled", False)),
             adaptive_schedule_patterns=list(
                 src.get("adaptive_schedule_patterns") or []

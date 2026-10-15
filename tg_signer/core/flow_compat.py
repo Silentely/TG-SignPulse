@@ -43,7 +43,9 @@ class FlowCompatibilityBridge:
         ctx = self.runner_context
         if ctx is None or not hasattr(ctx, "chat_messages"):
             return {}
-        target_cid = chat_id if chat_id is not None else getattr(self.chat, "chat_id", None)
+        target_cid = (
+            chat_id if chat_id is not None else getattr(self.chat, "chat_id", None)
+        )
         chat_dict = ctx.chat_messages
         if not isinstance(chat_dict, dict):
             return {}
@@ -137,9 +139,7 @@ class FlowCompatibilityBridge:
         """设置旧 runner 的动作执行上下文（去重、进度等）。"""
         if hasattr(self.runner, "_set_current_action_context"):
             try:
-                self.runner._set_current_action_context(
-                    step_idx, total_nodes, action
-                )
+                self.runner._set_current_action_context(step_idx, total_nodes, action)
             except Exception:
                 pass
 
@@ -210,11 +210,19 @@ class FlowCompatibilityBridge:
         if isinstance(res, str) and res:
             self.set_last_output(res)
             return res
-        if hasattr(res, "text") and getattr(res, "text", None) and isinstance(res.text, str):
+        if (
+            hasattr(res, "text")
+            and getattr(res, "text", None)
+            and isinstance(res.text, str)
+        ):
             txt = res.text
             self.set_last_output(txt)
             return txt
-        if hasattr(res, "caption") and getattr(res, "caption", None) and isinstance(res.caption, str):
+        if (
+            hasattr(res, "caption")
+            and getattr(res, "caption", None)
+            and isinstance(res.caption, str)
+        ):
             txt = res.caption
             self.set_last_output(txt)
             return txt

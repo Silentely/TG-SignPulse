@@ -1388,9 +1388,7 @@ async def test_plugin(
         try:
             from tg_signer.core.plugin_storage import PluginStore
 
-            PluginStore().clear(
-                namespace=_plugin_test_namespace(eff_chat_id, name)
-            )
+            PluginStore().clear(namespace=_plugin_test_namespace(eff_chat_id, name))
             captured_logs.append("[mock] 已清空该插件测试命名空间持久化存储")
         except Exception as exc:
             captured_logs.append(f"[mock] 清空存储提示: {exc}")
@@ -1441,6 +1439,7 @@ async def test_plugin(
         trigger_type="active",
     )
     from tg_signer.core.plugin_runtime import PluginResult
+
     try:
         res_val = await host.execute()
         plugin_res = PluginResult(
@@ -1489,7 +1488,11 @@ async def test_plugin(
         ):
             error_line = frames[-1].lineno
     if plugin_res.success:
-        handled = bool(plugin_res.return_value) if plugin_res.return_value is not None else False
+        handled = (
+            bool(plugin_res.return_value)
+            if plugin_res.return_value is not None
+            else False
+        )
     else:
         success = False
         if plugin_res.is_timeout:

@@ -270,7 +270,10 @@ class WorkflowEngine:
         try:
             res = await engine.run(graph, flow_ctx, _bridge_node_executor)
             err_text = str(res.get("error") or "")
-            if "Flow step limit exceeded" in err_text or ctx.total_steps_executed >= ctx.max_total_steps:
+            if (
+                "Flow step limit exceeded" in err_text
+                or ctx.total_steps_executed >= ctx.max_total_steps
+            ):
                 raise WorkflowLoopExceededError(
                     f"执行已达最大步数硬上限 {ctx.max_total_steps}"
                 )
@@ -285,7 +288,10 @@ class WorkflowEngine:
             return out
         except FlowLoopLimitExceededError as err:
             err_msg = str(err)
-            if "Max total step limit exceeded" in err_msg or ctx.total_steps_executed >= ctx.max_total_steps:
+            if (
+                "Max total step limit exceeded" in err_msg
+                or ctx.total_steps_executed >= ctx.max_total_steps
+            ):
                 raise WorkflowLoopExceededError(
                     f"执行已达最大步数硬上限 {ctx.max_total_steps}: {err_msg}"
                 ) from err

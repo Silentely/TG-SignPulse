@@ -60,7 +60,11 @@ def test_render_mermaid_basic_diagram():
     assert 'step_1["发送签到 [action]"]' in mermaid
     assert "step_1 -->|next| step_cond" in mermaid
     assert "step_1 -.->|on_failure| step_err" in mermaid
-    assert 'step_cond -->|"vars.status == &#x27;ok&#x27;"| step_done' in mermaid or 'step_cond -->|"vars.status == \'ok\'"| step_done' in mermaid or "vars.status" in mermaid
+    assert (
+        'step_cond -->|"vars.status == &#x27;ok&#x27;"| step_done' in mermaid
+        or "step_cond -->|\"vars.status == 'ok'\"| step_done" in mermaid
+        or "vars.status" in mermaid
+    )
     assert "step_cond -->|default| Fail([失败])" in mermaid
     assert "step_done -->|next| End([完成])" in mermaid
     assert "step_done -.->|terminal_branch| End([完成])" in mermaid
@@ -142,8 +146,12 @@ def test_find_unreachable_nodes_and_mermaid_styling():
 
 def test_render_mermaid_subflows_rendering():
     sub_nodes = {
-        "sub_step1": ActionNode(id="sub_step1", name="子步骤1", next_node_id="sub_step2"),
-        "sub_step2": ActionNode(id="sub_step2", name="子步骤2", next_node_id="_TERMINAL_COMPLETE"),
+        "sub_step1": ActionNode(
+            id="sub_step1", name="子步骤1", next_node_id="sub_step2"
+        ),
+        "sub_step2": ActionNode(
+            id="sub_step2", name="子步骤2", next_node_id="_TERMINAL_COMPLETE"
+        ),
     }
     subflow_graph = ExecutionGraph(entry_node_id="sub_step1", nodes=sub_nodes)
 
@@ -172,10 +180,14 @@ def test_render_mermaid_subflows_rendering():
 
 def test_render_mermaid_parallel_branches_rendering():
     b1_nodes = {
-        "b1_s1": ActionNode(id="b1_s1", name="分支1步骤", next_node_id="_TERMINAL_COMPLETE")
+        "b1_s1": ActionNode(
+            id="b1_s1", name="分支1步骤", next_node_id="_TERMINAL_COMPLETE"
+        )
     }
     b2_nodes = {
-        "b2_s1": ActionNode(id="b2_s1", name="分支2步骤", next_node_id="_TERMINAL_COMPLETE")
+        "b2_s1": ActionNode(
+            id="b2_s1", name="分支2步骤", next_node_id="_TERMINAL_COMPLETE"
+        )
     }
     b1_graph = ExecutionGraph(entry_node_id="b1_s1", nodes=b1_nodes)
     b2_graph = ExecutionGraph(entry_node_id="b2_s1", nodes=b2_nodes)
@@ -225,7 +237,9 @@ def test_graph_normalizer_backward_compatibility():
     nodes = {
         "s1": ActionNode(id="s1", name="步骤一", next_node_id="s2"),
         "s2": ActionNode(id="s2", name="步骤二", next_node_id="_TERMINAL_COMPLETE"),
-        "unreach": ActionNode(id="unreach", name="孤立", next_node_id="_TERMINAL_COMPLETE"),
+        "unreach": ActionNode(
+            id="unreach", name="孤立", next_node_id="_TERMINAL_COMPLETE"
+        ),
     }
     graph = ExecutionGraph(entry_node_id="s1", nodes=nodes)
 

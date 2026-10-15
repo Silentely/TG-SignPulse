@@ -825,7 +825,9 @@ class SignerActionsMixin:
         if not plugin_res.success:
             if plugin_res.is_timeout:
                 msg_kind = "单条历史消息" if is_history else "单条消息"
-                self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+                self.log(
+                    f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING"
+                )
             else:
                 msg_kind = "历史消息" if is_history else "消息"
                 self.log(

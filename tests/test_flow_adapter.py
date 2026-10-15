@@ -506,9 +506,7 @@ async def test_adapter_lock_release_during_parallel_branches():
     mock_runner = MagicMock()
     mock_runner.context = MagicMock()
 
-    async def concurrent_wait_for(
-        chat_obj, action_obj, next_action=None, timeout=None
-    ):
+    async def concurrent_wait_for(chat_obj, action_obj, next_action=None, timeout=None):
         nonlocal active_executions, max_active_executions
         active_executions += 1
         if active_executions > max_active_executions:

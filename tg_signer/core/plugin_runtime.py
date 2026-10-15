@@ -148,7 +148,8 @@ class SubprocessPluginAdapter(PluginRuntime):
                 success=False,
                 return_value=None,
                 logs=captured_logs,
-                error=str(exc) or f"Plugin '{plugin_name}' timed out after {effective_timeout}s",
+                error=str(exc)
+                or f"Plugin '{plugin_name}' timed out after {effective_timeout}s",
                 execution_time=duration,
                 is_timeout=True,
             )
@@ -274,8 +275,10 @@ class TestMockAdapter(PluginRuntime):
             if inspect.iscoroutinefunction(handler):
                 coro = handler(context)
             else:
+
                 async def _sync_runner():
                     return handler(context)
+
                 coro = _sync_runner()
 
             if timeout is not None:

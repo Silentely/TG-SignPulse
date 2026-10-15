@@ -86,7 +86,10 @@ def test_bridge_discrete_snapshot_reading():
     runner.context.stop_reason = "already signed in"
     runner.context.last_callback_answer = "button clicked"
     runner.context.last_output = "previous result"
-    runner.context.chat_messages = {888: {1: msg_mock}, 999: {2: MagicMock(text="other")}}
+    runner.context.chat_messages = {
+        888: {1: msg_mock},
+        999: {2: MagicMock(text="other")},
+    }
 
     bridge = FlowCompatibilityBridge(runner, chat)
 

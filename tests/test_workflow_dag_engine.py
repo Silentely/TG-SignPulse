@@ -255,6 +255,7 @@ async def test_runtime_enforces_max_25_steps_limit():
         await engine.run(wf, ctx)
     assert ctx.total_steps_executed == 25
 
+
 def test_workflow_engine_deprecation_warning():
     import warnings
 
@@ -263,7 +264,8 @@ def test_workflow_engine_deprecation_warning():
         _ = WorkflowEngine()
         assert any(
             issubclass(w.category, DeprecationWarning)
-            and "WorkflowEngine is deprecated, use PulseFlowEngine instead" in str(w.message)
+            and "WorkflowEngine is deprecated, use PulseFlowEngine instead"
+            in str(w.message)
             for w in recorded
         )
 
@@ -299,7 +301,7 @@ def test_workflow_engine_deprecation_warning():
         WorkflowEngine.validate_topology(wf)
         assert any(
             issubclass(w.category, DeprecationWarning)
-            and "WorkflowEngine is deprecated, use PulseFlowEngine instead" in str(w.message)
+            and "WorkflowEngine is deprecated, use PulseFlowEngine instead"
+            in str(w.message)
             for w in recorded
         )
-

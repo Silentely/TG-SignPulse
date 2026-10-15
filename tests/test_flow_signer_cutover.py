@@ -369,6 +369,7 @@ def test_flow_normalizer_dict_actions_preserves_policy():
     assert node.terminal_policy == TerminalPolicy.STOP_FLOW
     assert node.on_failure_node_id == TERMINAL_COMPLETE_ID
 
+
 @pytest.mark.asyncio
 async def test_user_signer_workflow_steps_executes_via_pulseflow_by_default():
     """验证工作流步骤任务 (chat.steps) 默认走 PulseFlow (v4) 执行。"""
@@ -514,7 +515,9 @@ async def test_user_signer_side_effect_barrier_blocks_fallback_and_retry():
 
     token = task_retry_count_var.set(3)
     try:
-        with pytest.raises(RuntimeError, match="Telegram network drop after send_message"):
+        with pytest.raises(
+            RuntimeError, match="Telegram network drop after send_message"
+        ):
             await signer.sign_a_chat(chat)
     finally:
         task_retry_count_var.reset(token)
@@ -524,5 +527,6 @@ async def test_user_signer_side_effect_barrier_blocks_fallback_and_retry():
     # 验证：严禁回退 Classic 经典引擎执行
     assert getattr(signer.context, "pulseflow_fallback_occurred", False) is False
     log_msgs = [call[0][0] for call in signer.log.call_args_list]
-    assert any("已产生外部副作用" in m and "禁止自动回退 Classic" in m for m in log_msgs)
-
+    assert any(
+        "已产生外部副作用" in m and "禁止自动回退 Classic" in m for m in log_msgs
+    )

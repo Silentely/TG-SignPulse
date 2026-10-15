@@ -109,9 +109,7 @@ class SignTaskHistoryStore:
 
         candidates: List[Path] = []
         if account:
-            candidates.append(
-                legacy_history_file_path(self.history_dir, task, account)
-            )
+            candidates.append(legacy_history_file_path(self.history_dir, task, account))
         candidates.append(legacy_history_file_path(self.history_dir, task))
         target = self.get_history_file_path(account, task)
         return [path for path in candidates if path != target]
@@ -297,7 +295,9 @@ class SignTaskHistoryStore:
                     return [
                         {
                             **item,
-                            "created_at": item.get("created_at") or item.get("time") or "",
+                            "created_at": item.get("created_at")
+                            or item.get("time")
+                            or "",
                             "flow_logs": item.get("flow_logs") or [],
                             "flow_truncated": bool(item.get("flow_truncated", False)),
                             "flow_line_count": int(item.get("flow_line_count") or 0),

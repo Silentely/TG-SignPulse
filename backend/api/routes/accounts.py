@@ -1138,7 +1138,9 @@ def get_account_logs(
 
     limit = clamp(limit, 1, 200)
 
-    history = get_sign_task_service().get_account_history_logs(account_name, limit=limit)
+    history = get_sign_task_service().get_account_history_logs(
+        account_name, limit=limit
+    )
 
     return [
         AccountLogItem(**_build_history_log_item(item, i, account_name=account_name))

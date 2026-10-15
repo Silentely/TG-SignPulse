@@ -59,9 +59,7 @@ class TelegramNodeExecutor:
     ):
         self.runner = runner
         self.chat = chat
-        self.compat = compat_bridge or FlowCompatibilityBridge(
-            runner, chat, graph
-        )
+        self.compat = compat_bridge or FlowCompatibilityBridge(runner, chat, graph)
         self._executed_action_count: int = 0
         self._runner_state_lock = asyncio.Lock()
 
@@ -177,9 +175,7 @@ class TelegramNodeExecutor:
                 next_action=next_action,
             )
         try:
-            return await self.runner.wait_for(
-                chat, action, next_action=next_action
-            )
+            return await self.runner.wait_for(chat, action, next_action=next_action)
         except TypeError:
             return await self.runner.wait_for(chat, action)
 
@@ -377,7 +373,8 @@ class TelegramNodeExecutor:
                     node_id=node.id,
                     status=NodeStatus.FAILED,
                     matched_terminal=matched_term,
-                    output_text=output_text or f"Action {node.id} execution returned False",
+                    output_text=output_text
+                    or f"Action {node.id} execution returned False",
                 )
 
             self._log(f"步骤 [{node.id}] 执行完成（成功）", level="INFO")

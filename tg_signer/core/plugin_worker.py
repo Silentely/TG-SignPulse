@@ -123,9 +123,7 @@ class ProxyStorageClient:
         return await self.keys(prefix=prefix)
 
     async def get_all_records(self) -> List[Dict[str, Any]]:
-        res = await self._rpc(
-            "storage_get_all_records", **self._scope_kwargs()
-        )
+        res = await self._rpc("storage_get_all_records", **self._scope_kwargs())
         return list(res or [])
 
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:

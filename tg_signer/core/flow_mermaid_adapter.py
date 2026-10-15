@@ -34,7 +34,11 @@ def find_unreachable_nodes(graph: ExecutionGraph) -> Set[str]:
         or not getattr(graph, "entry_node_id", None)
         or graph.entry_node_id not in graph.nodes
     ):
-        return set(graph.nodes.keys()) if (graph and getattr(graph, "nodes", None)) else set()
+        return (
+            set(graph.nodes.keys())
+            if (graph and getattr(graph, "nodes", None))
+            else set()
+        )
 
     visited: Set[str] = set()
 
@@ -155,11 +159,15 @@ class MermaidGraphAdapter:
                 lines.append(f"{indent}{scoped_id} -->|next| {target}")
 
             if getattr(node, "on_failure_node_id", None):
-                target = self._resolve_target_label(node.on_failure_node_id, prefix=prefix)
+                target = self._resolve_target_label(
+                    node.on_failure_node_id, prefix=prefix
+                )
                 lines.append(f"{indent}{scoped_id} -.->|on_failure| {target}")
 
             if getattr(node, "terminal_branch_target", None):
-                t_target = self._resolve_target_label(node.terminal_branch_target, prefix=prefix)
+                t_target = self._resolve_target_label(
+                    node.terminal_branch_target, prefix=prefix
+                )
                 lines.append(f"{indent}{scoped_id} -.->|terminal_branch| {t_target}")
 
             if isinstance(node, ConditionNode):
@@ -171,7 +179,9 @@ class MermaidGraphAdapter:
                         clean_cond = self.escape_label(cond)
                         lines.append(f'{indent}{scoped_id} -->|"{clean_cond}"| {t_lbl}')
                 if getattr(node, "default_target_id", None):
-                    def_t = self._resolve_target_label(node.default_target_id, prefix=prefix)
+                    def_t = self._resolve_target_label(
+                        node.default_target_id, prefix=prefix
+                    )
                     lines.append(f"{indent}{scoped_id} -->|default| {def_t}")
 
             # 子流程节点嵌套子图渲染
@@ -210,7 +220,9 @@ class MermaidGraphAdapter:
                     if hasattr(node, "mode") and hasattr(node.mode, "value")
                     else str(getattr(node, "mode", "all"))
                 )
-                par_title = self.escape_label(f"并行分支: {node.name or nid} ({mode_str})")
+                par_title = self.escape_label(
+                    f"并行分支: {node.name or nid} ({mode_str})"
+                )
                 lines.append(f'{indent}subgraph {par_id} ["{par_title}"]')
                 for b_idx, branch in enumerate(node.branches):
                     if not getattr(branch, "nodes", None):
@@ -228,7 +240,9 @@ class MermaidGraphAdapter:
                     lines.extend(b_lines)
                     lines.append(f"{indent}    end")
                     b_entry = f"{b_prefix}{self.sanitize_id(branch.entry_node_id)}"
-                    lines.append(f"{indent}    {scoped_id} -.->|branch_{b_idx + 1}| {b_entry}")
+                    lines.append(
+                        f"{indent}    {scoped_id} -.->|branch_{b_idx + 1}| {b_entry}"
+                    )
                 lines.append(f"{indent}end")
 
         return lines
@@ -243,7 +257,11 @@ def render_mermaid_diagram(
 
     契约：任何异常或无效输入均静默捕获并返回空字符串 ""，保证上层调用安全。
     """
-    if graph is None or not hasattr(graph, "nodes") or not hasattr(graph, "entry_node_id"):
+    if (
+        graph is None
+        or not hasattr(graph, "nodes")
+        or not hasattr(graph, "entry_node_id")
+    ):
         return ""
     try:
         adapter = MermaidGraphAdapter(graph, render_subgraphs=render_subgraphs)

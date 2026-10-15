@@ -1083,9 +1083,7 @@ class SignTaskService(SignTaskCrudMixin):
             account=account_name, task=task_name, created_at=created_at
         )
 
-    def delete_history_entry(
-        self, account: str, task: str, created_at: str
-    ) -> bool:
+    def delete_history_entry(self, account: str, task: str, created_at: str) -> bool:
         deleted = self.history_store.delete_history_entry(
             account=account, task=task, created_at=created_at
         )
@@ -1097,9 +1095,7 @@ class SignTaskService(SignTaskCrudMixin):
             self._set_task_last_run_metadata(task, account, latest_entry)
         return deleted
 
-    def delete_history_item(
-        self, account: str, task: str, created_at: str
-    ) -> bool:
+    def delete_history_item(self, account: str, task: str, created_at: str) -> bool:
         return self.delete_history_entry(
             account=account, task=task, created_at=created_at
         )

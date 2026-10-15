@@ -49,10 +49,8 @@ class SignTaskHistoryMixin:
     @property
     def history_store(self) -> SignTaskHistoryStore:
         store = getattr(self, "_history_store_instance", None)
-        if (
-            store is None
-            or getattr(store, "history_dir", None)
-            != getattr(self, "run_history_dir", None)
+        if store is None or getattr(store, "history_dir", None) != getattr(
+            self, "run_history_dir", None
         ):
             signs_dir = getattr(self, "signs_dir", None)
             store = SignTaskHistoryStore(
@@ -130,7 +128,9 @@ class SignTaskHistoryMixin:
                                 config.pop("last_run", None)
                             write_json_atomic(config_file, config)
                 except Exception as exc:
-                    _logger.warning("回写任务元数据 last_run 失败: %s (%s)", config_file, exc)
+                    _logger.warning(
+                        "回写任务元数据 last_run 失败: %s (%s)", config_file, exc
+                    )
 
         tasks_cache = getattr(self, "_tasks_cache", None)
         if tasks_cache is not None:
@@ -425,9 +425,7 @@ class SignTaskHistoryMixin:
             self._set_task_last_run_metadata(task_name, account_name, latest_entry)
         return deleted
 
-    def delete_history_item(
-        self, account: str, task: str, created_at: str
-    ) -> bool:
+    def delete_history_item(self, account: str, task: str, created_at: str) -> bool:
         return self.delete_history_log(account, task, created_at)
 
     def clear_all_history_logs(self) -> Dict[str, int]:

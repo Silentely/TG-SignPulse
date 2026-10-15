@@ -218,14 +218,19 @@ class TestHistoricalFileBaselines:
                 [
                     {"time": "t1", "account_name": "alice", "success": True},
                     {"time": "t2", "account_name": "bob", "success": False},
-                    {"time": "t3", "success": True},  # 无 account_name 字段，被视为通用/共享条目
+                    {
+                        "time": "t3",
+                        "success": True,
+                    },  # 无 account_name 字段，被视为通用/共享条目
                 ]
             ),
             encoding="utf-8",
         )
 
         # 查找 alice 的历史能够回退到该公共文件，并保留 alice 本人和无账号共享条目，排他过滤掉 bob
-        alice_entries = load_history_entries(tmp_path, "global_task", account_name="alice")
+        alice_entries = load_history_entries(
+            tmp_path, "global_task", account_name="alice"
+        )
         assert len(alice_entries) == 2
         acc_names = [e.get("account_name") for e in alice_entries]
         assert "alice" in acc_names
@@ -310,7 +315,9 @@ class TestHistoricalFileBaselines:
         safe_old = safe_history_key(old_acc)
         safe_new = safe_history_key(new_acc)
         for hf in tmp_path.glob(f"{safe_old}__*.json"):
-            target_file = tmp_path / hf.name.replace(f"{safe_old}__", f"{safe_new}__", 1)
+            target_file = tmp_path / hf.name.replace(
+                f"{safe_old}__", f"{safe_new}__", 1
+            )
             raw = json.loads(hf.read_text(encoding="utf-8"))
             if isinstance(raw, list):
                 for item in raw:
@@ -610,20 +617,26 @@ class TestFlowAndIpcBaselines:
         }
 
         # 捕获编译前的完整序列化快照
-        snapshot_before = json.dumps(input_flow_dict, sort_keys=True, ensure_ascii=False)
+        snapshot_before = json.dumps(
+            input_flow_dict, sort_keys=True, ensure_ascii=False
+        )
         dict_copy = copy.deepcopy(input_flow_dict)
 
         # 第一次编译
         graph_1 = ExecutionGraph.from_dict(input_flow_dict)
 
         # 检查输入字典未被修改
-        snapshot_after_1 = json.dumps(input_flow_dict, sort_keys=True, ensure_ascii=False)
+        snapshot_after_1 = json.dumps(
+            input_flow_dict, sort_keys=True, ensure_ascii=False
+        )
         assert snapshot_before == snapshot_after_1
         assert input_flow_dict == dict_copy
 
         # 第二次编译
         graph_2 = ExecutionGraph.from_dict(input_flow_dict)
-        snapshot_after_2 = json.dumps(input_flow_dict, sort_keys=True, ensure_ascii=False)
+        snapshot_after_2 = json.dumps(
+            input_flow_dict, sort_keys=True, ensure_ascii=False
+        )
         assert snapshot_before == snapshot_after_2
 
         # 两次编译结果内部完全等价

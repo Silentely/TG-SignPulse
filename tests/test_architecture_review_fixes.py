@@ -102,7 +102,8 @@ async def test_cutover_executor_ignores_terminal_when_policy_ignore():
     # 验证没有遗留 monkeypatch
     assert (
         runner._resolve_action_delay.__name__ == "_resolve_action_delay"
-        or runner._resolve_action_delay.__qualname__ == "DummyRunner._resolve_action_delay"
+        or runner._resolve_action_delay.__qualname__
+        == "DummyRunner._resolve_action_delay"
     )
 
 
@@ -156,7 +157,9 @@ async def test_cutover_executor_failed_action_with_matched_terminal_reports_fail
         with pytest.raises(RuntimeError) as exc_info:
             await runner.sign_a_chat(chat)
         assert "PulseFlow 执行失败" in str(exc_info.value)
-        assert "已签到" in str(exc_info.value) or "returned False" in str(exc_info.value)
+        assert "已签到" in str(exc_info.value) or "returned False" in str(
+            exc_info.value
+        )
 
 
 @pytest.mark.asyncio
@@ -188,7 +191,9 @@ async def test_cutover_executor_stop_after_current_action_branching():
         matched_terminal=False,
         output_text="Action failed",
     )
-    with patch.object(TelegramNodeExecutor, "_call_unlocked", AsyncMock(return_value=fail_outcome)):
+    with patch.object(
+        TelegramNodeExecutor, "_call_unlocked", AsyncMock(return_value=fail_outcome)
+    ):
         outcome = await executor(node, flow_ctx)
         assert outcome.signal == FlowSignal.HALT_FAIL
         assert runner.context.stop_after_current_action is False
@@ -201,7 +206,9 @@ async def test_cutover_executor_stop_after_current_action_branching():
         matched_terminal=False,
         output_text="Action success",
     )
-    with patch.object(TelegramNodeExecutor, "_call_unlocked", AsyncMock(return_value=succ_outcome)):
+    with patch.object(
+        TelegramNodeExecutor, "_call_unlocked", AsyncMock(return_value=succ_outcome)
+    ):
         outcome = await executor(node, flow_ctx)
         assert outcome.signal == FlowSignal.HALT_SUCCESS
         assert runner.context.stop_after_current_action is False
@@ -215,7 +222,9 @@ async def test_cutover_executor_stop_after_current_action_branching():
 @pytest.mark.asyncio
 async def test_cross_chat_side_effect_started_isolation():
     """验证多 chat 连续执行时，前一 chat 遗留的 side_effect 标记会在 sign_a_chat 入口被彻底清空"""
-    chat1 = SignChatV3(chat_id=101, execution_engine="v4", actions=[SendTextAction(text="/one")])
+    chat1 = SignChatV3(
+        chat_id=101, execution_engine="v4", actions=[SendTextAction(text="/one")]
+    )
 
     class DummyRunner(SignerRunnerMixin):
         def __init__(self):
@@ -282,7 +291,9 @@ async def test_worker_init_drain_broken_pipe_cleans_up():
 
     mock_stdin = MagicMock()
     mock_stdin.write = MagicMock()
-    mock_stdin.drain = AsyncMock(side_effect=BrokenPipeError("Broken pipe on worker init"))
+    mock_stdin.drain = AsyncMock(
+        side_effect=BrokenPipeError("Broken pipe on worker init")
+    )
     mock_stdin.close = MagicMock()
     mock_stdin.wait_closed = AsyncMock()
 
@@ -370,7 +381,9 @@ async def test_workflow_engine_delegates_to_pulse_flow_engine():
         ],
         initial_step_id="w1",
     )
-    ctx = WorkflowContext(run_id="deleg_1", account_name="test_acc", task_name="test_task")
+    ctx = WorkflowContext(
+        run_id="deleg_1", account_name="test_acc", task_name="test_task"
+    )
 
     executed_nodes = []
 
@@ -403,7 +416,9 @@ async def test_pulse_flow_engine_halt_fail_retains_error():
     graph = ExecutionGraph(
         entry_node_id="node_1",
         nodes={
-            "node_1": ActionNode(id="node_1", action_type="SEND_TEXT", params={"text": "hello"}),
+            "node_1": ActionNode(
+                id="node_1", action_type="SEND_TEXT", params={"text": "hello"}
+            ),
         },
     )
     engine = PulseFlowEngine()
@@ -463,12 +478,16 @@ def test_history_store_mojibake_repair(tmp_path):
     """验证 SignTaskHistoryStore 默认配置 repair_mojibake，且能真实修复 GBK 乱码样本"""
     from backend.services.sign_task_text import repair_mojibake
 
-    store = SignTaskHistoryStore(history_dir=tmp_path / "history", signs_dir=tmp_path / "signs")
+    store = SignTaskHistoryStore(
+        history_dir=tmp_path / "history", signs_dir=tmp_path / "signs"
+    )
     assert store.repair is repair_mojibake
 
     # 使用真实 GBK 误读样本测试默认 repair 钩子
     original = "签到任务"
-    mojibake_text = original.encode("utf-8").decode("gbk", errors="strict")  # 产生 绛惧埌浠诲姟
+    mojibake_text = original.encode("utf-8").decode(
+        "gbk", errors="strict"
+    )  # 产生 绛惧埌浠诲姟
     assert mojibake_text != original
 
     store.record_run(
@@ -517,7 +536,9 @@ def test_account_history_logs_untruncated(tmp_path):
     clear_memory_cache()
     service = SignTaskService()
     service.history_store = SignTaskHistoryStore(
-        history_dir=tmp_path / "history", signs_dir=tmp_path / "signs", max_entries_per_file=100
+        history_dir=tmp_path / "history",
+        signs_dir=tmp_path / "signs",
+        max_entries_per_file=100,
     )
 
     acc = f"my_account_{uuid.uuid4().hex[:8]}"
@@ -594,9 +615,9 @@ async def test_plugin_context_write_methods_trigger_side_effect():
         res = call()
         if asyncio.iscoroutine(res):
             await res
-        assert (
-            mock_runner.context.pulseflow_side_effect_started is True
-        ), f"Failed to mark side effect for {call}"
+        assert mock_runner.context.pulseflow_side_effect_started is True, (
+            f"Failed to mark side effect for {call}"
+        )
 
 
 # ==============================================================================

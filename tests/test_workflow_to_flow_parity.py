@@ -39,12 +39,18 @@ def test_flow_loop_limit_error_classification_exception_instances():
     assert FlowLoopLimitExceededError is FlowLoopLimitExceededErrorModel
 
     err_flow = FlowLoopLimitExceededError("Node s1 loop limit exceeded (3/2)")
-    assert classify_failure(error=err_flow, success=False) == FailureCategory.TASK_LOOP_EXCEEDED
+    assert (
+        classify_failure(error=err_flow, success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )
     assert classify_failure(error=err_flow) == FailureCategory.TASK_LOOP_EXCEEDED
     assert classify_failure(error=err_flow).value == FAILURE_CATEGORY_TASK_LOOP_EXCEEDED
 
     err_wf = WorkflowLoopExceededError("步骤 s1 执行次数 (3) 超过允许上限 2")
-    assert classify_failure(error=err_wf, success=False) == FailureCategory.TASK_LOOP_EXCEEDED
+    assert (
+        classify_failure(error=err_wf, success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )
     assert classify_failure(error=err_wf) == FailureCategory.TASK_LOOP_EXCEEDED
 
     # 显式成功时应为 NONE
@@ -130,18 +136,29 @@ async def test_parity_normal_linear_execution_order():
     # 1. V3 WorkflowEngine 执行
     wf_def = WorkflowDefinition(
         steps=[
-            WorkflowStep(step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s2"),
-            WorkflowStep(step_id="s2", action_type=SupportAction.SEND_TEXT, next_step_id="s3"),
-            WorkflowStep(step_id="s3", action_type=SupportAction.SEND_TEXT, next_step_id="COMPLETE"),
+            WorkflowStep(
+                step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s2"
+            ),
+            WorkflowStep(
+                step_id="s2", action_type=SupportAction.SEND_TEXT, next_step_id="s3"
+            ),
+            WorkflowStep(
+                step_id="s3",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="COMPLETE",
+            ),
         ],
         initial_step_id="s1",
     )
     v3_ctx = WorkflowContext(run_id="run_1", account_name="acc", task_name="task")
-    v3_res = await WorkflowEngine().run(wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=True))
+    v3_res = await WorkflowEngine().run(
+        wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=True)
+    )
 
     # 2. PulseFlowEngine 编译与执行
     graph = GraphNormalizer.compile(chat)
     flow_ctx = ScopedFlowContext()
+
     async def flow_executor(node, ctx):
         return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
 
@@ -192,23 +209,37 @@ async def test_parity_failure_jump_recovery():
                 next_step_id="s2",
                 on_failure_step_id="s_recovery",
             ),
-            WorkflowStep(step_id="s2", action_type=SupportAction.SEND_TEXT, next_step_id="COMPLETE"),
-            WorkflowStep(step_id="s_recovery", action_type=SupportAction.SEND_TEXT, next_step_id="COMPLETE"),
+            WorkflowStep(
+                step_id="s2",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="COMPLETE",
+            ),
+            WorkflowStep(
+                step_id="s_recovery",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="COMPLETE",
+            ),
         ],
         initial_step_id="s1",
     )
     v3_ctx = WorkflowContext(run_id="run_2", account_name="acc", task_name="task")
+
     async def v3_exec(step, ctx):
         return step.step_id != "s1"
+
     v3_res = await WorkflowEngine().run(wf_def, v3_ctx, v3_exec)
 
     # 2. PulseFlow 执行：s1 失败，跳到 s_recovery 成功
     graph = GraphNormalizer.compile(chat)
     flow_ctx = ScopedFlowContext()
+
     async def flow_exec(node, ctx):
         if node.id == "s1":
-            return StepOutcome(node_id=node.id, status=NodeStatus.FAILED, output_text="s1 failed")
+            return StepOutcome(
+                node_id=node.id, status=NodeStatus.FAILED, output_text="s1 failed"
+            )
         return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
     flow_res = await PulseFlowEngine().run(graph, flow_ctx, flow_exec)
 
     # 3. 对比等价性
@@ -244,19 +275,34 @@ async def test_parity_failure_jump_terminal_fail():
     # 1. V3 执行
     wf_def = WorkflowDefinition(
         steps=[
-            WorkflowStep(step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s2", on_failure_step_id="FAIL"),
-            WorkflowStep(step_id="s2", action_type=SupportAction.SEND_TEXT, next_step_id="COMPLETE"),
+            WorkflowStep(
+                step_id="s1",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="s2",
+                on_failure_step_id="FAIL",
+            ),
+            WorkflowStep(
+                step_id="s2",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="COMPLETE",
+            ),
         ],
         initial_step_id="s1",
     )
     v3_ctx = WorkflowContext(run_id="run_3", account_name="acc", task_name="task")
-    v3_res = await WorkflowEngine().run(wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=False))
+    v3_res = await WorkflowEngine().run(
+        wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=False)
+    )
 
     # 2. PulseFlow 执行
     graph = GraphNormalizer.compile(chat)
     flow_ctx = ScopedFlowContext()
+
     async def flow_exec(node, ctx):
-        return StepOutcome(node_id=node.id, status=NodeStatus.FAILED, output_text="step failed")
+        return StepOutcome(
+            node_id=node.id, status=NodeStatus.FAILED, output_text="step failed"
+        )
+
     flow_res = await PulseFlowEngine().run(graph, flow_ctx, flow_exec)
 
     # 3. 对比等价性
@@ -291,17 +337,25 @@ async def test_parity_terminal_stop_condition():
     # 1. V3 执行：终态命中时设 current_step_id = 'COMPLETE' 提前结束
     wf_def = WorkflowDefinition(
         steps=[
-            WorkflowStep(step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s2"),
-            WorkflowStep(step_id="s2", action_type=SupportAction.SEND_TEXT, next_step_id="COMPLETE"),
+            WorkflowStep(
+                step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s2"
+            ),
+            WorkflowStep(
+                step_id="s2",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="COMPLETE",
+            ),
         ],
         initial_step_id="s1",
     )
     v3_ctx = WorkflowContext(run_id="run_4", account_name="acc", task_name="task")
+
     async def v3_exec(step, ctx):
         if step.step_id == "s1":
             ctx.current_step_id = "COMPLETE"
             return True
         return True
+
     v3_res = await WorkflowEngine().run(wf_def, v3_ctx, v3_exec)
 
     # 2. PulseFlow 编译与执行：验证 compiled node 具有 TerminalPolicy.STOP_FLOW
@@ -309,6 +363,7 @@ async def test_parity_terminal_stop_condition():
     assert graph.nodes["s1"].terminal_policy == TerminalPolicy.STOP_FLOW
 
     flow_ctx = ScopedFlowContext()
+
     async def flow_exec(node, ctx):
         if node.id == "s1":
             return StepOutcome(
@@ -357,15 +412,29 @@ async def test_parity_loop_limit_detection():
     # 1. V3 循环熔断
     wf_def = WorkflowDefinition(
         steps=[
-            WorkflowStep(step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s2", allow_loop=True, max_retries=1),
-            WorkflowStep(step_id="s2", action_type=SupportAction.SEND_TEXT, next_step_id="s1", allow_loop=True, max_retries=1),
+            WorkflowStep(
+                step_id="s1",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="s2",
+                allow_loop=True,
+                max_retries=1,
+            ),
+            WorkflowStep(
+                step_id="s2",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="s1",
+                allow_loop=True,
+                max_retries=1,
+            ),
         ],
         initial_step_id="s1",
     )
     v3_ctx = WorkflowContext(run_id="run_5", account_name="acc", task_name="task")
     v3_exc = None
     try:
-        await WorkflowEngine().run(wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=True))
+        await WorkflowEngine().run(
+            wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=True)
+        )
     except WorkflowLoopExceededError as e:
         v3_exc = e
 
@@ -377,7 +446,9 @@ async def test_parity_loop_limit_detection():
         await PulseFlowEngine().run(
             graph,
             flow_ctx,
-            lambda n, c: asyncio.sleep(0, result=StepOutcome(node_id=n.id, status=NodeStatus.SUCCESS)),
+            lambda n, c: asyncio.sleep(
+                0, result=StepOutcome(node_id=n.id, status=NodeStatus.SUCCESS)
+            ),
         )
     except FlowLoopLimitExceededError as e:
         flow_exc = e
@@ -386,18 +457,40 @@ async def test_parity_loop_limit_detection():
     assert flow_exc is not None, "PulseFlow should raise FlowLoopLimitExceededError"
 
     # 3. 验证异常信息与失败分类完全一致
-    assert classify_failure(error=v3_exc, success=False) == FailureCategory.TASK_LOOP_EXCEEDED
-    assert classify_failure(error=flow_exc, success=False) == FailureCategory.TASK_LOOP_EXCEEDED
-    assert classify_failure(error=str(v3_exc), success=False) == FailureCategory.TASK_LOOP_EXCEEDED
-    assert classify_failure(error=str(flow_exc), success=False) == FailureCategory.TASK_LOOP_EXCEEDED
+    assert (
+        classify_failure(error=v3_exc, success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )
+    assert (
+        classify_failure(error=flow_exc, success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )
+    assert (
+        classify_failure(error=str(v3_exc), success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )
+    assert (
+        classify_failure(error=str(flow_exc), success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )
 
 
 def test_parity_topology_cycle_rejection():
     """验证未允许的死循环在拓扑校验阶段两套引擎均准确拦截"""
     wf_def = WorkflowDefinition(
         steps=[
-            WorkflowStep(step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s2", allow_loop=False),
-            WorkflowStep(step_id="s2", action_type=SupportAction.SEND_TEXT, next_step_id="s1", allow_loop=False),
+            WorkflowStep(
+                step_id="s1",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="s2",
+                allow_loop=False,
+            ),
+            WorkflowStep(
+                step_id="s2",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="s1",
+                allow_loop=False,
+            ),
         ],
         initial_step_id="s1",
     )
@@ -406,6 +499,7 @@ def test_parity_topology_cycle_rejection():
 
     # 编译到 PulseFlow 亦抛出 GraphValidationError
     from tg_signer.core.flow_models import ActionNode, ExecutionGraph
+
     unallowed_graph = ExecutionGraph(
         entry_node_id="s1",
         nodes={
@@ -423,17 +517,31 @@ async def test_parity_step_limit_exceeded():
     # 1. V3 超出 max_total_steps
     wf_def = WorkflowDefinition(
         steps=[
-            WorkflowStep(step_id="s1", action_type=SupportAction.SEND_TEXT, next_step_id="s1", allow_loop=True, max_retries=100),
+            WorkflowStep(
+                step_id="s1",
+                action_type=SupportAction.SEND_TEXT,
+                next_step_id="s1",
+                allow_loop=True,
+                max_retries=100,
+            ),
         ],
         initial_step_id="s1",
     )
-    v3_ctx = WorkflowContext(run_id="run_6", account_name="acc", task_name="task", max_total_steps=5)
+    v3_ctx = WorkflowContext(
+        run_id="run_6", account_name="acc", task_name="task", max_total_steps=5
+    )
     with pytest.raises(WorkflowLoopExceededError) as exc_v3:
-        await WorkflowEngine().run(wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=True))
-    assert classify_failure(error=exc_v3.value, success=False) == FailureCategory.TASK_LOOP_EXCEEDED
+        await WorkflowEngine().run(
+            wf_def, v3_ctx, lambda s, c: asyncio.sleep(0, result=True)
+        )
+    assert (
+        classify_failure(error=exc_v3.value, success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )
 
     # 2. PulseFlow 超出 max_total_steps
     from tg_signer.core.flow_models import ActionNode, ExecutionGraph, LoopPolicy
+
     flow_graph = ExecutionGraph(
         entry_node_id="s1",
         nodes={
@@ -449,8 +557,13 @@ async def test_parity_step_limit_exceeded():
     flow_res = await PulseFlowEngine().run(
         flow_graph,
         flow_ctx,
-        lambda n, c: asyncio.sleep(0, result=StepOutcome(node_id=n.id, status=NodeStatus.SUCCESS)),
+        lambda n, c: asyncio.sleep(
+            0, result=StepOutcome(node_id=n.id, status=NodeStatus.SUCCESS)
+        ),
     )
     assert flow_res["status"] == "failed"
     assert "Flow step limit exceeded" in flow_res.get("error", "")
-    assert classify_failure(error=flow_res["error"], success=False) == FailureCategory.TASK_LOOP_EXCEEDED
+    assert (
+        classify_failure(error=flow_res["error"], success=False)
+        == FailureCategory.TASK_LOOP_EXCEEDED
+    )

@@ -256,6 +256,7 @@ class GraphNormalizer:
         for raw_step in chat.steps or []:
             if isinstance(raw_step, dict):
                 from tg_signer.config import WorkflowStepConfig
+
                 step = WorkflowStepConfig(**raw_step)
             else:
                 step = raw_step
@@ -282,13 +283,15 @@ class GraphNormalizer:
                     max_visits=max_visits,
                 )
 
-                is_stop_on_term = getattr(
-                    raw_act, "stop_flow_on_terminal", False
-                ) or bool(
-                    step.config.get("stop_flow_on_terminal", False)
-                    if step.config
-                    else False
-                ) or bool(getattr(step, "stop_flow_on_terminal", False))
+                is_stop_on_term = (
+                    getattr(raw_act, "stop_flow_on_terminal", False)
+                    or bool(
+                        step.config.get("stop_flow_on_terminal", False)
+                        if step.config
+                        else False
+                    )
+                    or bool(getattr(step, "stop_flow_on_terminal", False))
+                )
 
                 term_policy_raw = (
                     (step.config.get("terminal_policy") if step.config else None)

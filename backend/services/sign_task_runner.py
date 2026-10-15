@@ -753,12 +753,13 @@ async def _runner_handle_error(
         _set_ctx(state, "timed_out", True)
 
     loop_exceeded_types = tuple(
-        t for t in (WorkflowLoopExceededError, FlowLoopLimitExceededError) if t is not None
+        t
+        for t in (WorkflowLoopExceededError, FlowLoopLimitExceededError)
+        if t is not None
     )
-    if (
-        (loop_exceeded_types and isinstance(e, loop_exceeded_types))
-        or type(e).__name__ in ("WorkflowLoopExceededError", "FlowLoopLimitExceededError")
-    ):
+    if (loop_exceeded_types and isinstance(e, loop_exceeded_types)) or type(
+        e
+    ).__name__ in ("WorkflowLoopExceededError", "FlowLoopLimitExceededError"):
         _set_ctx(state, "failure_category", FailureCategory.TASK_LOOP_EXCEEDED.value)
     if state.get("account_invalid_detected") or svc._is_invalid_session_error(e):
         _set_ctx(state, "account_invalid_detected", True)

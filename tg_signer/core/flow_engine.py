@@ -46,7 +46,6 @@ def _redact_trace_text(value: str) -> str:
     )
 
 
-
 class PulseFlowEngine:
     """下一代执行引擎 (PulseFlow v4)
 
@@ -430,7 +429,9 @@ class PulseFlowEngine:
         }
         if not is_success:
             if not last_failure_error:
-                last_failure_error = f"Workflow failed at node {current_id or 'unknown'}"
+                last_failure_error = (
+                    f"Workflow failed at node {current_id or 'unknown'}"
+                )
             res["error"] = _redact_trace_text(last_failure_error)
         return res
 

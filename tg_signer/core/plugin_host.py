@@ -340,7 +340,9 @@ class PluginProcessHost:
                 elapsed = time.perf_counter() - start_time
                 drain_timeout = max(0.001, self.timeout - elapsed)
                 try:
-                    await asyncio.wait_for(self.process.stdin.drain(), timeout=drain_timeout)
+                    await asyncio.wait_for(
+                        self.process.stdin.drain(), timeout=drain_timeout
+                    )
                 except asyncio.TimeoutError:
                     self.process_terminated_by_kill = True
                     kill_process_tree(self.process.pid)
@@ -393,7 +395,9 @@ class PluginProcessHost:
                         elif msg_type == "return":
                             if payload.get("success"):
                                 if not result_future.done():
-                                    result_future.set_result(payload.get("result", True))
+                                    result_future.set_result(
+                                        payload.get("result", True)
+                                    )
                             else:
                                 if not result_future.done():
                                     result_future.set_exception(
@@ -431,20 +435,26 @@ class PluginProcessHost:
                                         doc, caption=caption, **call_params
                                     )
                                 elif method == "click":
-                                    text_or_index = call_params.pop("text_or_index", None)
+                                    text_or_index = call_params.pop(
+                                        "text_or_index", None
+                                    )
                                     call_res = await self.ctx.click(
                                         text_or_index, **call_params
                                     )
                                 elif method == "react":
                                     emoji = call_params.pop("emoji", "👍")
-                                    call_res = await self.ctx.react(emoji, **call_params)
+                                    call_res = await self.ctx.react(
+                                        emoji, **call_params
+                                    )
                                 elif method == "edit_message":
                                     text = call_params.pop("text", "")
                                     call_res = await self.ctx.edit_message(
                                         text, **call_params
                                     )
                                 elif method == "delete_message":
-                                    call_res = await self.ctx.delete_message(**call_params)
+                                    call_res = await self.ctx.delete_message(
+                                        **call_params
+                                    )
                                 elif method == "pin_message":
                                     mid = call_params.pop("message_id", None)
                                     call_res = await self.ctx.pin_message(
@@ -471,7 +481,9 @@ class PluginProcessHost:
                                         target_cid, **forward_kwargs
                                     )
                                 elif method.startswith("storage_"):
-                                    is_global = bool(call_params.pop("is_global", False))
+                                    is_global = bool(
+                                        call_params.pop("is_global", False)
+                                    )
                                     target_storage = (
                                         getattr(
                                             self.ctx, "global_storage", self.ctx.storage
@@ -509,11 +521,18 @@ class PluginProcessHost:
                                         call_res = await target_storage.delete(key)
                                     elif method == "storage_clear":
                                         call_res = await target_storage.clear()
-                                    elif method in ("storage_keys", "storage_list_keys"):
+                                    elif method in (
+                                        "storage_keys",
+                                        "storage_list_keys",
+                                    ):
                                         prefix = call_params.get("prefix", "")
-                                        call_res = await target_storage.keys(prefix=prefix)
+                                        call_res = await target_storage.keys(
+                                            prefix=prefix
+                                        )
                                     elif method == "storage_get_all_records":
-                                        call_res = await target_storage.get_all_records()
+                                        call_res = (
+                                            await target_storage.get_all_records()
+                                        )
                                     elif method == "storage_get_all":
                                         prefix = call_params.get("prefix", "")
                                         call_res = await target_storage.get_all(
@@ -541,7 +560,9 @@ class PluginProcessHost:
                                         else m
                                         for m in call_res
                                     ]
-                                elif hasattr(call_res, "id") and hasattr(call_res, "chat"):
+                                elif hasattr(call_res, "id") and hasattr(
+                                    call_res, "chat"
+                                ):
                                     call_res = serialize_message_for_worker(call_res)
                             except Exception as e:
                                 call_ok = False
@@ -558,7 +579,10 @@ class PluginProcessHost:
                                 resp["error"] = call_err
 
                             encoded_resp = encode_ipc_payload(resp).encode("utf-8")
-                            if self.process.stdin and not self.process.stdin.is_closing():
+                            if (
+                                self.process.stdin
+                                and not self.process.stdin.is_closing()
+                            ):
                                 try:
                                     self.process.stdin.write(encoded_resp)
                                     await self.process.stdin.drain()

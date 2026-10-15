@@ -150,13 +150,19 @@ def test_compile_subflow_and_parallel_accumulate_budget_and_warnings():
         entry_node_id="sub_entry",
         nodes={
             "sub_entry": ActionNode(id="sub_entry", next_node_id="_TERMINAL_COMPLETE"),
-            "sub_orphan": ActionNode(id="sub_orphan", next_node_id="_TERMINAL_COMPLETE"),
+            "sub_orphan": ActionNode(
+                id="sub_orphan", next_node_id="_TERMINAL_COMPLETE"
+            ),
         },
     )
     root = ExecutionGraph(
         entry_node_id="root_entry",
         nodes={
-            "root_entry": SubflowNode(id="root_entry", subflow_graph=sub_orphan, next_node_id="_TERMINAL_COMPLETE"),
+            "root_entry": SubflowNode(
+                id="root_entry",
+                subflow_graph=sub_orphan,
+                next_node_id="_TERMINAL_COMPLETE",
+            ),
         },
     )
 
