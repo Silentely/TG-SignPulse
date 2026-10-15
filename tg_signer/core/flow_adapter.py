@@ -1,102 +1,127 @@
-# tg_signer/core/flow_adapter.py
+"""PulseFlow TelegramNodeExecutor 适配器。
+
+将基于 ExecutionGraph 的节点执行请求适配至旧版 UserSigner / runner 机制。
+在迁移过渡期内保证对旧版动作逻辑、模板渲染、延迟配置与异常重试策略的 100% 行为兼容。
+"""
+
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
-import logging
 import random
 import re
 from typing import Any, Optional
 
 from tg_signer.config import (
+    ACTION_MODEL_MAP,
     ClickKeyboardByTextAction,
     PluginAction,
     SendTextAction,
     SignChatV3,
+    SupportAction,
 )
 from tg_signer.core.flow_compat import FlowCompatibilityBridge
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_models import (
     BaseFlowNode,
+    ExecutionGraph,
     NodeStatus,
     StepOutcome,
 )
-from tg_signer.core.signer_runner import _copy_action_with
-from tg_signer.core.template import render_template, render_template_recursive
+from tg_signer.core.template import (
+    render_template,
+    render_template_recursive,
+)
 
-logger = logging.getLogger("tg_signer.flow_adapter")
+
+def _copy_action_with(action: Any, **updates: Any) -> Any:
+    if hasattr(action, "copy"):
+        try:
+            return action.copy(update=updates)
+        except Exception:
+            pass
+    cloned = copy.copy(action)
+    for k, v in updates.items():
+        setattr(cloned, k, v)
+    return cloned
 
 
 class TelegramNodeExecutor:
-    """隔离旧系统副作用的动作执行适配器，支持跳过判定、动态模板渲染、延迟与容错重试闭环"""
+    """包装旧版 UserSigner 执行能力，为 PulseFlowEngine 提供标准化的节点执行接口。"""
 
     def __init__(
         self,
         runner: Any,
         chat: SignChatV3,
-        graph: Any = None,
-        state_lock: Optional[asyncio.Lock] = None,
+        graph: Optional[ExecutionGraph] = None,
+        compat_bridge: Optional[FlowCompatibilityBridge] = None,
     ):
         self.runner = runner
         self.chat = chat
-        self.compat = FlowCompatibilityBridge(runner, chat, graph)
-        self._runner_state_lock = (
-            state_lock if state_lock is not None else asyncio.Lock()
+        self.compat = compat_bridge or FlowCompatibilityBridge(
+            runner, chat, graph
         )
+        self._executed_action_count: int = 0
+        self._runner_state_lock = asyncio.Lock()
 
     def _log(self, msg: str, level: str = "INFO") -> None:
-        """同时向 runner 日志流（供前端实时查看）和系统标准日志输出"""
-        if hasattr(self.runner, "log"):
+        log_fn = getattr(self.runner, "log", None)
+        if callable(log_fn):
             try:
-                self.runner.log(msg, level=level)
-            except Exception:
-                pass
-        log_fn = getattr(logger, level.lower(), logger.info)
-        log_fn(msg)
+                log_fn(msg, level=level)
+                return
+            except TypeError:
+                try:
+                    log_fn(msg)
+                    return
+                except Exception:
+                    pass
+        import logging
 
-    @staticmethod
-    def _extract_flood_wait_seconds(exc: Exception) -> Optional[int]:
-        """提取 FloodWait 异常中的等待秒数"""
-        for attr in ("value", "x", "seconds"):
-            val = getattr(exc, attr, None)
-            if isinstance(val, (int, float)) and val > 0:
-                return int(val)
-        msg = str(exc)
-        exc_type = type(exc).__name__
-        m = re.search(r"FLOOD_WAIT_?(\d+)", f"{exc_type} msg", re.IGNORECASE)
-        if m:
-            try:
-                return int(m.group(1))
-            except (ValueError, TypeError):
-                pass
-        m2 = re.search(r"wait(?:ing)?(?:\s+of)?\s+(\d+)\s+seconds", msg, re.IGNORECASE)
-        if m2:
-            try:
-                return int(m2.group(1))
-            except (ValueError, TypeError):
-                pass
-        return None
-
-    @classmethod
-    def materialize_action(cls, node: BaseFlowNode) -> Any:
-        """从 ActionNode 中材质化还原标准 SignAction 实例，确保 wait_for 调度兼容。"""
-        raw_act = node.metadata.get("raw_action")
-        if raw_act is not None and not isinstance(raw_act, dict):
-            return raw_act
-
-        from tg_signer.config import (
-            ACTION_MODEL_MAP,
-            SupportAction,
+        logging.getLogger("tg_signer.flow_adapter").log(
+            getattr(logging, level.upper(), logging.INFO), msg
         )
 
-        act_type_str = str(getattr(node, "action_type", "") or "SEND_TEXT").upper()
+    @staticmethod
+    def _extract_flood_wait_seconds(exc: BaseException) -> Optional[int]:
+        value = getattr(exc, "value", None)
+        if isinstance(value, int) and value > 0:
+            return value
+        for attr in ("seconds", "x"):
+            val = getattr(exc, attr, None)
+            if isinstance(val, int) and val > 0:
+                return val
+        msg = str(exc)
+        match = re.search(r"(?:wait of|FLOOD_WAIT_)(\d+)", msg, re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+        return None
+
+    def materialize_action(self, node: BaseFlowNode) -> Any:
+        cached = node.metadata.get("raw_action")
+        if cached is not None:
+            return cached
+
+        raw_act = getattr(node, "action", None)
+        if raw_act is None:
+            raw_act = node.metadata.get("raw_action")
+
+        raw_type = getattr(node, "action_type", "")
         support_act = None
-        for member in SupportAction:
-            if member.name == act_type_str or str(member.value) == act_type_str:
-                support_act = member
-                break
-        if support_act is None and act_type_str in {"PLUGIN", "CUSTOM_PLUGIN"}:
-            support_act = SupportAction.CUSTOM_PLUGIN
+        if isinstance(raw_type, SupportAction):
+            support_act = raw_type
+        else:
+            act_type_str = str(raw_type or "").lower()
+            if act_type_str in ("send_text", "1"):
+                support_act = SupportAction.SEND_TEXT
+            elif act_type_str in ("click_keyboard", "click_keyboard_by_text", "2"):
+                support_act = SupportAction.CLICK_KEYBOARD_BY_TEXT
+            elif act_type_str in ("custom_plugin", "plugin", "99"):
+                support_act = SupportAction.CUSTOM_PLUGIN
 
         params = dict(getattr(node, "params", {}) or {})
         if isinstance(raw_act, dict):
@@ -151,23 +176,19 @@ class TelegramNodeExecutor:
                 timeout=step_timeout,
                 next_action=next_action,
             )
-        return await self.runner.wait_for(
-            chat,
-            action,
-            next_action=next_action,
-        )
+        try:
+            return await self.runner.wait_for(
+                chat, action, next_action=next_action
+            )
+        except TypeError:
+            return await self.runner.wait_for(chat, action)
 
     async def __call__(
         self, node: BaseFlowNode, context: ScopedFlowContext
     ) -> StepOutcome:
-        # The legacy runner and Pyrogram client are stateful. Keep the complete
-        # action transaction serialized even when graph branches are concurrent.
-        await self._runner_state_lock.acquire()
-        try:
+        """线程/协程安全执行，确保状态锁在异常或取消时 100% 释放。"""
+        async with self._runner_state_lock:
             return await self._call_unlocked(node, context)
-        finally:
-            if self._runner_state_lock.locked():
-                self._runner_state_lock.release()
 
     async def _call_unlocked(
         self, node: BaseFlowNode, context: ScopedFlowContext
@@ -235,7 +256,8 @@ class TelegramNodeExecutor:
         fallback_delay = 0.0
         if getattr(self.chat, "action_interval", None) is not None:
             try:
-                fallback_delay = float(self.chat.action_interval or 0.0)
+                if self._executed_action_count > 0:
+                    fallback_delay = float(self.chat.action_interval or 0.0)
             except (ValueError, TypeError):
                 fallback_delay = 0.0
 
@@ -274,6 +296,7 @@ class TelegramNodeExecutor:
         if action_delay > 0:
             self._log(f"步骤 {node.id} 将在 {action_delay:g} 秒后执行")
             await asyncio.sleep(action_delay)
+        self._executed_action_count += 1
 
         # 4. 严格重置并隔离旧 context 污染
         self.compat.reset_before_action()
@@ -305,6 +328,14 @@ class TelegramNodeExecutor:
             step_idx = int(node.id[5:]) + 1
         elif node.id.isdigit():
             step_idx = int(node.id)
+        elif (
+            self.compat
+            and self.compat.graph
+            and getattr(self.compat.graph, "nodes", None)
+        ):
+            node_keys = list(self.compat.graph.nodes.keys())
+            if node.id in node_keys:
+                step_idx = node_keys.index(node.id) + 1
 
         self.compat.set_current_action_context(step_idx, total_nodes, exec_action)
 

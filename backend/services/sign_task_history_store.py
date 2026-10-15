@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from backend.services.sign_task_failure import classify_failure
 from backend.services.sign_task_history_format import (
@@ -50,6 +50,7 @@ from backend.services.sign_task_history_query import (
     find_history_item_by_time,
     sort_history_items_desc,
 )
+from backend.services.sign_task_text import repair_mojibake
 from backend.utils.atomic_io import (
     path_write_lock,
     read_json_safe,
@@ -78,12 +79,14 @@ class SignTaskHistoryStore:
         max_entries_per_file: int = 50,
         max_flow_lines: int = 200,
         max_line_chars: int = 500,
+        repair: Optional[Callable[[str], str]] = None,
     ) -> None:
         self.history_dir = Path(history_dir)
         self.signs_dir = Path(signs_dir) if signs_dir is not None else None
         self.max_entries_per_file = max(1, int(max_entries_per_file))
         self.max_flow_lines = max_flow_lines
         self.max_line_chars = max_line_chars
+        self.repair = repair or repair_mojibake
         self.history_dir.mkdir(parents=True, exist_ok=True)
 
     def get_history_file_path(self, account: str = "", task: str = "") -> Path:
@@ -141,7 +144,7 @@ class SignTaskHistoryStore:
 
         normalized_logs, flow_truncated, flow_line_count = normalize_and_trim_flow_logs(
             flow_logs,
-            repair=lambda s: s,
+            repair=self.repair,
             max_lines=self.max_flow_lines,
             max_line_chars=self.max_line_chars,
         )
@@ -171,7 +174,7 @@ class SignTaskHistoryStore:
             flow_line_count=flow_line_count,
             last_target_message=last_target,
             failure_category=failure_category,
-            repair=lambda s: s,
+            repair=self.repair,
             workflow_path=workflow_path,
         )
         run_entry["created_at"] = created_at
@@ -221,11 +224,13 @@ class SignTaskHistoryStore:
         self,
         account: Optional[str] = None,
         task: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = 50,
         date_filter: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """按账号、任务、日期前缀等维度筛选历史日志（返回时间倒序列表）。"""
-        limit = clamp_limit(limit, minimum=1, maximum=1000)
+        clamped_limit = (
+            clamp_limit(limit, minimum=1, maximum=1000) if limit is not None else None
+        )
         date_prefix = str(date_filter or "").strip()[:10]
 
         # 场景 1: account + task 双重过滤
@@ -240,11 +245,11 @@ class SignTaskHistoryStore:
                 raw,
                 task_name=task,
                 account_name=account,
-                repair=lambda s: s,
+                repair=self.repair,
                 extract_last_target=extract_last_target_message,
                 date_prefix=date_prefix,
             )
-            return sort_history_items_desc(items, limit=limit)
+            return sort_history_items_desc(items, limit=clamped_limit)
 
         # 场景 2: 仅指定 task（扫描所有账号下的该任务历史）
         if task and not account:
@@ -269,13 +274,13 @@ class SignTaskHistoryStore:
                         raw,
                         task_name=task,
                         account_name=acc_name,
-                        repair=lambda s: s,
+                        repair=self.repair,
                         extract_last_target=extract_last_target_message,
                         date_prefix=date_prefix,
                         prefer_entry_account=True,
                     )
                 )
-            return sort_history_items_desc(items, limit=limit)
+            return sort_history_items_desc(items, limit=clamped_limit)
 
         # 场景 3: 仅指定 account（优先读取索引）
         if account and not task:
@@ -283,7 +288,7 @@ class SignTaskHistoryStore:
                 ensure_index(self.history_dir)
                 indexed = list_recent_from_index(
                     self.history_dir,
-                    limit=limit,
+                    limit=clamped_limit,
                     account_name=account,
                     date_prefix=date_prefix,
                     prefer_memory=False,
@@ -318,12 +323,12 @@ class SignTaskHistoryStore:
                         raw,
                         task_name=t_name,
                         account_name=account,
-                        repair=lambda s: s,
+                        repair=self.repair,
                         extract_last_target=extract_last_target_message,
                         date_prefix=date_prefix,
                     )
                 )
-            return sort_history_items_desc(items, limit=limit)
+            return sort_history_items_desc(items, limit=clamped_limit)
 
         # 场景 4: 全局历史查询（既未指定 account 也未指定 task）
         try:
@@ -331,7 +336,7 @@ class SignTaskHistoryStore:
             prefer_memory = not date_prefix
             indexed = list_recent_from_index(
                 self.history_dir,
-                limit=limit,
+                limit=clamped_limit,
                 date_prefix=date_prefix,
                 prefer_memory=prefer_memory,
             )
@@ -371,13 +376,13 @@ class SignTaskHistoryStore:
                     raw,
                     task_name=t_name,
                     account_name=acc_name,
-                    repair=lambda s: s,
+                    repair=self.repair,
                     extract_last_target=extract_last_target_message,
                     date_prefix=date_prefix,
                     prefer_entry_account=True,
                 )
             )
-        return sort_history_items_desc(items, limit=limit)
+        return sort_history_items_desc(items, limit=clamped_limit)
 
     def get_history_entry(
         self, account: str, task: str, created_at: str
@@ -400,7 +405,7 @@ class SignTaskHistoryStore:
             target_time=target_time,
             task_name=task,
             account_name=account,
-            repair=lambda s: s,
+            repair=self.repair,
             extract_last_target=extract_last_target_message,
         )
 

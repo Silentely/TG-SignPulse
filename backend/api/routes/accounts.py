@@ -1138,7 +1138,7 @@ def get_account_logs(
 
     limit = clamp(limit, 1, 200)
 
-    history = get_sign_task_service().get_account_history_logs(account_name)
+    history = get_sign_task_service().get_account_history_logs(account_name, limit=limit)
 
     return [
         AccountLogItem(**_build_history_log_item(item, i, account_name=account_name))
@@ -1193,7 +1193,7 @@ def export_account_logs(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    history = get_sign_task_service().get_account_history_logs(account_name)
+    history = get_sign_task_service().get_account_history_logs(account_name, limit=None)
 
     content = f"账号日志: {account_name}\n"
     content += "=" * 40 + "\n\n"

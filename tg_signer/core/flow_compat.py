@@ -85,7 +85,7 @@ class FlowCompatibilityBridge:
         ctx = self.runner_context
         if ctx is None:
             return False
-        return bool(getattr(ctx, "stop_after_current_action", False))
+        return getattr(ctx, "stop_after_current_action", False) is True
 
     def consume_stop_signal(self) -> bool:
         """读取并消费旧 runner 的终态信号，消费后自动重置为 False。只允许消费一次。"""
@@ -93,7 +93,7 @@ class FlowCompatibilityBridge:
         if ctx is None:
             return False
         try:
-            matched = bool(getattr(ctx, "stop_after_current_action", False))
+            matched = getattr(ctx, "stop_after_current_action", False) is True
             if matched:
                 ctx.stop_after_current_action = False
             return matched
@@ -118,123 +118,61 @@ class FlowCompatibilityBridge:
                 pass
 
     def set_last_output(self, output: str) -> None:
-        """向 runner context 提交最后执行输出。"""
+        """向旧 runner context 提交本次动作产生的输出文本。"""
         ctx = self.runner_context
         if ctx is not None:
             try:
-                ctx.last_output = str(output)
+                ctx.last_output = output
+                ctx.last_received_text = output
             except Exception:
                 pass
 
     # ---------------------------------------------------------
-    # 4. 动作上下文管理 (Action Context Governance)
+    # 4. 动作上下文管理 (Managing Action Context)
     # ---------------------------------------------------------
 
     def set_current_action_context(
         self, step_idx: int, total_nodes: int, action: Any
     ) -> None:
-        """同步 runner 当前动作上下文，保证日志、进度与消息去重不脱钩。"""
+        """设置旧 runner 的动作执行上下文（去重、进度等）。"""
         if hasattr(self.runner, "_set_current_action_context"):
             try:
-                self.runner._set_current_action_context(step_idx, total_nodes, action)
+                self.runner._set_current_action_context(
+                    step_idx, total_nodes, action
+                )
             except Exception:
                 pass
 
     def clear_current_action_context(self) -> None:
-        """清理 runner 当前动作上下文。"""
+        """清理旧 runner 的当前动作上下文。"""
         if hasattr(self.runner, "_clear_current_action_context"):
             try:
                 self.runner._clear_current_action_context()
             except Exception:
                 pass
 
-    # ---------------------------------------------------------
-    # 5. 流程辅助逻辑 (Flow Helpers)
-    # ---------------------------------------------------------
-
-    def skip_match_source(self, context: ScopedFlowContext) -> str:
-        """从 scoped 上下文、实时消息缓冲与终态原因汇总完整匹配源，杜绝内部漏跟 Telegram 更新。"""
-        sources = []
-        if context.last_output:
-            sources.append(str(context.last_output))
-
-        last_received = self.get_last_received_text()
-        if last_received:
-            sources.append(last_received)
-
-        stop_reason = self.get_stop_reason()
-        if stop_reason:
-            sources.append(stop_reason)
-
-        last_cb = self.get_last_callback_answer()
-        if last_cb:
-            sources.append(last_cb)
-
-        chat_msgs = self.get_chat_messages(getattr(self.chat, "chat_id", None))
-        for msg in reversed(list(chat_msgs.values())):
-            if msg is not None:
-                txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
-                if txt:
-                    sources.append(str(txt))
-                    break
-
-        return "\n".join(sources)
-
-    def build_template_context(
-        self,
-        context: ScopedFlowContext,
-        me_user: Any = None,
-        account_name: str = "",
-    ) -> Dict[str, Any]:
-        """从 scoped context 生成新旧模板变量的统一视图。"""
-        scope_dict = context.build_scope_dict()
-        account_dict = dict(scope_dict.get("account") or {})
-        if me_user:
-            for key in ("phone", "username", "first_name"):
-                attr = "phone_number" if key == "phone" else key
-                value = getattr(me_user, attr, None)
-                if value:
-                    account_dict[key] = str(value)
-        if account_name:
-            account_dict["name"] = str(account_name)
-
-        last_received = self.get_last_received_text()
-        scoped_steps = scope_dict.get("steps", {})
-        steps = dict(scoped_steps) if isinstance(scoped_steps, dict) else {}
-        # 旧版 actions/workflow 模板同时支持 step_id 与 1-based 数字键。
-        for index, step_id in enumerate(context.step_outcomes, start=1):
-            step_data = steps.get(step_id)
-            if step_data is not None:
-                steps.setdefault(index, step_data)
-                steps.setdefault(str(index), step_data)
-
-        curr_output = (
-            context.last_output or self.get_last_output() or ""
-        )
-        return {
-            **scope_dict,
-            "account": account_dict,
-            "chat": {
-                "id": getattr(self.chat, "chat_id", None),
-                "name": getattr(self.chat, "name", ""),
-            },
-            # 同时支持 steps 与 step 别名访问
-            "steps": steps,
-            "step": steps,
-            "prev_output": curr_output,
-            "prev": {"output": curr_output},
-            "last_message": last_received,
-        }
-
     def reset_before_action(self) -> None:
-        """清理一次性终态标记与历史输出，避免上一步状态扩散到当前动作。"""
+        """重置上一个动作的旧状态残留。"""
         ctx = self.runner_context
         if ctx is not None:
             try:
-                ctx.stop_after_current_action = False
                 ctx.last_output = ""
+                ctx.stop_after_current_action = False
+                ctx.stop_reason = ""
             except Exception:
                 pass
+
+    # ---------------------------------------------------------
+    # 5. 辅助方法 (Helpers)
+    # ---------------------------------------------------------
+
+    def resolve_next_action(self, node: BaseFlowNode) -> Any:
+        if self.graph is None or not getattr(node, "next_node_id", None):
+            return None
+        next_node = self.graph.nodes.get(node.next_node_id)
+        if next_node is None:
+            return None
+        return next_node.metadata.get("raw_action")
 
     def output_text(self, res: Any = None, action: Any = None) -> str:
         """多重来源回填 Telegram 输出文本，确保动作响应不丢失、状态跟得上更新。"""
@@ -248,10 +186,9 @@ class FlowCompatibilityBridge:
         for msg in reversed(list(chat_msgs.values())):
             if msg is not None:
                 txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
-                if txt:
-                    out_str = str(txt)
-                    self.set_last_output(out_str)
-                    return out_str
+                if txt and isinstance(txt, str):
+                    self.set_last_output(txt)
+                    return txt
 
         # 3. 从终态命中原因或回调通知文本提取
         stop_reason = self.get_stop_reason()
@@ -273,21 +210,104 @@ class FlowCompatibilityBridge:
         if isinstance(res, str) and res:
             self.set_last_output(res)
             return res
-        if hasattr(res, "text") and getattr(res, "text", None):
-            txt = str(res.text)
+        if hasattr(res, "text") and getattr(res, "text", None) and isinstance(res.text, str):
+            txt = res.text
             self.set_last_output(txt)
             return txt
-        if hasattr(res, "caption") and getattr(res, "caption", None):
-            txt = str(res.caption)
+        if hasattr(res, "caption") and getattr(res, "caption", None) and isinstance(res.caption, str):
+            txt = res.caption
             self.set_last_output(txt)
             return txt
 
         return ""
 
-    def resolve_next_action(self, node: BaseFlowNode) -> Any:
-        if self.graph is None or not node.next_node_id:
-            return None
-        next_node = self.graph.nodes.get(node.next_node_id)
-        if next_node is None:
-            return None
-        return next_node.metadata.get("raw_action")
+    def skip_match_source(self, context: ScopedFlowContext) -> str:
+        parts = []
+        if context.last_output:
+            parts.append(str(context.last_output))
+        ctx = self.runner_context
+        if ctx is not None:
+            lr = getattr(ctx, "last_received_text", "")
+            if lr and isinstance(lr, str):
+                parts.append(lr)
+            msgs = self.get_chat_messages()
+            if msgs:
+                try:
+                    recent = sorted(
+                        msgs.values(),
+                        key=lambda m: getattr(m, "id", 0) or 0,
+                        reverse=True,
+                    )[:5]
+                    for m in recent:
+                        t = getattr(m, "text", "")
+                        if t and isinstance(t, str):
+                            parts.append(t)
+                except Exception:
+                    pass
+        return " ".join(parts)
+
+    def build_template_context(
+        self,
+        flow_context: ScopedFlowContext,
+        me_user: Any = None,
+        account_name: str = "",
+    ) -> Dict[str, Any]:
+        scope_dict = (
+            flow_context.build_scope_dict()
+            if hasattr(flow_context, "build_scope_dict")
+            else {}
+        )
+        account_dict = dict(scope_dict.get("account") or {})
+        if me_user:
+            for key in ("phone", "username", "first_name"):
+                attr = "phone_number" if key == "phone" else key
+                value = getattr(me_user, attr, None)
+                if value:
+                    account_dict[key] = str(value)
+        if account_name:
+            account_dict["name"] = str(account_name)
+
+        last_received = self.get_last_received_text()
+        steps = dict(scope_dict.get("steps") or {})
+        step_aliases = dict(steps)
+        for idx, (_k, v) in enumerate(steps.items(), start=1):
+            step_aliases[idx] = v
+            step_aliases[str(idx)] = v
+
+        result = {
+            **scope_dict,
+            "account": account_dict,
+            "chat": {
+                "id": getattr(self.chat, "chat_id", None),
+                "name": getattr(self.chat, "name", ""),
+            },
+            # step 是 legacy 别名，数据源仍然只有 scoped steps。
+            "step": step_aliases,
+            "prev_output": flow_context.last_output or "",
+            "prev": {"output": flow_context.last_output or ""},
+            "last_message": last_received,
+        }
+        user_ctx = result.setdefault("user", {})
+        if me_user:
+            user_ctx.setdefault("id", getattr(me_user, "id", ""))
+            user_ctx.setdefault("username", getattr(me_user, "username", ""))
+            user_ctx.setdefault("first_name", getattr(me_user, "first_name", ""))
+            user_ctx.setdefault("last_name", getattr(me_user, "last_name", ""))
+        user_ctx.setdefault("account", account_name)
+
+        ctx = self.runner_context
+        if ctx is not None:
+            res_ctx = result.setdefault("res", {})
+            cb = getattr(ctx, "last_callback_answer", "")
+            if cb and isinstance(cb, str):
+                res_ctx.setdefault("callback_answer", cb)
+            sr = getattr(ctx, "stop_reason", "")
+            if sr and isinstance(sr, str):
+                res_ctx.setdefault("stop_reason", sr)
+            if not flow_context.last_output:
+                lo = getattr(ctx, "last_output", "")
+                if lo and isinstance(lo, str):
+                    res_ctx["output"] = lo
+                    result.setdefault("prev", {})["output"] = lo
+
+        return result

@@ -121,7 +121,7 @@ def _prepend_memory(run_history_dir: Path, entry: Dict[str, Any]) -> None:
 def get_memory_recent(
     run_history_dir: Path,
     *,
-    limit: int = 50,
+    limit: Optional[int] = 50,
 ) -> Optional[List[Dict[str, Any]]]:
     """若内存缓存与目录匹配且非空，返回副本；否则 None（调用方应读盘）。"""
     with _memory_lock:
@@ -129,6 +129,8 @@ def get_memory_recent(
             return None
         if not _memory_recent:
             return None
+        if limit is None:
+            return list(_memory_recent)
         return list(_memory_recent[: max(1, int(limit))])
 
 
@@ -221,7 +223,7 @@ def _maybe_trim_index_file(path: Path, *, max_lines: int) -> None:
 def read_index_entries(
     run_history_dir: Path,
     *,
-    limit: int = 50,
+    limit: Optional[int] = 50,
     account_name: Optional[str] = None,
     date_prefix: str = "",
 ) -> List[Dict[str, Any]]:
@@ -230,7 +232,7 @@ def read_index_entries(
 
     返回 newest-first 列表。
     """
-    limit = max(1, int(limit or 1))
+    limit_val = max(1, int(limit)) if limit is not None else None
     acc_filter = str(account_name or "").strip()
     prefix = str(date_prefix or "").strip()[:10]
     path = index_file_path(run_history_dir)
@@ -278,7 +280,7 @@ def read_index_entries(
             failure_category=str(obj.get("failure_category") or ""),
         )
         collected.append(entry)
-        if len(collected) >= limit:
+        if limit_val is not None and len(collected) >= limit_val:
             break
     if acc_filter or prefix:
         _set_filtered_cache(
@@ -449,7 +451,7 @@ def ensure_index(
 def list_recent_from_index(
     run_history_dir: Path,
     *,
-    limit: int = 50,
+    limit: Optional[int] = 50,
     account_name: Optional[str] = None,
     date_prefix: str = "",
     prefer_memory: bool = True,
@@ -458,17 +460,17 @@ def list_recent_from_index(
     对外主入口：优先内存 → 索引文件 → 必要时重建后再读。
     """
     run_history_dir = Path(run_history_dir)
-    limit = max(1, int(limit or 1))
+    limit_val = max(1, int(limit)) if limit is not None else None
 
     if prefer_memory and not account_name and not date_prefix:
-        mem = get_memory_recent(run_history_dir, limit=limit)
+        mem = get_memory_recent(run_history_dir, limit=limit_val)
         if mem is not None:
             return mem
 
     ensure_index(run_history_dir)
     items = read_index_entries(
         run_history_dir,
-        limit=limit,
+        limit=limit_val,
         account_name=account_name,
         date_prefix=date_prefix,
     )

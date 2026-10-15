@@ -173,30 +173,69 @@ class WorkflowEngine:
             Callable[[WorkflowStep, WorkflowContext], Awaitable[bool]]
         ] = None,
     ) -> Dict[str, Any]:
+        """向 PulseFlowEngine 委托执行的兼容适配层。"""
         self.validate_topology(wf)
+        from tg_signer.core.flow_context import ScopedFlowContext
+        from tg_signer.core.flow_engine import PulseFlowEngine
+        from tg_signer.core.flow_models import (
+            TERMINAL_COMPLETE_ID,
+            TERMINAL_FAIL_ID,
+            ActionNode,
+            ExecutionGraph,
+            FlowLoopLimitExceededError,
+            LoopPolicy,
+            NodeStatus,
+            NodeType,
+            StepOutcome,
+        )
+
         step_map = {s.step_id: s for s in wf.steps}
-        ctx.current_step_id = wf.initial_step_id
-        step_counts: Dict[str, int] = {}
-
-        while ctx.current_step_id and ctx.current_step_id not in {"COMPLETE", "FAIL"}:
-            if ctx.total_steps_executed >= ctx.max_total_steps:
-                raise WorkflowLoopExceededError(
-                    f"执行已达最大步数硬上限 {ctx.max_total_steps}"
+        nodes: Dict[str, Any] = {}
+        for s in wf.steps:
+            next_nid = (
+                TERMINAL_COMPLETE_ID
+                if s.next_step_id in (None, "COMPLETE")
+                else (TERMINAL_FAIL_ID if s.next_step_id == "FAIL" else s.next_step_id)
+            )
+            on_fail_nid = (
+                TERMINAL_FAIL_ID
+                if s.on_failure_step_id in (None, "FAIL")
+                else (
+                    TERMINAL_COMPLETE_ID
+                    if s.on_failure_step_id == "COMPLETE"
+                    else s.on_failure_step_id
                 )
-
-            step = step_map[ctx.current_step_id]
-            current_count = step_counts.get(step.step_id, 0)
+            )
             limit = (
-                (step.max_retries + 1)
-                if (step.allow_loop and step.max_retries is not None)
+                (s.max_retries + 1)
+                if (s.allow_loop and s.max_retries is not None)
                 else 1
             )
-            if current_count >= limit:
-                raise WorkflowLoopExceededError(
-                    f"步骤 {step.step_id} 执行次数 ({current_count + 1}) 超过允许上限 {limit}"
-                )
+            nodes[s.step_id] = ActionNode(
+                id=s.step_id,
+                node_type=NodeType.ACTION,
+                next_node_id=next_nid,
+                on_failure_node_id=on_fail_nid,
+                loop_policy=LoopPolicy(
+                    allow_loop=bool(s.allow_loop),
+                    max_visits=limit,
+                ),
+            )
 
-            step_counts[step.step_id] = current_count + 1
+        graph = ExecutionGraph(
+            entry_node_id=wf.initial_step_id,
+            nodes=nodes,
+            max_total_steps=ctx.max_total_steps,
+        )
+
+        flow_ctx = ScopedFlowContext()
+        engine = PulseFlowEngine()
+
+        from tg_signer.core.flow_models import FlowSignal
+
+        async def _bridge_node_executor(node, _fc: ScopedFlowContext) -> StepOutcome:
+            step = step_map[node.id]
+            ctx.current_step_id = step.step_id
             ctx.execution_path.append(step.step_id)
             ctx.total_steps_executed += 1
 
@@ -205,18 +244,58 @@ class WorkflowEngine:
                 step_success = await step_executor(step, ctx)
 
             if ctx.current_step_id == "COMPLETE":
-                break
-            elif step_success:
-                ctx.current_step_id = step.next_step_id or "COMPLETE"
-            else:
-                ctx.current_step_id = step.on_failure_step_id or "FAIL"
+                return StepOutcome(
+                    node_id=node.id,
+                    status=NodeStatus.SUCCESS,
+                    signal=FlowSignal.HALT_SUCCESS,
+                )
+            elif ctx.current_step_id == "FAIL":
+                return StepOutcome(
+                    node_id=node.id,
+                    status=NodeStatus.FAILED,
+                    signal=FlowSignal.HALT_FAIL,
+                )
+            elif ctx.current_step_id != step.step_id:
+                return StepOutcome(
+                    node_id=node.id,
+                    status=NodeStatus.SUCCESS if step_success else NodeStatus.FAILED,
+                    signal=FlowSignal.BRANCH,
+                    target_node_id=ctx.current_step_id,
+                )
 
-        status_result = "success" if ctx.current_step_id == "COMPLETE" else "failed"
-        return {
-            "status": status_result,
-            "path": ctx.execution_path,
-            "steps": ctx.total_steps_executed,
-        }
+            if step_success:
+                return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+            return StepOutcome(node_id=node.id, status=NodeStatus.FAILED)
+
+        try:
+            res = await engine.run(graph, flow_ctx, _bridge_node_executor)
+            err_text = str(res.get("error") or "")
+            if "Flow step limit exceeded" in err_text or ctx.total_steps_executed >= ctx.max_total_steps:
+                raise WorkflowLoopExceededError(
+                    f"执行已达最大步数硬上限 {ctx.max_total_steps}"
+                )
+            status_result = "success" if res.get("status") == "success" else "failed"
+            return {
+                "status": status_result,
+                "path": list(ctx.execution_path),
+                "steps": ctx.total_steps_executed,
+            }
+        except FlowLoopLimitExceededError as err:
+            err_msg = str(err)
+            if "Max total step limit exceeded" in err_msg or ctx.total_steps_executed >= ctx.max_total_steps:
+                raise WorkflowLoopExceededError(
+                    f"执行已达最大步数硬上限 {ctx.max_total_steps}: {err_msg}"
+                ) from err
+            curr_step_id = ctx.current_step_id or wf.initial_step_id
+            st = step_map.get(curr_step_id)
+            limit = (
+                (st.max_retries + 1)
+                if (st and st.allow_loop and st.max_retries is not None)
+                else 1
+            )
+            raise WorkflowLoopExceededError(
+                f"步骤 {curr_step_id} 执行次数 ({ctx.execution_path.count(curr_step_id) + 1}) 超过允许上限 {limit}: {err_msg}"
+            ) from err
 
 
 __all__ = [

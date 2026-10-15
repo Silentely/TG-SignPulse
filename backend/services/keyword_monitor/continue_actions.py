@@ -925,7 +925,6 @@ async def execute_custom_plugin_continue_action(
         logger.warning("Keyword monitor plugin action missing 'plugin_name'")
         return False
 
-    from tg_signer.core.plugin_host import PluginProcessHost
     from tg_signer.core.plugins import PluginContext, PluginRegistry
 
     meta = PluginRegistry.get(plugin_name)
@@ -959,13 +958,24 @@ async def execute_custom_plugin_continue_action(
     )
 
     try:
-        host = PluginProcessHost(
+        from tg_signer.core.plugin_runtime import get_plugin_runtime
+
+        runtime = get_plugin_runtime()
+        plugin_res = await runtime.execute(
             plugin_name=plugin_name,
-            ctx=ctx,
+            args=params or {},
+            context=ctx,
             timeout=action_timeout,
             trigger_type="reactive",
         )
-        res = await host.execute()
+        if not plugin_res.success:
+            logger.error(
+                "Keyword monitor subprocess plugin '%s' execution failed: %s",
+                plugin_name,
+                plugin_res.error,
+            )
+            return False
+        res = plugin_res.return_value
         return bool(res) if res is not None else True
     except Exception as exc:
         logger.error(

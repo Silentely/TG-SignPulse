@@ -243,7 +243,25 @@ class PluginContext:
         lvl = getattr(logging, level.upper(), logging.INFO)
         _logger.log(lvl, msg)
 
+    def _mark_side_effect(self) -> None:
+        """标记当前插件操作已产生外部网络/消息持久化副作用。"""
+        target = getattr(self, "runner", None) or self.logger
+        if target is not None:
+            runner_ctx = getattr(target, "context", None)
+            if runner_ctx is not None:
+                try:
+                    runner_ctx.pulseflow_side_effect_started = True
+                except Exception:
+                    pass
+            compat = getattr(target, "compat", None)
+            if compat is not None and hasattr(compat, "mark_side_effect_started"):
+                try:
+                    compat.mark_side_effect_started()
+                except Exception:
+                    pass
+
     async def reply(self, text: str, **kwargs) -> Any:
+        self._mark_side_effect()
         if self.message is not None and hasattr(self.message, "id"):
             kwargs.setdefault("reply_to_message_id", self.message.id)
         if self.message_thread_id is not None:
@@ -259,6 +277,7 @@ class PluginContext:
         return await self.app.send_message(self.chat_id, text, **kwargs)
 
     async def send_message(self, text: str, **kwargs) -> Any:
+        self._mark_side_effect()
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
         sender = getattr(self.logger, "send_message", None)
@@ -272,6 +291,7 @@ class PluginContext:
         return await self.app.send_message(self.chat_id, text, **kwargs)
 
     async def click(self, text_or_index: Union[str, int], **kwargs) -> Any:
+        self._mark_side_effect()
         if not self.message or not hasattr(self.message, "click"):
             raise RuntimeError("当前上下文中无有效消息，无法执行点击按钮")
         return await self.message.click(text_or_index, **kwargs)
@@ -279,6 +299,7 @@ class PluginContext:
     async def react(
         self, emoji: str, message_id: Optional[int] = None, **kwargs
     ) -> Any:
+        self._mark_side_effect()
         """向消息添加 Emoji 表情表态（Reaction）。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -305,6 +326,7 @@ class PluginContext:
     async def edit_message(
         self, text: str, message_id: Optional[int] = None, **kwargs
     ) -> Any:
+        self._mark_side_effect()
         """编辑指定消息（默认编辑当前上下文触发的消息）。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -333,6 +355,7 @@ class PluginContext:
         raise RuntimeError("Telegram Client 不支持 edit_message_text 方法")
 
     async def delete_message(self, message_id: Optional[int] = None, **kwargs) -> Any:
+        self._mark_side_effect()
         """删除指定消息（默认删除当前上下文触发的消息）。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -359,6 +382,7 @@ class PluginContext:
     async def send_photo(
         self, photo: Union[str, bytes], caption: Optional[str] = None, **kwargs: Any
     ) -> Any:
+        self._mark_side_effect()
         """发送图片到当前会话。"""
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
@@ -380,6 +404,7 @@ class PluginContext:
     async def send_document(
         self, document: Union[str, bytes], caption: Optional[str] = None, **kwargs: Any
     ) -> Any:
+        self._mark_side_effect()
         """发送文档/文件到当前会话。"""
         if self.message_thread_id is not None:
             kwargs.setdefault("message_thread_id", self.message_thread_id)
@@ -399,6 +424,7 @@ class PluginContext:
         raise RuntimeError("Telegram Client 不支持 send_document 方法")
 
     async def pin_message(self, message_id: Optional[int] = None, **kwargs: Any) -> Any:
+        self._mark_side_effect()
         """置顶当前或指定消息。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -425,6 +451,7 @@ class PluginContext:
     async def unpin_message(
         self, message_id: Optional[int] = None, **kwargs: Any
     ) -> Any:
+        self._mark_side_effect()
         """取消置顶当前或指定消息（若未指定 message_id 则取消所有置顶）。"""
         msg_id = message_id
         if msg_id is None and self.message is not None and hasattr(self.message, "id"):
@@ -478,6 +505,7 @@ class PluginContext:
         message_ids: Optional[Union[int, List[int]]] = None,
         **kwargs: Any,
     ) -> Any:
+        self._mark_side_effect()
         """转发消息到目标会话。"""
         src_chat = from_chat_id or self.chat_id
         mids = message_ids

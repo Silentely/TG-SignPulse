@@ -319,246 +319,250 @@ class PluginProcessHost:
         )
         register_worker_process(self.process)
 
-        init_payload = {
-            "plugin_name": self.plugin_name,
-            "source_path": source_path,
-            "chat_id": self.ctx.chat_id,
-            "message_thread_id": getattr(self.ctx, "message_thread_id", None),
-            "message": serialize_message_for_worker(self.ctx.message),
-            "params": getattr(self.ctx, "params", {}),
-        }
-
-        encoded_init = encode_ipc_payload(init_payload).encode("utf-8")
-        assert self.process.stdin is not None
-        self.process.stdin.write(encoded_init)
-        await self.process.stdin.drain()
-
-        loop = asyncio.get_running_loop()
-        result_future: asyncio.Future[Any] = loop.create_future()
-
-        async def stderr_reader():
-            assert self.process.stderr is not None
-            while True:
-                line = await self.process.stderr.readline()
-                if not line:
-                    break
-                line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
-                if line_str:
-                    self.ctx.log(f"[worker stderr] {line_str}", level="WARNING")
-
-        async def stdout_reader():
-            assert self.process.stdout is not None
-            while True:
-                line = await self.process.stdout.readline()
-                if not line:
-                    break
-                line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
-                if not line_str:
-                    continue
-
-                if line_str.startswith("{"):
-                    try:
-                        payload = decode_ipc_payload(line_str)
-                    except Exception:
-                        self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
-                        continue
-
-                    if not isinstance(payload, dict):
-                        self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
-                        continue
-
-                    msg_type = payload.get("type")
-                    if msg_type == "log":
-                        self.ctx.log(
-                            payload.get("message", ""),
-                            level=payload.get("level", "INFO"),
-                        )
-                    elif msg_type == "return":
-                        if payload.get("success"):
-                            if not result_future.done():
-                                result_future.set_result(payload.get("result", True))
-                        else:
-                            if not result_future.done():
-                                result_future.set_exception(
-                                    RuntimeError(
-                                        payload.get("error", "Unknown worker error")
-                                    )
-                                )
-                    elif msg_type == "call":
-                        cid = payload.get("id")
-                        method = payload.get("method")
-                        params = payload.get("params", {}) or {}
-                        call_res = None
-                        call_ok = True
-                        call_err = ""
-                        try:
-                            call_params = dict(params)
-                            if method == "reply":
-                                text = call_params.pop("text", "")
-                                call_res = await self.ctx.reply(text, **call_params)
-                            elif method == "send_message":
-                                text = call_params.pop("text", "")
-                                call_res = await self.ctx.send_message(
-                                    text, **call_params
-                                )
-                            elif method == "send_photo":
-                                photo = call_params.pop("photo", "")
-                                caption = call_params.pop("caption", None)
-                                call_res = await self.ctx.send_photo(
-                                    photo, caption=caption, **call_params
-                                )
-                            elif method == "send_document":
-                                doc = call_params.pop("document", "")
-                                caption = call_params.pop("caption", None)
-                                call_res = await self.ctx.send_document(
-                                    doc, caption=caption, **call_params
-                                )
-                            elif method == "click":
-                                text_or_index = call_params.pop("text_or_index", None)
-                                call_res = await self.ctx.click(
-                                    text_or_index, **call_params
-                                )
-                            elif method == "react":
-                                emoji = call_params.pop("emoji", "👍")
-                                call_res = await self.ctx.react(emoji, **call_params)
-                            elif method == "edit_message":
-                                text = call_params.pop("text", "")
-                                call_res = await self.ctx.edit_message(
-                                    text, **call_params
-                                )
-                            elif method == "delete_message":
-                                call_res = await self.ctx.delete_message(**call_params)
-                            elif method == "pin_message":
-                                mid = call_params.pop("message_id", None)
-                                call_res = await self.ctx.pin_message(
-                                    message_id=mid, **call_params
-                                )
-                            elif method == "unpin_message":
-                                mid = call_params.pop("message_id", None)
-                                call_res = await self.ctx.unpin_message(
-                                    message_id=mid, **call_params
-                                )
-                            elif method == "get_messages":
-                                mids = call_params.pop("message_ids", None)
-                                call_res = await self.ctx.get_messages(
-                                    message_ids=mids, **call_params
-                                )
-                            elif method == "forward_messages":
-                                target_cid = call_params.pop("chat_id")
-                                # 转发源会话固定为触发消息所在会话，message_ids 仅限
-                                # 触发消息本身，防止插件越会话搬运其他聊天的内容
-                                forward_kwargs = self._resolve_forward_params(
-                                    self.ctx, call_params
-                                )
-                                call_res = await self.ctx.forward_messages(
-                                    target_cid, **forward_kwargs
-                                )
-                            elif method.startswith("storage_"):
-                                is_global = bool(call_params.pop("is_global", False))
-                                target_storage = (
-                                    getattr(
-                                        self.ctx, "global_storage", self.ctx.storage
-                                    )
-                                    if is_global
-                                    else self.ctx.storage
-                                )
-                                if method == "storage_get":
-                                    key = call_params.get("key", "")
-                                    default = call_params.get("default", None)
-                                    call_res = await target_storage.get(
-                                        key, default=default
-                                    )
-                                elif method == "storage_set":
-                                    key = call_params.get("key", "")
-                                    value = call_params.get("value", None)
-                                    ttl = call_params.get("ttl", None)
-                                    await target_storage.set(key, value, ttl=ttl)
-                                    call_res = True
-                                elif method == "storage_increment":
-                                    key = call_params.get("key", "")
-                                    delta = call_params.get(
-                                        "amount", call_params.get("delta", 1)
-                                    )
-                                    default = call_params.get("default", 0)
-                                    ttl = call_params.get("ttl", None)
-                                    call_res = await target_storage.increment(
-                                        key,
-                                        amount=delta,
-                                        default=default,
-                                        ttl=ttl,
-                                    )
-                                elif method == "storage_delete":
-                                    key = call_params.get("key", "")
-                                    call_res = await target_storage.delete(key)
-                                elif method == "storage_clear":
-                                    call_res = await target_storage.clear()
-                                elif method in ("storage_keys", "storage_list_keys"):
-                                    prefix = call_params.get("prefix", "")
-                                    call_res = await target_storage.keys(prefix=prefix)
-                                elif method == "storage_get_all_records":
-                                    call_res = await target_storage.get_all_records()
-                                elif method == "storage_get_all":
-                                    prefix = call_params.get("prefix", "")
-                                    call_res = await target_storage.get_all(
-                                        prefix=prefix
-                                    )
-                                elif method == "storage_mget":
-                                    keys = call_params.get("keys", [])
-                                    call_res = await target_storage.mget(keys)
-                                elif method == "storage_mset":
-                                    mapping = call_params.get("mapping", {})
-                                    ttl = call_params.get("ttl", None)
-                                    await target_storage.mset(mapping, ttl=ttl)
-                                    call_res = True
-                                else:
-                                    raise ValueError(
-                                        f"Unknown storage RPC method: {method}"
-                                    )
-                            else:
-                                raise ValueError(f"Unknown RPC method: {method}")
-
-                            if isinstance(call_res, list):
-                                call_res = [
-                                    serialize_message_for_worker(m)
-                                    if hasattr(m, "id") and hasattr(m, "chat")
-                                    else m
-                                    for m in call_res
-                                ]
-                            elif hasattr(call_res, "id") and hasattr(call_res, "chat"):
-                                call_res = serialize_message_for_worker(call_res)
-                        except Exception as e:
-                            call_ok = False
-                            call_err = str(e)
-
-                        resp = {
-                            "type": "call_result",
-                            "id": cid,
-                            "success": call_ok,
-                        }
-                        if call_ok:
-                            resp["data"] = call_res
-                        else:
-                            resp["error"] = call_err
-
-                        encoded_resp = encode_ipc_payload(resp).encode("utf-8")
-                        if self.process.stdin and not self.process.stdin.is_closing():
-                            try:
-                                self.process.stdin.write(encoded_resp)
-                                await self.process.stdin.drain()
-                            except (BrokenPipeError, ConnectionResetError, OSError):
-                                pass
-                else:
-                    self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
-
-        stderr_task = asyncio.create_task(stderr_reader())
-        stdout_task = asyncio.create_task(stdout_reader())
-
-        async def wait_process():
-            return await self.process.wait()
-
-        process_wait_task = asyncio.create_task(wait_process())
+        stderr_task: Optional[asyncio.Task] = None
+        stdout_task: Optional[asyncio.Task] = None
+        process_wait_task: Optional[asyncio.Task] = None
 
         try:
+            init_payload = {
+                "plugin_name": self.plugin_name,
+                "source_path": source_path,
+                "chat_id": self.ctx.chat_id,
+                "message_thread_id": getattr(self.ctx, "message_thread_id", None),
+                "message": serialize_message_for_worker(self.ctx.message),
+                "params": getattr(self.ctx, "params", {}),
+            }
+
+            encoded_init = encode_ipc_payload(init_payload).encode("utf-8")
+            assert self.process.stdin is not None
+            self.process.stdin.write(encoded_init)
+            await self.process.stdin.drain()
+
+            loop = asyncio.get_running_loop()
+            result_future: asyncio.Future[Any] = loop.create_future()
+
+            async def stderr_reader():
+                assert self.process.stderr is not None
+                while True:
+                    line = await self.process.stderr.readline()
+                    if not line:
+                        break
+                    line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if line_str:
+                        self.ctx.log(f"[worker stderr] {line_str}", level="WARNING")
+
+            async def stdout_reader():
+                assert self.process.stdout is not None
+                while True:
+                    line = await self.process.stdout.readline()
+                    if not line:
+                        break
+                    line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if not line_str:
+                        continue
+
+                    if line_str.startswith("{"):
+                        try:
+                            payload = decode_ipc_payload(line_str)
+                        except Exception:
+                            self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
+                            continue
+
+                        if not isinstance(payload, dict):
+                            self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
+                            continue
+
+                        msg_type = payload.get("type")
+                        if msg_type == "log":
+                            self.ctx.log(
+                                payload.get("message", ""),
+                                level=payload.get("level", "INFO"),
+                            )
+                        elif msg_type == "return":
+                            if payload.get("success"):
+                                if not result_future.done():
+                                    result_future.set_result(payload.get("result", True))
+                            else:
+                                if not result_future.done():
+                                    result_future.set_exception(
+                                        RuntimeError(
+                                            payload.get("error", "Unknown worker error")
+                                        )
+                                    )
+                        elif msg_type == "call":
+                            cid = payload.get("id")
+                            method = payload.get("method")
+                            params = payload.get("params", {}) or {}
+                            call_res = None
+                            call_ok = True
+                            call_err = ""
+                            try:
+                                call_params = dict(params)
+                                if method == "reply":
+                                    text = call_params.pop("text", "")
+                                    call_res = await self.ctx.reply(text, **call_params)
+                                elif method == "send_message":
+                                    text = call_params.pop("text", "")
+                                    call_res = await self.ctx.send_message(
+                                        text, **call_params
+                                    )
+                                elif method == "send_photo":
+                                    photo = call_params.pop("photo", "")
+                                    caption = call_params.pop("caption", None)
+                                    call_res = await self.ctx.send_photo(
+                                        photo, caption=caption, **call_params
+                                    )
+                                elif method == "send_document":
+                                    doc = call_params.pop("document", "")
+                                    caption = call_params.pop("caption", None)
+                                    call_res = await self.ctx.send_document(
+                                        doc, caption=caption, **call_params
+                                    )
+                                elif method == "click":
+                                    text_or_index = call_params.pop("text_or_index", None)
+                                    call_res = await self.ctx.click(
+                                        text_or_index, **call_params
+                                    )
+                                elif method == "react":
+                                    emoji = call_params.pop("emoji", "👍")
+                                    call_res = await self.ctx.react(emoji, **call_params)
+                                elif method == "edit_message":
+                                    text = call_params.pop("text", "")
+                                    call_res = await self.ctx.edit_message(
+                                        text, **call_params
+                                    )
+                                elif method == "delete_message":
+                                    call_res = await self.ctx.delete_message(**call_params)
+                                elif method == "pin_message":
+                                    mid = call_params.pop("message_id", None)
+                                    call_res = await self.ctx.pin_message(
+                                        message_id=mid, **call_params
+                                    )
+                                elif method == "unpin_message":
+                                    mid = call_params.pop("message_id", None)
+                                    call_res = await self.ctx.unpin_message(
+                                        message_id=mid, **call_params
+                                    )
+                                elif method == "get_messages":
+                                    mids = call_params.pop("message_ids", None)
+                                    call_res = await self.ctx.get_messages(
+                                        message_ids=mids, **call_params
+                                    )
+                                elif method == "forward_messages":
+                                    target_cid = call_params.pop("chat_id")
+                                    # 转发源会话固定为触发消息所在会话，message_ids 仅限
+                                    # 触发消息本身，防止插件越会话搬运其他聊天的内容
+                                    forward_kwargs = self._resolve_forward_params(
+                                        self.ctx, call_params
+                                    )
+                                    call_res = await self.ctx.forward_messages(
+                                        target_cid, **forward_kwargs
+                                    )
+                                elif method.startswith("storage_"):
+                                    is_global = bool(call_params.pop("is_global", False))
+                                    target_storage = (
+                                        getattr(
+                                            self.ctx, "global_storage", self.ctx.storage
+                                        )
+                                        if is_global
+                                        else self.ctx.storage
+                                    )
+                                    if method == "storage_get":
+                                        key = call_params.get("key", "")
+                                        default = call_params.get("default", None)
+                                        call_res = await target_storage.get(
+                                            key, default=default
+                                        )
+                                    elif method == "storage_set":
+                                        key = call_params.get("key", "")
+                                        value = call_params.get("value", None)
+                                        ttl = call_params.get("ttl", None)
+                                        await target_storage.set(key, value, ttl=ttl)
+                                        call_res = True
+                                    elif method == "storage_increment":
+                                        key = call_params.get("key", "")
+                                        delta = call_params.get(
+                                            "amount", call_params.get("delta", 1)
+                                        )
+                                        default = call_params.get("default", 0)
+                                        ttl = call_params.get("ttl", None)
+                                        call_res = await target_storage.increment(
+                                            key,
+                                            amount=delta,
+                                            default=default,
+                                            ttl=ttl,
+                                        )
+                                    elif method == "storage_delete":
+                                        key = call_params.get("key", "")
+                                        call_res = await target_storage.delete(key)
+                                    elif method == "storage_clear":
+                                        call_res = await target_storage.clear()
+                                    elif method in ("storage_keys", "storage_list_keys"):
+                                        prefix = call_params.get("prefix", "")
+                                        call_res = await target_storage.keys(prefix=prefix)
+                                    elif method == "storage_get_all_records":
+                                        call_res = await target_storage.get_all_records()
+                                    elif method == "storage_get_all":
+                                        prefix = call_params.get("prefix", "")
+                                        call_res = await target_storage.get_all(
+                                            prefix=prefix
+                                        )
+                                    elif method == "storage_mget":
+                                        keys = call_params.get("keys", [])
+                                        call_res = await target_storage.mget(keys)
+                                    elif method == "storage_mset":
+                                        mapping = call_params.get("mapping", {})
+                                        ttl = call_params.get("ttl", None)
+                                        await target_storage.mset(mapping, ttl=ttl)
+                                        call_res = True
+                                    else:
+                                        raise ValueError(
+                                            f"Unknown storage RPC method: {method}"
+                                        )
+                                else:
+                                    raise ValueError(f"Unknown RPC method: {method}")
+
+                                if isinstance(call_res, list):
+                                    call_res = [
+                                        serialize_message_for_worker(m)
+                                        if hasattr(m, "id") and hasattr(m, "chat")
+                                        else m
+                                        for m in call_res
+                                    ]
+                                elif hasattr(call_res, "id") and hasattr(call_res, "chat"):
+                                    call_res = serialize_message_for_worker(call_res)
+                            except Exception as e:
+                                call_ok = False
+                                call_err = str(e)
+
+                            resp = {
+                                "type": "call_result",
+                                "id": cid,
+                                "success": call_ok,
+                            }
+                            if call_ok:
+                                resp["data"] = call_res
+                            else:
+                                resp["error"] = call_err
+
+                            encoded_resp = encode_ipc_payload(resp).encode("utf-8")
+                            if self.process.stdin and not self.process.stdin.is_closing():
+                                try:
+                                    self.process.stdin.write(encoded_resp)
+                                    await self.process.stdin.drain()
+                                except (BrokenPipeError, ConnectionResetError, OSError):
+                                    pass
+                    else:
+                        self.ctx.log(f"[worker stdout] {line_str}", level="DEBUG")
+
+            stderr_task = asyncio.create_task(stderr_reader())
+            stdout_task = asyncio.create_task(stdout_reader())
+
+            async def wait_process():
+                return await self.process.wait()
+
+            process_wait_task = asyncio.create_task(wait_process())
+
             done, pending = await asyncio.wait(
                 [result_future, process_wait_task],
                 timeout=self.timeout,
@@ -608,9 +612,12 @@ class PluginProcessHost:
             )
 
         finally:
-            stderr_task.cancel()
-            stdout_task.cancel()
-            process_wait_task.cancel()
+            if stderr_task is not None:
+                stderr_task.cancel()
+            if stdout_task is not None:
+                stdout_task.cancel()
+            if process_wait_task is not None:
+                process_wait_task.cancel()
             if self.process and self.process.stdin:
                 try:
                     self.process.stdin.close()

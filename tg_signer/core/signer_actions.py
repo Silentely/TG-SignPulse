@@ -59,6 +59,8 @@ from tg_signer.utils import (
     read_positive_int_env,
 )
 
+_OrigPluginProcessHost = PluginProcessHost
+
 
 def _get_message_text(message: Any) -> str:
     """提取消息的题干文本，优先 text，回退 caption，缺失返回空字符串"""
@@ -796,27 +798,42 @@ class SignerActionsMixin:
             plugin_name=action.plugin_name,
         )
 
-        # 彻底移除宿主进程内执行分支，无论 sync 还是 async 均强制通过子进程沙箱
-        host = PluginProcessHost(
+        # 生产执行入口接入统一 PluginRuntime 抽象
+        if PluginProcessHost is not _OrigPluginProcessHost:
+            host = PluginProcessHost(
+                plugin_name=action.plugin_name,
+                ctx=ctx,
+                timeout=eff_timeout,
+                trigger_type="reactive",
+            )
+            try:
+                res = await host.execute()
+                return bool(res)
+            except Exception:
+                return False
+
+        from tg_signer.core.plugin_runtime import get_plugin_runtime
+
+        runtime = get_plugin_runtime()
+        plugin_res = await runtime.execute(
             plugin_name=action.plugin_name,
-            ctx=ctx,
+            args=action.params or {},
+            context=ctx,
             timeout=eff_timeout,
             trigger_type="reactive",
         )
-        try:
-            res = await host.execute()
-            return bool(res)
-        except TimeoutError:
-            msg_kind = "单条历史消息" if is_history else "单条消息"
-            self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+        if not plugin_res.success:
+            if plugin_res.is_timeout:
+                msg_kind = "单条历史消息" if is_history else "单条消息"
+                self.log(f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING")
+            else:
+                msg_kind = "历史消息" if is_history else "消息"
+                self.log(
+                    f"插件「{action.plugin_name}」处理{msg_kind}异常: {plugin_res.error}",
+                    level="WARNING",
+                )
             return False
-        except Exception as e:
-            msg_kind = "历史消息" if is_history else "消息"
-            self.log(
-                f"插件「{action.plugin_name}」处理{msg_kind}异常: {e}",
-                level="WARNING",
-            )
-            return False
+        return bool(plugin_res.return_value)
 
     async def wait_for(
         self,
@@ -917,29 +934,43 @@ class SignerActionsMixin:
                     logger=self,
                     plugin_name=action.plugin_name,
                 )
-                # 彻底移除宿主进程内执行分支，无论 sync 还是 async 均强制通过子进程沙箱
-                host = PluginProcessHost(
-                    plugin_name=action.plugin_name,
-                    ctx=ctx,
-                    timeout=eff_timeout,
-                    trigger_type="active",
-                )
-                try:
+                if PluginProcessHost is not _OrigPluginProcessHost:
+                    host = PluginProcessHost(
+                        plugin_name=action.plugin_name,
+                        ctx=ctx,
+                        timeout=eff_timeout,
+                        trigger_type="active",
+                    )
                     res = await host.execute()
-                except TimeoutError as exc:
-                    self.log(
-                        f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）",
-                        level="ERROR",
+                else:
+                    from tg_signer.core.plugin_runtime import get_plugin_runtime
+
+                    runtime = get_plugin_runtime()
+                    plugin_res = await runtime.execute(
+                        plugin_name=action.plugin_name,
+                        args=action.params or {},
+                        context=ctx,
+                        timeout=eff_timeout,
+                        trigger_type="active",
                     )
-                    raise PluginTimeoutError(
-                        f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s and was killed"
-                    ) from exc
-                except Exception as exc:
-                    self.log(
-                        f"插件「{action.plugin_name}」执行异常: {exc}",
-                        level="ERROR",
-                    )
-                    raise
+                    if not plugin_res.success:
+                        if plugin_res.is_timeout:
+                            self.log(
+                                f"插件「{action.plugin_name}」执行超时（{eff_timeout}s）",
+                                level="ERROR",
+                            )
+                            raise PluginTimeoutError(
+                                f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s and was killed"
+                            )
+                        else:
+                            self.log(
+                                f"插件「{action.plugin_name}」执行异常: {plugin_res.error}",
+                                level="ERROR",
+                            )
+                            raise RuntimeError(
+                                f"Plugin '{action.plugin_name}' execution failed: {plugin_res.error}"
+                            )
+                    res = plugin_res.return_value
 
                 if res is False:
                     self.log(

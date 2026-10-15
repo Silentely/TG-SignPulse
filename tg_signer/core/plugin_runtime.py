@@ -1,6 +1,6 @@
 """TG-SignPulse 插件异步运行时与 Worker 进程生命周期治理。
 
-提供统一的 PluginResult 结果载荷抽象、PluginRuntime 执行器接口、
+提供统一的 PluginResult 结果负载抽象、PluginRuntime 执行器接口、
 生产默认的 SubprocessPluginAdapter（基于子进程沙箱隔离）以及
 单元测试专用的 TestMockAdapter（无需启动 OS 真实进程）。
 """
@@ -14,38 +14,40 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from tg_signer.core import plugin_host as _ph
 from tg_signer.core.plugin_host import (
     PluginProcessHost,
     cleanup_all_worker_processes,
-    get_active_worker_processes,
-    register_worker_process,
-    unregister_worker_process,
 )
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 
 @dataclass
 class PluginResult:
-    """插件执行结果结构化载荷。"""
+    """插件执行结果结构化负载。"""
 
     success: bool
     return_value: Any = None
     logs: List[str] = field(default_factory=list)
     error: Optional[str] = None
     execution_time: float = 0.0
+    is_timeout: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "success": self.success,
             "return_value": self.return_value,
             "logs": list(self.logs),
             "error": self.error,
             "execution_time": self.execution_time,
         }
+        if self.is_timeout:
+            d["is_timeout"] = True
+        return d
 
 
 class PluginRuntime(ABC):
-    """插件异步运行时基类接口。"""
+    """插件运行时契约接口。"""
 
     @abstractmethod
     async def execute(
@@ -55,20 +57,21 @@ class PluginRuntime(ABC):
         context: Any,
         *,
         timeout: Optional[float] = None,
+        trigger_type: str = "scheduled",
     ) -> PluginResult:
-        """异步执行指定插件，返回 PluginResult 结构。"""
+        """异步执行指定插件，返回标准结构化结果。"""
         pass
 
-    @classmethod
-    def cleanup_all(cls) -> int:
-        """全局清理所有活动的 Worker 子进程。"""
+    @staticmethod
+    def cleanup_all() -> int:
+        """清理所有正在运行的插件进程。"""
         return cleanup_all_worker_processes()
 
 
 class SubprocessPluginAdapter(PluginRuntime):
-    """生产环境默认适配器：严格基于 PluginProcessHost 子进程沙箱隔离执行。"""
+    """生产环境默认适配器：通过独立子进程与 IPC 执行插件代码，保证宿主稳定性。"""
 
-    def __init__(self, default_timeout: float = 25.0):
+    def __init__(self, default_timeout: float = 30.0):
         self.default_timeout = default_timeout
 
     async def execute(
@@ -78,32 +81,29 @@ class SubprocessPluginAdapter(PluginRuntime):
         context: Any,
         *,
         timeout: Optional[float] = None,
+        trigger_type: str = "scheduled",
     ) -> PluginResult:
         start_time = time.perf_counter()
         effective_timeout = timeout if timeout is not None else self.default_timeout
 
-        # 上下文缺省兜底与参数合并
-        if context is None:
-            context = PluginContext(
-                app=None,
-                chat_id=0,
-                params=dict(args or {}),
-                plugin_name=plugin_name,
-            )
-        elif args:
-            if hasattr(context, "params") and isinstance(context.params, dict):
+        # 确保 context 属性健全
+        if context is not None:
+            if not hasattr(context, "params") or not isinstance(context.params, dict):
+                try:
+                    context.params = dict(args)
+                except Exception:
+                    pass
+            else:
                 context.params.update(args)
-            elif not hasattr(context, "params"):
-                context.params = dict(args)
 
-        if not getattr(context, "plugin_name", None):
-            context.plugin_name = plugin_name
+            if not getattr(context, "plugin_name", None):
+                try:
+                    context.plugin_name = plugin_name
+                except Exception:
+                    pass
 
         captured_logs: List[str] = []
-        original_log = getattr(context, "log", None)
-        had_instance_log = (
-            hasattr(context, "__dict__") and "log" in context.__dict__
-        )
+        original_log = getattr(context, "log", None) if context else None
 
         def capturing_log(msg: str, level: str = "INFO") -> None:
             formatted = f"[{level}] {msg}"
@@ -119,16 +119,19 @@ class SubprocessPluginAdapter(PluginRuntime):
                 except Exception:
                     pass
 
-        try:
-            context.log = capturing_log
-        except Exception:
-            pass
+        if context is not None:
+            try:
+                context.log = capturing_log
+            except Exception:
+                pass
 
         try:
-            host = PluginProcessHost(
+            host_cls = getattr(_ph, "PluginProcessHost", PluginProcessHost)
+            host = host_cls(
                 plugin_name=plugin_name,
                 ctx=context,
                 timeout=effective_timeout,
+                trigger_type=trigger_type,
             )
             result = await host.execute()
             duration = time.perf_counter() - start_time
@@ -138,6 +141,16 @@ class SubprocessPluginAdapter(PluginRuntime):
                 logs=captured_logs,
                 error=None,
                 execution_time=duration,
+            )
+        except TimeoutError as exc:
+            duration = time.perf_counter() - start_time
+            return PluginResult(
+                success=False,
+                return_value=None,
+                logs=captured_logs,
+                error=str(exc) or f"Plugin '{plugin_name}' timed out after {effective_timeout}s",
+                execution_time=duration,
+                is_timeout=True,
             )
         except asyncio.CancelledError:
             # 外部协程被取消时，子进程已在 host 终结，保留协程取消语义
@@ -151,54 +164,47 @@ class SubprocessPluginAdapter(PluginRuntime):
                 error=str(exc),
                 execution_time=duration,
             )
-        finally:
-            if (
-                not had_instance_log
-                and hasattr(context, "__dict__")
-                and "log" in context.__dict__
-            ):
-                del context.__dict__["log"]
-            elif had_instance_log and original_log is not None:
-                context.log = original_log
+
+    @staticmethod
+    def cleanup_all() -> int:
+        """注销并终止当前所有活跃的插件子进程树。"""
+        return cleanup_all_worker_processes()
 
 
 class TestMockAdapter(PluginRuntime):
-    """测试专用适配器：在单进程内存中模拟或直调插件，避免衍生真实操作系统进程。"""
-
-    __test__ = False  # 避免 pytest 将其误识别为测试用例类
+    """测试专用适配器：直接在内存中执行注册的插件 handler 或 mock 回调，无需启动操作系统进程。"""
 
     def __init__(
         self,
-        mock_handlers: Optional[Dict[str, Callable[..., Any]]] = None,
+        custom_handlers: Optional[Dict[str, Callable]] = None,
         default_return_value: Any = True,
     ):
-        self._mock_handlers: Dict[str, Callable[..., Any]] = dict(mock_handlers or {})
-        self.default_return_value = default_return_value
+        self.custom_handlers: Dict[str, Callable] = custom_handlers or {}
+        self.mock_results: Dict[str, PluginResult] = {}
         self.execution_history: List[Dict[str, Any]] = []
+        self.default_return_value = default_return_value
 
-    def register_mock_handler(
-        self,
-        plugin_name: str,
-        handler: Callable[..., Any],
-    ) -> None:
-        """为测试注册特定插件的模拟处理函数。"""
-        self._mock_handlers[plugin_name] = handler
+    def register_mock_handler(self, plugin_name: str, handler: Callable) -> None:
+        self.custom_handlers[plugin_name] = handler
+
+    def set_handler(self, plugin_name: str, handler: Callable) -> None:
+        self.custom_handlers[plugin_name] = handler
 
     def set_mock_result(
         self,
         plugin_name: str,
-        return_value: Any = True,
+        *,
         success: bool = True,
+        return_value: Any = None,
         error: Optional[str] = None,
+        logs: Optional[List[str]] = None,
     ) -> None:
-        """快速设置某插件的固定返回值或异常行为。"""
-
-        async def _mock_fn(*args, **kwargs):
-            if not success and error:
-                raise RuntimeError(error)
-            return return_value
-
-        self._mock_handlers[plugin_name] = _mock_fn
+        self.mock_results[plugin_name] = PluginResult(
+            success=success,
+            return_value=return_value,
+            error=error,
+            logs=logs or [],
+        )
 
     async def execute(
         self,
@@ -207,98 +213,93 @@ class TestMockAdapter(PluginRuntime):
         context: Any,
         *,
         timeout: Optional[float] = None,
+        trigger_type: str = "scheduled",
     ) -> PluginResult:
         start_time = time.perf_counter()
-        captured_logs: List[str] = []
-
         self.execution_history.append(
             {
                 "plugin_name": plugin_name,
-                "args": dict(args or {}),
-                "context": context,
+                "args": dict(args),
+                "trigger_type": trigger_type,
                 "timeout": timeout,
             }
         )
 
         if context is None:
             context = PluginContext(
-                app=None,
-                chat_id=0,
-                params=dict(args or {}),
-                plugin_name=plugin_name,
+                app=None, chat_id=0, plugin_name=plugin_name, params=dict(args)
             )
-        elif args:
-            if hasattr(context, "params") and isinstance(context.params, dict):
-                context.params.update(args)
-            elif not hasattr(context, "params"):
-                context.params = dict(args)
-
-        if not getattr(context, "plugin_name", None):
-            context.plugin_name = plugin_name
-
-        original_log = getattr(context, "log", None)
-        had_instance_log = (
-            hasattr(context, "__dict__") and "log" in context.__dict__
-        )
-
-        def capturing_log(msg: str, level: str = "INFO") -> None:
-            formatted = f"[{level}] {msg}"
-            captured_logs.append(formatted)
-            if original_log and callable(original_log):
+        else:
+            if not hasattr(context, "params") or not isinstance(context.params, dict):
                 try:
-                    original_log(msg, level=level)
-                except TypeError:
-                    try:
-                        original_log(msg)
-                    except Exception:
-                        pass
+                    context.params = dict(args)
                 except Exception:
                     pass
+            else:
+                context.params.update(args)
+
+        if plugin_name in self.mock_results:
+            duration = time.perf_counter() - start_time
+            res = self.mock_results[plugin_name]
+            res.execution_time = duration
+            return res
+
+        handler = self.custom_handlers.get(plugin_name)
+        if not handler:
+            meta = PluginRegistry.get(plugin_name)
+            if meta and meta.handler:
+                handler = meta.handler
+
+        if not handler:
+            duration = time.perf_counter() - start_time
+            return PluginResult(
+                success=True,
+                return_value=self.default_return_value,
+                logs=[],
+                error=None,
+                execution_time=duration,
+            )
+
+        captured_logs: List[str] = []
+
+        def mock_log(msg: str, level: str = "INFO") -> None:
+            captured_logs.append(f"[{level}] {msg}")
 
         try:
-            context.log = capturing_log
+            context.log = mock_log
         except Exception:
             pass
 
         try:
-            handler = self._mock_handlers.get(plugin_name)
-            if handler is None:
-                meta = PluginRegistry.get(plugin_name)
-                if meta and meta.handler:
-                    handler = meta.handler
-
-            if handler is None:
-                duration = time.perf_counter() - start_time
-                return PluginResult(
-                    success=True,
-                    return_value=self.default_return_value,
-                    logs=captured_logs,
-                    error=None,
-                    execution_time=duration,
-                )
-
-            coro = self._invoke_handler(handler, context, args)
-            if timeout is not None and timeout > 0:
-                result = await asyncio.wait_for(coro, timeout=timeout)
+            if inspect.iscoroutinefunction(handler):
+                coro = handler(context)
             else:
-                result = await coro
+                async def _sync_runner():
+                    return handler(context)
+                coro = _sync_runner()
+
+            if timeout is not None:
+                res = await asyncio.wait_for(coro, timeout=timeout)
+            else:
+                res = await coro
 
             duration = time.perf_counter() - start_time
             return PluginResult(
                 success=True,
-                return_value=result,
+                return_value=res,
                 logs=captured_logs,
                 error=None,
                 execution_time=duration,
             )
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             duration = time.perf_counter() - start_time
             return PluginResult(
                 success=False,
                 return_value=None,
                 logs=captured_logs,
-                error=f"Plugin '{plugin_name}' execution timed out after {timeout} seconds",
+                error=f"Plugin '{plugin_name}' timed out after {timeout}s",
                 execution_time=duration,
+                is_timeout=True,
             )
         except Exception as exc:
             duration = time.perf_counter() - start_time
@@ -309,75 +310,30 @@ class TestMockAdapter(PluginRuntime):
                 error=str(exc),
                 execution_time=duration,
             )
-        finally:
-            if (
-                not had_instance_log
-                and hasattr(context, "__dict__")
-                and "log" in context.__dict__
-            ):
-                del context.__dict__["log"]
-            elif had_instance_log and original_log is not None:
-                context.log = original_log
 
-    async def _invoke_handler(
-        self,
-        handler: Callable[..., Any],
-        context: Any,
-        args: Dict[str, Any],
-    ) -> Any:
-        sig = None
-        try:
-            sig = inspect.signature(handler)
-        except Exception:
-            pass
-
-        call_args: List[Any] = []
-        if sig:
-            param_count = len(sig.parameters)
-            if param_count == 0:
-                call_args = []
-            elif param_count == 1:
-                call_args = [context]
-            else:
-                call_args = [context, args]
-        else:
-            call_args = [context]
-
-        if inspect.iscoroutinefunction(handler):
-            return await handler(*call_args)
-        else:
-            res = handler(*call_args)
-            if inspect.isawaitable(res):
-                return await res
-            return res
+    @staticmethod
+    def cleanup_all() -> int:
+        return 0
 
 
-_default_runtime: Optional[PluginRuntime] = None
+_global_runtime: Optional[PluginRuntime] = None
 
 
 def get_plugin_runtime() -> PluginRuntime:
-    """获取全局生效的 PluginRuntime 实例（缺省为 SubprocessPluginAdapter）。"""
-    global _default_runtime
-    if _default_runtime is None:
-        _default_runtime = SubprocessPluginAdapter()
-    return _default_runtime
+    """获取全局单例 PluginRuntime 实例。"""
+    global _global_runtime
+    if _global_runtime is None:
+        _global_runtime = SubprocessPluginAdapter()
+    return _global_runtime
 
 
 def set_plugin_runtime(runtime: Optional[PluginRuntime]) -> None:
-    """设置全局生效的 PluginRuntime 实例（供测试或定制注入）。"""
-    global _default_runtime
-    _default_runtime = runtime
+    """替换全局 PluginRuntime（仅限测试或定制环境使用）。"""
+    global _global_runtime
+    _global_runtime = runtime
 
 
-__all__ = [
-    "PluginResult",
-    "PluginRuntime",
-    "SubprocessPluginAdapter",
-    "TestMockAdapter",
-    "get_plugin_runtime",
-    "set_plugin_runtime",
-    "register_worker_process",
-    "unregister_worker_process",
-    "get_active_worker_processes",
-    "cleanup_all_worker_processes",
-]
+def reset_plugin_runtime() -> None:
+    """重置全局 PluginRuntime 为默认 SubprocessPluginAdapter。"""
+    global _global_runtime
+    _global_runtime = None

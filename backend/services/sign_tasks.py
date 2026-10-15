@@ -188,6 +188,8 @@ class SignTaskService(SignTaskCrudMixin):
     @history_store.setter
     def history_store(self, store: SignTaskHistoryStore) -> None:
         self._history_store = store
+        if store is not None and getattr(store, "history_dir", None) is not None:
+            self.run_history_dir = store.history_dir
 
     @property
     def _account_cooldown_seconds(self) -> int:
@@ -1057,8 +1059,10 @@ class SignTaskService(SignTaskCrudMixin):
             account=account_name, limit=limit, date_filter=date
         )
 
-    def get_account_history_logs(self, account_name: str) -> List[Dict[str, Any]]:
-        return self.history_store.query_history(account=account_name)
+    def get_account_history_logs(
+        self, account_name: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        return self.history_store.query_history(account=account_name, limit=limit)
 
     def get_history_entry(
         self, account: str, task: str, created_at: str

@@ -257,6 +257,23 @@ def classify_failure(
     else:
         error_str = str(error or "")
 
+    err_lower = error_str.lower()
+    for kw in (
+        "flow step limit exceeded",
+        "flowlooplimitexceedederror",
+        "node loop limit exceeded",
+        "loop limit exceeded",
+        "loop not allowed",
+        "node loop not allowed",
+        "workflowloopexceedederror",
+        "超过允许上限",
+        "执行已达最大步数硬上限",
+        "未允许的环路",
+        "任务步骤循环熔断",
+    ):
+        if kw in err_lower:
+            return FailureCategory.TASK_LOOP_EXCEEDED
+
     blob = f"{error_str}\n{output or ''}".strip().lower()
     if not blob:
         return FailureCategory.UNKNOWN if success is False else FailureCategory.NONE

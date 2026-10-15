@@ -246,27 +246,6 @@ class SignerRunnerMixin:
                         async def _call_unlocked(self, node, context):
                             if self._executed_path is not None:
                                 self._executed_path.append(node.id)
-                            if graph and getattr(graph, "nodes", None):
-                                node_keys = list(graph.nodes.keys())
-                                if node.id in node_keys:
-                                    curr_idx = node_keys.index(node.id) + 1
-                                    total = len(node_keys)
-                                    def _aligned_set(idx, tot, act, c_idx=curr_idx, t_tot=total):
-                                        if hasattr(self.runner, "_set_current_action_context"):
-                                            return self.runner._set_current_action_context(c_idx, t_tot, act)
-
-                                    self.compat.set_current_action_context = _aligned_set
-
-                                    if hasattr(self.runner, "_resolve_action_delay"):
-                                        orig_resolve = getattr(self.runner, "_orig_resolve_delay", None) or self.runner._resolve_action_delay
-                                        self.runner._orig_resolve_delay = orig_resolve
-                                        def _aligned_delay(act, interval=0.0, c_idx=curr_idx):
-                                            eff_interval = 0.0 if c_idx == 1 else float(getattr(chat, "action_interval", 0.0) or 0.0)
-                                            try:
-                                                return orig_resolve(act, eff_interval)
-                                            except TypeError:
-                                                return orig_resolve(act)
-                                        self.runner._resolve_action_delay = _aligned_delay
                             outcome = await super()._call_unlocked(node, context)
                             if not outcome.output_text:
                                 raw_act = node.metadata.get("raw_action") or getattr(node, "params", {})
@@ -276,10 +255,24 @@ class SignerRunnerMixin:
                                     act_txt = getattr(raw_act, "text", "")
                                 if act_txt:
                                     outcome.output_text = act_txt
-                            if getattr(self.runner.context, "stop_after_current_action", False) or outcome.matched_terminal:
-                                from tg_signer.core.flow_models import FlowSignal
-                                outcome.signal = FlowSignal.HALT_SUCCESS
+                            stop_signal = (
+                                bool(getattr(self.runner.context, "stop_after_current_action", False))
+                                or outcome.matched_terminal
+                            )
+                            if stop_signal:
                                 self.runner.context.stop_after_current_action = False
+                                from tg_signer.core.flow_models import (
+                                    FlowSignal,
+                                    NodeStatus,
+                                )
+                                if outcome.status in (
+                                    NodeStatus.SUCCESS,
+                                    NodeStatus.TERMINAL_EARLY,
+                                    NodeStatus.SKIPPED,
+                                ):
+                                    outcome.signal = FlowSignal.HALT_SUCCESS
+                                else:
+                                    outcome.signal = FlowSignal.HALT_FAIL
                             return outcome
 
                     executor = _CutoverNodeExecutor(self, chat, graph, executed_path=flow_executed_path)
