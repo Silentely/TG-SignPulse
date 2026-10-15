@@ -145,6 +145,7 @@ async def test_cutover_executor_failed_action_with_matched_terminal_reports_fail
     runner = DummyRunner()
 
     async def mock_wait_for_fail(*args, **kwargs):
+        runner.context.stop_after_current_action = True
         runner.context.last_received_text = "已签到，但发生系统错误"
         runner.context.last_output = "已签到，但发生系统错误"
         return False
@@ -154,7 +155,8 @@ async def test_cutover_executor_failed_action_with_matched_terminal_reports_fail
     with patch.dict(os.environ, {"PULSEFLOW_AUTO_FALLBACK": "0"}):
         with pytest.raises(RuntimeError) as exc_info:
             await runner.sign_a_chat(chat)
-        assert "失败" in str(exc_info.value)
+        assert "PulseFlow 执行失败" in str(exc_info.value)
+        assert "已签到" in str(exc_info.value) or "returned False" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -300,6 +302,45 @@ async def test_worker_init_drain_broken_pipe_cleans_up():
             mock_kill_tree.assert_called_once_with(mock_proc.pid)
             mock_stdin.close.assert_called_once()
             assert len(get_active_worker_processes()) == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_init_drain_timeout_cleans_up():
+    """验证 worker 进程在 init_payload 写入后 drain 挂起时，受配置超时约束自动抛出 TimeoutError，kill 进程并注销"""
+    mock_ctx = MagicMock()
+    mock_ctx.chat_id = 123
+    mock_ctx.params = {}
+    mock_ctx.message = None
+    host = PluginProcessHost(plugin_name="test_plugin", ctx=mock_ctx, timeout=0.05)
+
+    mock_proc = MagicMock()
+    mock_proc.pid = 887766
+    mock_proc.returncode = None
+    mock_proc.wait = AsyncMock(return_value=0)
+
+    async def hanging_drain():
+        await asyncio.sleep(5.0)
+
+    mock_stdin = MagicMock()
+    mock_stdin.write = MagicMock()
+    mock_stdin.drain = AsyncMock(side_effect=hanging_drain)
+    mock_stdin.close = MagicMock()
+    mock_stdin.wait_closed = AsyncMock()
+
+    mock_proc.stdin = mock_stdin
+    mock_proc.stdout = MagicMock()
+    mock_proc.stderr = MagicMock()
+
+    with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
+        with patch("tg_signer.core.plugin_host.kill_process_tree") as mock_kill_tree:
+            with pytest.raises(TimeoutError) as exc_info:
+                await host.execute()
+
+            assert "timed out during initialization" in str(exc_info.value)
+            assert host.process_terminated_by_kill is True
+            mock_kill_tree.assert_called_with(mock_proc.pid)
+            mock_stdin.close.assert_called_once()
+            assert mock_proc not in get_active_worker_processes()
 
 
 # ==============================================================================
