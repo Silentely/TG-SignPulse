@@ -2,6 +2,10 @@
 
 > 记录 TG-SignPulse 各版本的更新内容与演进历史。变更记录撰写规范参见 [CLAUDE.md](./CLAUDE.md)。
 
+## 2026-10-16 (v2.6.1)
+- **修复**：WebDAV 客户端开启跟随重定向（`follow_redirects=True`），并规范化集合目录末尾斜杠，解决连接测试时特定服务端返回 HTTP 301 导致探测失败的问题（Issue #14）。
+- **新增**：WebDAV 配置支持「跳过 SSL 证书校验」开关，在忽略 SSL 证书有效性的同时允许私网/内网地址，兼容自建 NAS、自签名证书或服务商证书临时异常等场景（Issue #14）。
+
 ## 2026-10-14 (v2.6.0)
 - **新增**：PulseFlow (v4) 任务执行引擎正式接入任务配置层，打通 `ActionNode`、`ConditionNode`、`WaitEventNode`、`DelayNode`、`ExtractorNode`、`SubflowNode`、`ParallelNode` 七类控制节点的配置化能力；任务会话支持 `flow_graph`、`steps`、`actions` 三路互斥输入，多源并存直接拒绝，历史任务保持零隐性降级兼容。
 - **新增**：自适应引擎路由 —— 检测到 `flow_graph` 或新控制节点配置时自动锁定 v4 引擎，显式强配经典引擎则报错拒绝，避免新任务走 v3 在运行时崩溃。
