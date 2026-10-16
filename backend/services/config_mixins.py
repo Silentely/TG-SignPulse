@@ -174,18 +174,25 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
                 val_eng if val_eng in {"v4", "v3"} else "v3"
             )
 
+    if "webdav_skip_ssl_verify" in normalized:
+        val = normalized["webdav_skip_ssl_verify"]
+        normalized["webdav_skip_ssl_verify"] = bool(val) if val is not None else False
+
     # WebDAV 地址/用户名：去空白，空值归一为 None
     for key in ("webdav_url", "webdav_username"):
         if key in normalized:
             stripped = (normalized[key] or "").strip()
             normalized[key] = stripped or None
 
-    # WebDAV 地址公网校验：保存即拒绝内网/元数据端点，避免配置落盘后才在执行期失败
+    # WebDAV 地址公网校验：保存即拒绝内网/元数据端点（若开启跳过 SSL 校验则允许内网）
     if normalized.get("webdav_url"):
         from backend.services.webdav_client import validate_webdav_url
 
         try:
-            normalized["webdav_url"] = validate_webdav_url(normalized["webdav_url"])
+            allow_private = bool(normalized.get("webdav_skip_ssl_verify"))
+            normalized["webdav_url"] = validate_webdav_url(
+                normalized["webdav_url"], allow_private=allow_private
+            )
         except ValueError as exc:
             raise ValueError(f"WebDAV 地址不被允许: {exc}") from exc
 
@@ -1342,6 +1349,7 @@ class GlobalSettingsMixin:
             "webdav_username": None,
             "webdav_password": None,
             "webdav_remote_dir": "tg-signpulse-backups",
+            "webdav_skip_ssl_verify": False,
             "require_proxy_for_telegram": False,
             "backup_target": "auto",
         }

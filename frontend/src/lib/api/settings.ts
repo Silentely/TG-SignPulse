@@ -143,6 +143,7 @@ export interface GlobalSettings {
   /** 服务端是否已保存 WebDAV 密码 */
   webdav_password_set?: boolean;
   webdav_remote_dir?: string | null;
+  webdav_skip_ssl_verify?: boolean;
 }
 
 export const getGlobalSettings = (token: string) =>

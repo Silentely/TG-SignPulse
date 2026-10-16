@@ -303,6 +303,7 @@ def run_auto_backup(
         }
     elif do_webdav:
         wd_proxy = str(wd.get("webdav_proxy") or wd.get("proxy") or "").strip() or None
+        skip_ssl = bool(wd.get("webdav_skip_ssl_verify"))
         try:
             from backend.services.webdav_client import upload_file_to_webdav
 
@@ -313,6 +314,7 @@ def run_auto_backup(
                 remote_dir=str(wd.get("webdav_remote_dir") or "tg-signpulse-backups"),
                 local_path=dest,
                 proxy=wd_proxy,
+                skip_ssl_verify=skip_ssl,
             )
             webdav_result["attempted"] = True
         except Exception as exc:
@@ -332,6 +334,7 @@ def run_auto_backup(
                     ),
                     keep=keep,
                     proxy=wd_proxy,
+                    skip_ssl_verify=skip_ssl,
                 )
             except Exception as exc:
                 logger.warning("WebDAV 远端备份清理失败: %s", exc)

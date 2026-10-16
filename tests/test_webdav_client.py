@@ -565,3 +565,73 @@ def test_webdav_operations_support_proxy(tmp_path: Path):
             proxy="socks5://127.0.0.1:1080",
         )
         assert mock_cls.call_args.kwargs.get("proxy") == "socks5://127.0.0.1:1080"
+
+
+def test_validate_webdav_url_allow_private():
+    with pytest.raises(ValueError):
+        validate_webdav_url("http://192.168.1.100:8080/dav")
+    with pytest.raises(ValueError):
+        validate_webdav_url("http://10.0.0.1/dav")
+
+    assert (
+        validate_webdav_url("http://192.168.1.100:8080/dav", allow_private=True)
+        == "http://192.168.1.100:8080/dav"
+    )
+    assert (
+        validate_webdav_url("http://10.0.0.1/dav/", allow_private=True)
+        == "http://10.0.0.1/dav"
+    )
+
+
+def test_webdav_client_follows_redirects_and_skip_ssl_verify():
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.request.return_value = MagicMock(status_code=207, text="")
+
+    with patch(
+        "backend.services.webdav_client.httpx.Client", return_value=mock_client
+    ) as mock_cls:
+        r = check_webdav_connection(
+            base_url="http://192.168.1.100:8080/dav",
+            username="user",
+            password="pwd",
+            remote_dir="tg-signpulse-backups",
+            skip_ssl_verify=True,
+        )
+    assert r["success"] is True
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs.get("follow_redirects") is True
+    assert call_kwargs.get("verify") is False
+
+    req_args = mock_client.request.call_args
+    assert req_args[0][0] == "PROPFIND"
+    assert req_args[0][1].endswith("/tg-signpulse-backups/")
+
+
+def test_upload_file_to_webdav_supports_skip_ssl(tmp_path: Path):
+    f = tmp_path / "test.tar.gz"
+    f.write_bytes(b"content")
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.request.return_value = MagicMock(status_code=201, text="")
+    mock_client.put.return_value = MagicMock(
+        status_code=201, text="", reason_phrase="Created"
+    )
+
+    with patch(
+        "backend.services.webdav_client.httpx.Client", return_value=mock_client
+    ) as mock_cls:
+        res = upload_file_to_webdav(
+            base_url="http://192.168.1.100:8080/dav",
+            username="user",
+            password="pwd",
+            remote_dir="bk",
+            local_path=f,
+            skip_ssl_verify=True,
+        )
+    assert res["success"] is True
+    assert mock_cls.call_args.kwargs.get("follow_redirects") is True
+    assert mock_cls.call_args.kwargs.get("verify") is False
