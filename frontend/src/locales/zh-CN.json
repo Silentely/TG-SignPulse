@@ -1199,7 +1199,9 @@
     "engineSourceSettings": "系统设置",
     "engineSourceEnv": "环境变量",
     "engineSourceCanary": "灰度分流",
-    "engineSourceDefault": "系统默认"
+    "engineSourceDefault": "系统默认",
+    "webdavSkipSslVerify": "跳过 SSL 证书校验",
+    "webdavSkipSslVerifyDesc": "忽略 SSL 证书有效性并允许私有/内网地址（适用于内网自建 NAS、自签名证书或服务商证书临时异常场景）"
   },
   "profile": {
     "title": "个人中心",

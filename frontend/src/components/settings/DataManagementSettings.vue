@@ -366,6 +366,29 @@ const copyRestoreCommand = async () => {
           >
         </div>
 
+        <div class="flex items-center justify-between p-3 rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.02] border border-[var(--sp-border)]">
+          <div class="space-y-0.5">
+            <label class="text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)] block">
+              {{ t('settings.webdavSkipSslVerify') }}
+            </label>
+            <p class="text-[11px] text-[var(--sp-text-muted)] leading-relaxed">
+              {{ t('settings.webdavSkipSslVerifyDesc') }}
+            </p>
+          </div>
+          <button
+            id="webdav-skip-ssl-verify"
+            type="button"
+            class="ui-switch"
+            role="switch"
+            :aria-label="t('settings.webdavSkipSslVerify')"
+            :aria-checked="modelValue.webdavSkipSslVerify"
+            :class="modelValue.webdavSkipSslVerify ? 'ui-switch-on' : ''"
+            @click="update('webdavSkipSslVerify', !modelValue.webdavSkipSslVerify)"
+          >
+            <span class="ui-switch-knob" />
+          </button>
+        </div>
+
         <div class="flex flex-col sm:flex-row gap-2 pt-1">
           <button
             type="button"

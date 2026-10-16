@@ -39,6 +39,7 @@ const settingsState = (): SettingsFormState => ({
   webdavUsername: '',
   webdavPassword: '',
   webdavRemoteDir: 'tg-signpulse-backups',
+  webdavSkipSslVerify: false,
   backupTarget: 'auto',
 })
 

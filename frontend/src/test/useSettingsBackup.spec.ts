@@ -75,6 +75,7 @@ function baseSettings(over: Partial<SettingsFormState> = {}): SettingsFormState 
     webdavUsername: 'user',
     webdavPassword: 'pass',
     webdavRemoteDir: 'tg-signpulse-backups',
+    webdavSkipSslVerify: false,
     backupTarget: 'auto',
     ...over,
   }

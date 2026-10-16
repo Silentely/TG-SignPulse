@@ -49,6 +49,7 @@ const baseSettings = (): SettingsFormState => ({
   webdavUsername: '',
   webdavPassword: '',
   webdavRemoteDir: 'tg-signpulse-backups',
+  webdavSkipSslVerify: false,
   backupTarget: 'auto',
 })
 
@@ -215,8 +216,14 @@ describe('settings-form', () => {
   it('buildBackupPayload 与 applyGlobalSettingsToForm 正确处理 backup_target 及其类型守卫', () => {
     const s = baseSettings()
     s.backupTarget = 'webdav'
+    s.webdavSkipSslVerify = true
     const p = buildBackupPayload(s) as Record<string, unknown>
     expect(p.backup_target).toBe('webdav')
+    expect(p.webdav_skip_ssl_verify).toBe(true)
+
+    const sInsecure = baseSettings()
+    applyGlobalSettingsToForm(sInsecure, { webdav_skip_ssl_verify: true })
+    expect(sInsecure.webdavSkipSslVerify).toBe(true)
 
     // 测试类型守卫：合法值保留，非法值归一化为 auto
     const s2 = baseSettings()

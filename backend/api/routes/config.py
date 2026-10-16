@@ -451,6 +451,7 @@ class GlobalSettingsRequest(BaseModel):
     webdav_username: Optional[str] = None
     webdav_password: Optional[str] = None
     webdav_remote_dir: Optional[str] = None
+    webdav_skip_ssl_verify: Optional[bool] = None
     backup_target: Optional[str] = None
     require_proxy_for_telegram: Optional[bool] = None
     wecom_webhook_url: Optional[str] = None
@@ -504,6 +505,7 @@ class GlobalSettingsResponse(BaseModel):
     webdav_password: Optional[str] = None
     webdav_password_set: bool = False
     webdav_remote_dir: Optional[str] = "tg-signpulse-backups"
+    webdav_skip_ssl_verify: bool = False
     backup_target: str = "auto"
     require_proxy_for_telegram: bool = False
     wecom_webhook_url: Optional[str] = None

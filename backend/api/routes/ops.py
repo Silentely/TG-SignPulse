@@ -455,6 +455,7 @@ async def export_backup_archive(
         if do_webdav:
             try:
                 wd_proxy = _extract_webdav_proxy(cfg)
+                skip_ssl = bool(cfg.get("webdav_skip_ssl_verify"))
                 result = await asyncio.to_thread(
                     upload_file_to_webdav,
                     base_url=webdav_url,
@@ -463,6 +464,7 @@ async def export_backup_archive(
                     remote_dir=webdav_remote,
                     local_path=archive_path,
                     proxy=wd_proxy,
+                    skip_ssl_verify=skip_ssl,
                 )
             except ValueError as exc:
                 raise HTTPException(
@@ -655,12 +657,14 @@ def test_webdav_backup(current_user: User = Depends(get_current_user)):
     cfg = get_config_service().get_global_settings()
     try:
         wd_proxy = _extract_webdav_proxy(cfg)
+        skip_ssl = bool(cfg.get("webdav_skip_ssl_verify"))
         result = check_webdav_connection(
             base_url=str(cfg.get("webdav_url") or ""),
             username=str(cfg.get("webdav_username") or ""),
             password=str(cfg.get("webdav_password") or ""),
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
             proxy=wd_proxy,
+            skip_ssl_verify=skip_ssl,
         )
         return WebDavTestResponse(**result)
     except ValueError as exc:
@@ -699,6 +703,7 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
         )
     try:
         wd_proxy = _extract_webdav_proxy(cfg)
+        skip_ssl = bool(cfg.get("webdav_skip_ssl_verify"))
         result = list_webdav_files(
             base_url=url,
             username=str(cfg.get("webdav_username") or ""),
@@ -707,6 +712,7 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
             name_suffixes=(".tar.gz", ".spbak"),
             limit=20,
             proxy=wd_proxy,
+            skip_ssl_verify=skip_ssl,
         )
         files = [WebDavFileEntry(**f) for f in (result.get("files") or [])]
         return WebDavListResponse(
@@ -760,6 +766,7 @@ def download_webdav_backup_file(
     try:
         # 先拉取首块以尽早失败；再拼接剩余流
         wd_proxy = _extract_webdav_proxy(cfg)
+        skip_ssl = bool(cfg.get("webdav_skip_ssl_verify"))
         stream = iter_webdav_file(
             base_url=url,
             username=str(cfg.get("webdav_username") or ""),
@@ -767,6 +774,7 @@ def download_webdav_backup_file(
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
             filename=safe_name,
             proxy=wd_proxy,
+            skip_ssl_verify=skip_ssl,
         )
         first = next(stream)
 
