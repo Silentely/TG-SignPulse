@@ -140,6 +140,10 @@ class GraphNormalizer:
             if isinstance(node, WaitEventNode):
                 node.metadata.setdefault("chat_id", chat.chat_id)
                 node.metadata.setdefault("chat_name", getattr(chat, "name", None))
+                if getattr(chat, "message_thread_id", None) is not None:
+                    node.metadata.setdefault(
+                        "message_thread_id", chat.message_thread_id
+                    )
 
         # 动态对齐单流程最大执行步数
         graph.max_total_steps = max(60, len(graph.nodes) * 2)
@@ -163,7 +167,7 @@ class GraphNormalizer:
         entry_id = "step_0"
         for i, act in enumerate(actions):
             node_id = f"step_{i}"
-            next_id = f"step_{i + 1}" if i + 1 < total else TERMINAL_COMPLETE_ID
+            next_action_id = f"step_{i + 1}" if i + 1 < total else TERMINAL_COMPLETE_ID
 
             # 向后兼容：只有当动作显式标记了 stop_flow_on_terminal 时才设置 STOP_FLOW
             is_stop_on_term = (
@@ -177,13 +181,21 @@ class GraphNormalizer:
 
             action_type, params = cls._extract_action_type_and_params(act)
 
+            wait_for_reply = (
+                getattr(act, "wait_for_reply", False)
+                if not isinstance(act, dict)
+                else bool(act.get("wait_for_reply", False))
+            )
+            wait_node_id = f"step_{i}_wait" if wait_for_reply else None
+            effective_next_id = wait_node_id if wait_for_reply else next_action_id
+
             # 若配置了 continue_on_error，失败后亦可继续走向下一步
             cont_on_err = (
                 getattr(act, "continue_on_error", False)
                 if not isinstance(act, dict)
                 else bool(act.get("continue_on_error", False))
             )
-            fail_id = next_id if cont_on_err else TERMINAL_FAIL_ID
+            fail_id = effective_next_id if cont_on_err else TERMINAL_FAIL_ID
 
             run_if = (
                 (getattr(act, "run_if", None) or getattr(act, "condition", None))
@@ -225,7 +237,7 @@ class GraphNormalizer:
                 name=f"Action-{i + 1}",
                 action_type=action_type,
                 params=params,
-                next_node_id=next_id,
+                next_node_id=effective_next_id,
                 on_failure_node_id=fail_id,
                 terminal_policy=term_policy,
                 timeout_seconds=step_timeout,
@@ -234,6 +246,46 @@ class GraphNormalizer:
                 metadata={"raw_action": act},
             )
             nodes[node_id] = node
+
+            if wait_for_reply:
+                success_pats = (
+                    getattr(act, "reply_success_patterns", None)
+                    if not isinstance(act, dict)
+                    else act.get("reply_success_patterns")
+                ) or []
+                failure_pats = (
+                    getattr(act, "reply_failure_patterns", None)
+                    if not isinstance(act, dict)
+                    else act.get("reply_failure_patterns")
+                ) or []
+                reply_timeout = (
+                    getattr(act, "reply_timeout_seconds", None)
+                    if not isinstance(act, dict)
+                    else act.get("reply_timeout_seconds")
+                )
+                if reply_timeout is None:
+                    reply_timeout = 30.0
+                try:
+                    reply_timeout = float(reply_timeout)
+                except (ValueError, TypeError):
+                    reply_timeout = 30.0
+
+                wait_node = WaitEventNode(
+                    id=wait_node_id,
+                    name="等待机器人回复",
+                    event_type="ANY",
+                    success_patterns=list(success_pats),
+                    failure_patterns=list(failure_pats),
+                    timeout_seconds=reply_timeout,
+                    next_node_id=next_action_id,
+                    on_failure_node_id=TERMINAL_FAIL_ID,
+                    metadata={
+                        "chat_id": chat.chat_id,
+                        "chat_name": getattr(chat, "name", None),
+                        "message_thread_id": chat.message_thread_id,
+                    },
+                )
+                nodes[wait_node_id] = wait_node
 
         graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
         cls.validate_graph(graph, budget=budget, warnings=warnings)
@@ -483,9 +535,15 @@ class GraphNormalizer:
             common_kwargs["metadata"].setdefault(
                 "chat_name", getattr(chat, "name", None)
             )
+            if getattr(chat, "message_thread_id", None) is not None:
+                common_kwargs["metadata"].setdefault(
+                    "message_thread_id", chat.message_thread_id
+                )
             return WaitEventNode(
-                event_type=step.event_type,
-                filter_patterns=list(step.filter_patterns or []),
+                event_type=getattr(step, "event_type", "ANY") or "ANY",
+                filter_patterns=list(getattr(step, "filter_patterns", []) or []),
+                success_patterns=list(getattr(step, "success_patterns", []) or []),
+                failure_patterns=list(getattr(step, "failure_patterns", []) or []),
                 **common_kwargs,
             )
 

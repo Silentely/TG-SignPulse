@@ -4,6 +4,8 @@ import {
   parseSingleAction,
   buildSingleAction,
   buildActions,
+  actionsToFlowSteps,
+  parseStepsToActions,
   nextActionId,
   resetActionIdCounter,
 } from '../lib/task-form-utils'
@@ -279,5 +281,108 @@ describe('custom_plugin (action=99)', () => {
     expect(built[0].plugin_name).toBe('auto_quiz')
     expect(built[0].params).toEqual({ strict: false })
     expect(built[0].mode).toBe('reactive')
+  })
+})
+
+
+describe('wait_for_reply and actionsToFlowSteps', () => {
+  beforeEach(() => resetActionIdCounter())
+
+  it('parseSingleAction and buildSingleAction preserve wait_for_reply settings', () => {
+    const raw: RawTaskAction = {
+      action: 1,
+      text: '/checkin',
+      wait_for_reply: true,
+      reply_success_patterns: ['出席率\s*成功'],
+      reply_failure_patterns: ['签到失败', '操作失败'],
+      reply_timeout_seconds: 45,
+    }
+    const parsed = parseSingleAction(raw)
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0].wait_for_reply).toBe(true)
+    expect(parsed[0].reply_success_patterns).toEqual(['出席率\s*成功'])
+    expect(parsed[0].reply_failure_patterns).toEqual(['签到失败', '操作失败'])
+    expect(parsed[0].reply_timeout_seconds).toBe(45)
+
+    const built = buildSingleAction(parsed[0])
+    expect(built?.wait_for_reply).toBe(true)
+    expect(built?.reply_success_patterns).toEqual(['出席率\s*成功'])
+    expect(built?.reply_failure_patterns).toEqual(['签到失败', '操作失败'])
+    expect(built?.reply_timeout_seconds).toBe(45)
+  })
+
+  it('actionsToFlowSteps builds interconnected send and wait steps preserving multi-action order', () => {
+    const actions = [
+      { action: 1, text: '/start' },
+      {
+        action: 1,
+        text: '/checkin',
+        wait_for_reply: true,
+        reply_success_patterns: ['出席率\s*成功'],
+        reply_failure_patterns: ['签到失败'],
+        reply_timeout_seconds: 30,
+      },
+      { action: 1, text: '/balance' },
+    ]
+    const steps = actionsToFlowSteps(actions)
+    expect(steps).toHaveLength(4)
+
+    // step 0: /start -> step_1
+    expect(steps[0].step_id).toBe('step_0')
+    expect(steps[0].node_type).toBe('action')
+    expect(steps[0].params.text).toBe('/start')
+    expect(steps[0].next_step_id).toBe('step_1')
+
+    // step 1: /checkin -> step_1_wait
+    expect(steps[1].step_id).toBe('step_1')
+    expect(steps[1].node_type).toBe('action')
+    expect(steps[1].params.text).toBe('/checkin')
+    expect(steps[1].next_step_id).toBe('step_1_wait')
+
+    // step 1 wait: wait_event -> step_2
+    expect(steps[2].step_id).toBe('step_1_wait')
+    expect(steps[2].node_type).toBe('wait_event')
+    expect(steps[2].event_type).toBe('ANY')
+    expect(steps[2].success_patterns).toEqual(['出席率\s*成功'])
+    expect(steps[2].failure_patterns).toEqual(['签到失败'])
+    expect(steps[2].timeout_seconds).toBe(30)
+    expect(steps[2].next_step_id).toBe('step_2')
+    expect(steps[2].on_failure_step_id).toBe('FAIL')
+
+    // step 2: /balance -> COMPLETE
+    expect(steps[3].step_id).toBe('step_2')
+    expect(steps[3].node_type).toBe('action')
+    expect(steps[3].params.text).toBe('/balance')
+    expect(steps[3].next_step_id).toBe('COMPLETE')
+  })
+
+  it('parseStepsToActions round-trips steps back to action with wait_for_reply', () => {
+    const steps = [
+      {
+        step_id: 'step_0',
+        node_type: 'action',
+        action_type: 'SEND_TEXT',
+        params: { text: '/checkin' },
+        next_step_id: 'step_0_wait',
+      },
+      {
+        step_id: 'step_0_wait',
+        node_type: 'wait_event',
+        event_type: 'ANY',
+        success_patterns: ['出席率\s*成功'],
+        failure_patterns: ['签到失败'],
+        timeout_seconds: 30,
+        next_step_id: 'COMPLETE',
+        on_failure_step_id: 'FAIL',
+      },
+    ]
+    const actions = parseStepsToActions(steps)
+    expect(actions).toHaveLength(1)
+    expect(actions![0].type).toBe('send_text')
+    expect(actions![0].value).toBe('/checkin')
+    expect(actions![0].wait_for_reply).toBe(true)
+    expect(actions![0].reply_success_patterns).toEqual(['出席率\s*成功'])
+    expect(actions![0].reply_failure_patterns).toEqual(['签到失败'])
+    expect(actions![0].reply_timeout_seconds).toBe(30)
   })
 })

@@ -83,6 +83,8 @@ def _chat_requires_flow_engine(c: Any) -> bool:
                         for k in (
                             "cases",
                             "filter_patterns",
+                            "success_patterns",
+                            "failure_patterns",
                             "delay_seconds",
                             "regex",
                             "subflow_graph",
@@ -92,6 +94,13 @@ def _chat_requires_flow_engine(c: Any) -> bool:
                     ):
                         return True
                 elif getattr(s, "node_type", None) is not None:
+                    return True
+        actions = c.get("actions")
+        if actions:
+            for act in actions:
+                if (
+                    isinstance(act, dict) and bool(act.get("wait_for_reply"))
+                ) or getattr(act, "wait_for_reply", False):
                     return True
         return False
 
@@ -105,6 +114,11 @@ def _chat_requires_flow_engine(c: Any) -> bool:
                 isinstance(s, FlowStepConfig)
                 or getattr(s, "node_type", None) is not None
             ):
+                return True
+    actions = getattr(c, "actions", None)
+    if actions:
+        for act in actions:
+            if getattr(act, "wait_for_reply", False):
                 return True
     return False
 

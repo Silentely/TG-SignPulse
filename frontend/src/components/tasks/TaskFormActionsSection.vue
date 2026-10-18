@@ -237,6 +237,32 @@ const onPluginSelect = (action: TaskActionItem, val: string | number) => {
   }
 }
 
+
+const getPatternsText = (patterns?: string[]) => (Array.isArray(patterns) ? patterns.join('\n') : '')
+
+const setSuccessPatterns = (action: TaskActionItem, val: string) => {
+  action.reply_success_patterns = val.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
+const setFailurePatterns = (action: TaskActionItem, val: string) => {
+  action.reply_failure_patterns = val.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
+const onToggleWaitForReply = (action: TaskActionItem, checked: boolean) => {
+  action.wait_for_reply = checked
+  if (checked) {
+    if (!action.reply_success_patterns || action.reply_success_patterns.length === 0) {
+      action.reply_success_patterns = ['出席率\\s*成功']
+    }
+    if (!action.reply_failure_patterns || action.reply_failure_patterns.length === 0) {
+      action.reply_failure_patterns = ['出席率\\s*失败', '签到失败', '操作失败']
+    }
+    if (action.reply_timeout_seconds === undefined) {
+      action.reply_timeout_seconds = 30
+    }
+  }
+}
+
 defineProps<{
   actions: TaskActionItem[]
   /** 步骤编号展示：listen 为 04，定时为 03 */
@@ -565,7 +591,7 @@ const emit = defineEmits<{
               v-if="action.type !== 'delay'"
               type="button"
               class="p-1.5 text-[var(--sp-text-muted)] hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/30 rounded-sm transition-colors"
-              :class="{ '!text-sky-600 dark:!text-sky-400 bg-sky-50/80 dark:bg-sky-950/40': expandedAdvanced[action.id] || action.continue_on_error || action.skip_if_matched || action.stop_flow_on_terminal }"
+              :class="{ '!text-sky-600 dark:!text-sky-400 bg-sky-50/80 dark:bg-sky-950/40': expandedAdvanced[action.id] || action.continue_on_error || action.skip_if_matched || action.stop_flow_on_terminal || action.wait_for_reply }"
               :title="expandedAdvanced[action.id] ? t('taskForm.collapseOptions') : t('taskForm.advancedActionOptions')"
               @click="toggleAdvanced(action.id)"
             >
@@ -644,6 +670,76 @@ const emit = defineEmits<{
                 class="ui-input !h-7 !text-xs !px-2 w-full"
               />
               <span class="text-[10px] text-[var(--sp-text-muted)]">{{ t('taskForm.skipIfMatchedDesc') }}</span>
+            </div>
+          </div>
+
+
+          <!-- 等待机器人回复确认 (仅发送文本动作) -->
+          <div
+            v-if="action.type === 'send_text'"
+            class="pt-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] flex flex-col gap-2.5"
+          >
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="Boolean(action.wait_for_reply)"
+                class="rounded text-sky-600 focus:ring-sky-500 h-3.5 w-3.5 mt-0.5"
+                @change="onToggleWaitForReply(action, ($event.target as HTMLInputElement).checked)"
+              />
+              <div class="flex flex-col">
+                <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
+                  {{ t('taskForm.waitForReply') }}
+                </span>
+                <span class="text-[11px] text-[var(--sp-text-muted)] leading-snug">
+                  {{ t('taskForm.waitForReplyDesc') }}
+                </span>
+              </div>
+            </label>
+
+            <!-- 展开回复确认规则设置 -->
+            <div
+              v-if="action.wait_for_reply"
+              class="ml-5 p-2.5 rounded bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.03] border border-[var(--sp-border)] flex flex-col gap-2.5"
+            >
+              <div class="flex flex-col gap-1">
+                <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
+                  {{ t('taskForm.replySuccessPatterns') }}
+                </span>
+                <textarea
+                  :value="getPatternsText(action.reply_success_patterns)"
+                  :placeholder="t('taskForm.replySuccessPatternsPlaceholder')"
+                  rows="2"
+                  class="ui-input !h-auto !py-1 !text-xs !px-2 w-full font-mono"
+                  @input="setSuccessPatterns(action, ($event.target as HTMLTextAreaElement).value)"
+                />
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
+                  {{ t('taskForm.replyFailurePatterns') }}
+                </span>
+                <textarea
+                  :value="getPatternsText(action.reply_failure_patterns)"
+                  :placeholder="t('taskForm.replyFailurePatternsPlaceholder')"
+                  rows="3"
+                  class="ui-input !h-auto !py-1 !text-xs !px-2 w-full font-mono"
+                  @input="setFailurePatterns(action, ($event.target as HTMLTextAreaElement).value)"
+                />
+              </div>
+
+              <div class="flex flex-col gap-1 w-full sm:w-1/2">
+                <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
+                  {{ t('taskForm.replyTimeout') }}
+                </span>
+                <input
+                  v-model.number="action.reply_timeout_seconds"
+                  type="number"
+                  min="1"
+                  max="600"
+                  :placeholder="t('taskForm.replyTimeoutPlaceholder')"
+                  class="ui-input !h-7 !text-xs !px-2 w-full"
+                />
+              </div>
             </div>
           </div>
 

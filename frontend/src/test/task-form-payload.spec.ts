@@ -155,4 +155,62 @@ describe('buildTaskFormPayload', () => {
     })
     expect(payload.tags).toEqual(['crypto', 'airdrop'])
   })
+
+  it('automatically upgrades actions to steps and execution_engine to v4 when wait_for_reply is true', () => {
+    const payload = buildTaskFormPayload({
+      taskName: 'sheerid_task',
+      selectedAccounts: ['dahao'],
+      allAccountsMode: false,
+      scheduleMode: 'scheduled',
+      timeRange: '08:00',
+      retryCount: 3,
+      targetChats: [{
+        chatId: 8300459562,
+        chatName: 'SheerID Verify Bot',
+        messageThreadId: '',
+        senderFilter: '',
+        sourceAccount: 'dahao',
+      }],
+      fallbackChatId: 0,
+      fallbackChatName: '',
+      fallbackThreadId: '',
+      fallbackSenderFilter: '',
+      fallbackSourceAccount: '',
+      actions: [
+        {
+          id: 1,
+          type: 'send_text',
+          value: '/checkin',
+          aiPrompt: '',
+          wait_for_reply: true,
+          reply_success_patterns: ['出席率\s*成功'],
+          reply_failure_patterns: ['出席率\s*失败', '签到失败', '操作失败'],
+          reply_timeout_seconds: 30,
+        },
+      ],
+      listenerKeywords: '',
+      listenerMatchMode: 'contains',
+      listenerPushChannel: 'continue',
+      listenerForwardChatId: '',
+      listenerForwardThreadId: '',
+      listenerBarkUrl: '',
+      listenerCustomUrl: '',
+      listenerServerChanKey: '',
+      listenerIgnoreSelf: true,
+      listenerTimeWindowEnabled: false,
+      listenerActiveTimeStart: '09:00',
+      listenerActiveTimeEnd: '22:00',
+    })
+
+    expect(payload.execution_engine).toBe('v4')
+    expect(payload.chats?.[0]?.execution_engine).toBe('v4')
+    expect(payload.chats?.[0]?.steps).toHaveLength(2)
+    expect(payload.chats?.[0]?.steps?.[0]?.action_type).toBe('SEND_TEXT')
+    expect(payload.chats?.[0]?.steps?.[0]?.next_step_id).toBe('step_0_wait')
+    expect(payload.chats?.[0]?.steps?.[1]?.node_type).toBe('wait_event')
+    expect(payload.chats?.[0]?.steps?.[1]?.success_patterns).toEqual(['出席率\s*成功'])
+    expect(payload.chats?.[0]?.steps?.[1]?.failure_patterns).toEqual(['出席率\s*失败', '签到失败', '操作失败'])
+    expect(payload.chats?.[0]?.steps?.[1]?.timeout_seconds).toBe(30)
+    expect(payload.chats?.[0]?.steps?.[1]?.next_step_id).toBe('COMPLETE')
+  })
 })

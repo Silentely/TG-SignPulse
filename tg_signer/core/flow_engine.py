@@ -821,6 +821,20 @@ class PulseFlowEngine:
     async def _run_wait_event_node(
         self, node: WaitEventNode, ctx: ScopedFlowContext, bus: TelegramEventBus
     ) -> StepOutcome:
+        def _log_msg(msg: str, level: str = "INFO") -> None:
+            log_fn = ctx.system.get("log")
+            if callable(log_fn):
+                try:
+                    log_fn(msg, level=level)
+                    return
+                except TypeError:
+                    try:
+                        log_fn(msg)
+                        return
+                    except Exception:
+                        pass
+            logger.log(getattr(logging, level.upper(), logging.INFO), msg)
+
         chat_id = node.metadata.get("chat_id")
         if chat_id is None:
             chat_id = ctx.system.get("chat_id") or ctx.get("chat.id")
@@ -840,10 +854,16 @@ class PulseFlowEngine:
             min_msg_id = ctx.system.get("last_sent_message_id") or ctx.system.get(
                 "last_message_id"
             )
-        since_ts = node.metadata.get("since_timestamp") or ctx.system.get(
-            "last_action_finished_at"
+        since_ts = (
+            node.metadata.get("since_timestamp")
+            or ctx.system.get("last_action_started_at")
+            or ctx.system.get("last_action_finished_at")
         )
-        timeout = float(node.timeout_seconds or 25.0)
+        timeout = float(node.timeout_seconds or 30.0)
+
+        node_desc = node.name or "等待机器人回复"
+        _log_msg(f"步骤 [{node.id}] 开始执行：{node_desc}")
+        _log_msg(f"等待机器人回复确认，超时 {int(timeout)} 秒")
 
         queue = bus.subscribe(
             chat_id=chat_id,
@@ -857,28 +877,71 @@ class PulseFlowEngine:
             while True:
                 remaining = deadline - time.perf_counter()
                 if remaining <= 0:
+                    _log_msg(
+                        f"等待机器人确认超时（{int(timeout)} 秒）", level="WARNING"
+                    )
+                    _log_msg("未检测到有效签到结果", level="WARNING")
+                    _log_msg(f"步骤 [{node.id}] 执行失败", level="WARNING")
                     return StepOutcome(
                         node_id=node.id,
                         status=NodeStatus.TIMEOUT,
-                        output_text=f"WaitEventNode {node.id} timed out after {timeout}s",
+                        output_text=f"等待机器人确认超时（{int(timeout)} 秒）",
                         updates_last_output=False,
                     )
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=remaining)
                 except asyncio.TimeoutError:
+                    _log_msg(
+                        f"等待机器人确认超时（{int(timeout)} 秒）", level="WARNING"
+                    )
+                    _log_msg("未检测到有效签到结果", level="WARNING")
+                    _log_msg(f"步骤 [{node.id}] 执行失败", level="WARNING")
                     return StepOutcome(
                         node_id=node.id,
                         status=NodeStatus.TIMEOUT,
-                        output_text=f"WaitEventNode {node.id} timed out after {timeout}s",
+                        output_text=f"等待机器人确认超时（{int(timeout)} 秒）",
                         updates_last_output=False,
                     )
 
+                # 1. 目标 chat 隔离
+                if event.chat_id != chat_id:
+                    continue
+
+                # 2. 目标话题隔离
+                if thread_id is not None and event.message_thread_id != thread_id:
+                    continue
+
+                # 3. 过滤自身发送的 outgoing 消息（不能把自己的发送当成回复）
+                if getattr(event, "is_outgoing", False):
+                    continue
+
+                # 4. 事件类型校验（ANY 模式下内部限制为 Telegram 消息类事件）
                 if (
                     node.event_type
                     and node.event_type.upper() not in {"ANY", "ALL"}
-                    and event.event_type != node.event_type
+                    and event.event_type.upper() != node.event_type.upper()
                 ):
                     continue
+                elif not node.event_type or node.event_type.upper() in {"ANY", "ALL"}:
+                    if event.event_type not in {"NEW_MESSAGE", "EDITED_MESSAGE"}:
+                        continue
+
+                # 5. 可选发送者过滤
+                expected_sender = node.metadata.get("sender_id")
+                if expected_sender is not None and event.sender_id != expected_sender:
+                    continue
+
+                # 6. 水位线校验：严格忽略旧消息
+                # P0 优先级：优先使用 min_message_id；如果 message_id 无法使用，再使用 since_timestamp
+                if (
+                    min_msg_id is not None
+                    and getattr(event, "message_id", None) is not None
+                ):
+                    if event.message_id <= min_msg_id:
+                        continue
+                elif since_ts is not None:
+                    if event.occurred_at < since_ts:
+                        continue
 
                 text = event.text or ""
                 details = {
@@ -887,24 +950,59 @@ class PulseFlowEngine:
                     "chat_id": event.chat_id,
                     "event_type": event.event_type,
                 }
-                if not node.filter_patterns:
-                    return StepOutcome(
-                        node_id=node.id,
-                        status=NodeStatus.SUCCESS,
-                        output_text=text,
-                        updates_last_output=True,
-                        details=details,
-                    )
 
-                for pattern in node.filter_patterns:
-                    if self._compile_regex(pattern).search(text):
-                        return StepOutcome(
-                            node_id=node.id,
-                            status=NodeStatus.SUCCESS,
-                            output_text=text,
-                            updates_last_output=True,
-                            details=details,
-                        )
+                # 7. failure_patterns 优先判定（防止误命中成功导致假阳性）
+                if getattr(node, "failure_patterns", None):
+                    for pattern in node.failure_patterns:
+                        if self._compile_regex(pattern).search(text):
+                            _log_msg(f"收到机器人回复：\n{text}")
+                            _log_msg(f"命中失败规则：\n{pattern}", level="WARNING")
+                            _log_msg("机器人明确返回失败结果", level="WARNING")
+                            _log_msg(f"步骤 [{node.id}] 执行失败", level="WARNING")
+                            return StepOutcome(
+                                node_id=node.id,
+                                status=NodeStatus.FAILED,
+                                output_text=text,
+                                updates_last_output=True,
+                                details=details,
+                            )
+
+                # 8. success_patterns / filter_patterns 回退判定
+                success_rules = (
+                    node.success_patterns
+                    if getattr(node, "success_patterns", None)
+                    else getattr(node, "filter_patterns", None)
+                )
+                if success_rules:
+                    for pattern in success_rules:
+                        if self._compile_regex(pattern).search(text):
+                            _log_msg(f"收到机器人回复：\n{text}")
+                            _log_msg(f"命中成功规则：\n{pattern}")
+                            _log_msg("机器人已确认签到成功")
+                            _log_msg(f"步骤 [{node.id}] 执行完成（成功）")
+                            return StepOutcome(
+                                node_id=node.id,
+                                status=NodeStatus.SUCCESS,
+                                output_text=text,
+                                updates_last_output=True,
+                                details=details,
+                            )
+                    # 未命中任何成功规则，继续等待后续消息
+                    logger.debug(
+                        f"WaitEventNode {node.id} 收到不匹配消息，继续等待: {text[:60]}"
+                    )
+                    continue
+
+                # 9. 两者皆空时的原有行为：任意消息即成功
+                _log_msg(f"收到机器人回复：\n{text}")
+                _log_msg(f"步骤 [{node.id}] 执行完成（成功）")
+                return StepOutcome(
+                    node_id=node.id,
+                    status=NodeStatus.SUCCESS,
+                    output_text=text,
+                    updates_last_output=True,
+                    details=details,
+                )
         finally:
             bus.unsubscribe(chat_id=chat_id, message_thread_id=thread_id, queue=queue)
 

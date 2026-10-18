@@ -473,7 +473,15 @@
     "nextTaskDelaySecondsHint": "触发下一个任务前等待的间隔秒数（默认 2 秒）",
     "executionEngine": "执行引擎覆盖",
     "executionEngineHint": "留空或选择跟随全局时使用系统全局配置；亦可显式指定强制使用 PulseFlow (v4) 或 Classic (v3)。",
-    "engineGlobal": "跟随全局系统设置 (默认)"
+    "engineGlobal": "跟随全局系统设置 (默认)",
+    "waitForReply": "等待机器人回复确认",
+    "waitForReplyDesc": "发送命令后监听并等待机器人回复，匹配成功关键词后才判定为成功",
+    "replySuccessPatterns": "成功匹配规则 (每行一条正则)",
+    "replySuccessPatternsPlaceholder": "例如：出席率\\s*成功",
+    "replyFailurePatterns": "失败匹配规则 (每行一条正则)",
+    "replyFailurePatternsPlaceholder": "例如：\n出席率\\s*失败\n签到失败\n操作失败",
+    "replyTimeout": "等待超时时间 (秒)",
+    "replyTimeoutPlaceholder": "默认 30"
   },
   "taskModal": {
     "addTitle": "添加任务",

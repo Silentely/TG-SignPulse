@@ -276,6 +276,10 @@ class SignerRunnerMixin:
                     ctx = ScopedFlowContext(
                         account={"name": getattr(self, "_account", "")}
                     )
+                    ctx.system["log"] = self.log
+                    ctx.system["chat_id"] = chat.chat_id
+                    if chat.message_thread_id is not None:
+                        ctx.system["message_thread_id"] = chat.message_thread_id
                     flow_executed_path = []
 
                     executor = _CutoverNodeExecutor(
@@ -1169,7 +1173,9 @@ class SignerRunnerMixin:
                 from tg_signer.core.flow_event_bus import TelegramMessageEvent
 
                 ev_type = "EDITED_MESSAGE" if is_edit else "NEW_MESSAGE"
+                is_outgoing = bool(getattr(message, "outgoing", False))
                 ev = TelegramMessageEvent(
+                    is_outgoing=is_outgoing,
                     event_id=f"msg_{message.chat.id}_{message.id}_{'edit' if is_edit else 'new'}",
                     chat_id=message.chat.id,
                     message_thread_id=message_thread_id,

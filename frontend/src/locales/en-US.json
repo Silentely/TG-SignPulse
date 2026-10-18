@@ -473,7 +473,15 @@
     "nextTaskDelaySecondsHint": "Delay in seconds before triggering the next task (default: 2s)",
     "executionEngine": "Execution Engine Override",
     "executionEngineHint": "Follows global system settings by default; or explicitly enforce PulseFlow (v4) or Classic (v3) for this task.",
-    "engineGlobal": "Follow Global Settings (Default)"
+    "engineGlobal": "Follow Global Settings (Default)",
+    "waitForReply": "Wait for Bot Reply Confirmation",
+    "waitForReplyDesc": "Wait for bot reply after sending command; mark task successful only after matching success patterns",
+    "replySuccessPatterns": "Success Match Patterns (One regex per line)",
+    "replySuccessPatternsPlaceholder": "e.g. 出席率\\s*成功",
+    "replyFailurePatterns": "Failure Match Patterns (One regex per line)",
+    "replyFailurePatternsPlaceholder": "e.g.\n出席率\\s*失败\n签到失败\n操作失败",
+    "replyTimeout": "Wait Timeout (seconds)",
+    "replyTimeoutPlaceholder": "Default 30"
   },
   "taskModal": {
     "addTitle": "Add Task",

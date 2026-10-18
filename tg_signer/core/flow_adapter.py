@@ -336,6 +336,9 @@ class TelegramNodeExecutor:
         self.compat.set_current_action_context(step_idx, total_nodes, exec_action)
 
         try:
+            import time as _t
+
+            context.system["last_action_started_at"] = _t.time()
             next_action = self.compat.resolve_next_action(node)
             step_timeout = getattr(node, "timeout_seconds", None)
             res = await self._runner_wait_for(
@@ -353,6 +356,8 @@ class TelegramNodeExecutor:
                 import time as _t
 
                 context.system["last_action_finished_at"] = _t.time()
+                if isinstance(exec_action, SendTextAction):
+                    self._log("签到命令已发送")
             matched_term = self.compat.consume_stop_signal()
             output_text = self.compat.output_text(res=res, action=exec_action)
 

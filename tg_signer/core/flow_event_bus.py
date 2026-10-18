@@ -20,6 +20,7 @@ class TelegramMessageEvent:
     event_type: str
     text: str
     occurred_at: float
+    is_outgoing: bool = False
 
 
 class TelegramEventBus:
@@ -47,13 +48,15 @@ class TelegramEventBus:
 
         def _matches_type(ev_type: str) -> bool:
             if not event_type or event_type.upper() in {"ANY", "ALL"}:
-                return True
+                return ev_type.upper() in {"NEW_MESSAGE", "EDITED_MESSAGE"}
             return ev_type.upper() == event_type.upper()
 
         if key in self._history_buffers:
             now = time.time()
             for ev in self._history_buffers[key]:
                 if now - ev.occurred_at > self._buffer_ttl:
+                    continue
+                if getattr(ev, "is_outgoing", False):
                     continue
                 if not _matches_type(ev.event_type):
                     continue

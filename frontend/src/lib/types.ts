@@ -101,6 +101,10 @@ export interface TaskActionItem {
   continue_on_error?: boolean;
   skip_if_matched?: string;
   stop_flow_on_terminal?: boolean;
+  wait_for_reply?: boolean;
+  reply_success_patterns?: string[];
+  reply_failure_patterns?: string[];
+  reply_timeout_seconds?: number;
 }
 
 // 后端原始 action 结构
@@ -131,6 +135,10 @@ export interface RawTaskAction {
   continue_on_error?: boolean;
   skip_if_matched?: string;
   stop_flow_on_terminal?: boolean;
+  wait_for_reply?: boolean;
+  reply_success_patterns?: string[];
+  reply_failure_patterns?: string[];
+  reply_timeout_seconds?: number;
 }
 
 // 构建 API 请求体时的中间类型
@@ -161,6 +169,10 @@ export interface BuiltAction {
   continue_on_error?: boolean;
   skip_if_matched?: string;
   stop_flow_on_terminal?: boolean;
+  wait_for_reply?: boolean;
+  reply_success_patterns?: string[];
+  reply_failure_patterns?: string[];
+  reply_timeout_seconds?: number;
 }
 
 // ─── API 错误类型 ───

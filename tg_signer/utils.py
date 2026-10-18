@@ -28,11 +28,22 @@ def is_unsafe_keyword_regex(pattern: str) -> bool:
     """判断用户提供的正则是否存在灾难性回溯（ReDoS）风险。
 
     纯文本结构判据，不执行匹配，可安全用于配置写入前的校验与运行期规则过滤。
-    对非法正则返回 False（语法问题交由编译期报错路径处理）。
+    对非法正则返回 False（语法问题交由编译器报错路径处理）。
     """
     if not isinstance(pattern, str) or not pattern:
         return False
-    return bool(_UNSAFE_REGEX_GROUP_RE.search(pattern))
+    if bool(_UNSAFE_REGEX_GROUP_RE.search(pattern)):
+        return True
+    # 剥离嵌套无修饰外层括号，如 ((a+))+$ -> (a+)+$
+    simplified = pattern
+    for _ in range(5):
+        new_s = re.sub(r"\(\s*(\([^()]+\)[*+]?)\s*\)", r"\1", simplified)
+        if new_s == simplified:
+            break
+        simplified = new_s
+        if _UNSAFE_REGEX_GROUP_RE.search(simplified):
+            return True
+    return False
 
 
 NumberingLangT: TypeAlias = Literal[

@@ -16,7 +16,7 @@ import { useToast } from '../../composables/useToast'
 import type { TaskActionItem, RawTaskAction } from '../../lib/types'
 import { getErrorCode, getLocalizedErrorMessage } from '../../lib/types'
 import { notifyApiError } from '../../lib/notify'
-import { parseActions as parseActionsUtil, nextActionId } from '../../lib/task-form-utils'
+import { parseActions as parseActionsUtil, parseStepsToActions, nextActionId } from '../../lib/task-form-utils'
 import { buildTaskFormPayload } from '../../lib/task-form-payload'
 import { devLog } from '../../lib/devLog'
 
@@ -238,6 +238,13 @@ const loadAccounts = async () => {
             listenerActiveTimeEnd.value = String(la.active_time_end)
           }
           if (la.continue_actions) parseActions(la.continue_actions)
+        } else if (primary.steps) {
+          const parsedSteps = parseStepsToActions(primary.steps)
+          if (parsedSteps && parsedSteps.length > 0) {
+            actions.value = parsedSteps
+          } else if (primary.actions) {
+            parseActions(primary.actions)
+          }
         } else if (primary.actions) parseActions(primary.actions)
       } else if (selectedAccounts.value[0] || accounts.value[0]?.name) {
         targetChats.value[0].sourceAccount = selectedAccounts.value[0] || accounts.value[0]?.name || ''

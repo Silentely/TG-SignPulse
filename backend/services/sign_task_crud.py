@@ -42,11 +42,24 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
 
     def _check_pattern(pattern: Optional[str], context: str) -> None:
         if pattern and isinstance(pattern, str):
+            import re
+
+            try:
+                re.compile(pattern)
+            except Exception as e:
+                raise ValueError(f"{context} 正则表达式语法错误 '{pattern}': {e}")
             if is_unsafe_keyword_regex(pattern):
                 raise ValueError(
                     f"{context} 正则存在灾难性回溯风险（可能导致服务无响应），请避免 "
                     f"「组内含可变长度且整体被重复」的写法: {pattern}"
                 )
+
+    def _check_patterns(patterns: Any, context: str) -> None:
+        if isinstance(patterns, (list, tuple)):
+            for idx, pat in enumerate(patterns):
+                _check_pattern(pat, f"{context}[{idx}]")
+        elif isinstance(patterns, str):
+            _check_pattern(patterns, context)
 
     def _check_graph_regex(graph_dict: Dict[str, Any], visited: set) -> None:
         if not isinstance(graph_dict, dict):
@@ -64,14 +77,34 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
         for node in node_list:
             if not isinstance(node, dict):
                 continue
-            _check_pattern(
-                node.get("regex"), f"节点 '{node.get('id', 'unknown')}' regex"
+            nid = node.get("id", "unknown")
+            _check_pattern(node.get("regex"), f"节点 '{nid}' regex")
+            _check_patterns(
+                node.get("filter_patterns"), f"节点 '{nid}' filter_patterns"
+            )
+            _check_patterns(
+                node.get("success_patterns"), f"节点 '{nid}' success_patterns"
+            )
+            _check_patterns(
+                node.get("failure_patterns"), f"节点 '{nid}' failure_patterns"
             )
             params = node.get("params")
             if isinstance(params, dict):
                 _check_pattern(
                     params.get("regex"),
-                    f"节点 '{node.get('id', 'unknown')}' params.regex",
+                    f"节点 '{nid}' params.regex",
+                )
+                _check_patterns(
+                    params.get("filter_patterns"),
+                    f"节点 '{nid}' params.filter_patterns",
+                )
+                _check_patterns(
+                    params.get("success_patterns"),
+                    f"节点 '{nid}' params.success_patterns",
+                )
+                _check_patterns(
+                    params.get("failure_patterns"),
+                    f"节点 '{nid}' params.failure_patterns",
                 )
                 validate_action_regex_safety(params)
             sub = node.get("subflow_graph")
@@ -89,17 +122,43 @@ def _validate_chats_regex_safety(chats: Optional[List[Dict[str, Any]]]) -> None:
         for action in chat.get("actions") or []:
             if isinstance(action, dict):
                 validate_action_regex_safety(action)
+                _check_patterns(
+                    action.get("reply_success_patterns"), "动作 reply_success_patterns"
+                )
+                _check_patterns(
+                    action.get("reply_failure_patterns"), "动作 reply_failure_patterns"
+                )
 
         for step in chat.get("steps") or []:
             if isinstance(step, dict):
-                _check_pattern(
-                    step.get("regex"), f"步骤 '{step.get('step_id', 'unknown')}' regex"
+                sid = step.get("step_id", "unknown")
+                _check_pattern(step.get("regex"), f"步骤 '{sid}' regex")
+                _check_patterns(
+                    step.get("filter_patterns"), f"步骤 '{sid}' filter_patterns"
+                )
+                _check_patterns(
+                    step.get("success_patterns"), f"步骤 '{sid}' success_patterns"
+                )
+                _check_patterns(
+                    step.get("failure_patterns"), f"步骤 '{sid}' failure_patterns"
                 )
                 params = step.get("params")
                 if isinstance(params, dict):
                     _check_pattern(
                         params.get("regex"),
-                        f"步骤 '{step.get('step_id', 'unknown')}' params.regex",
+                        f"步骤 '{sid}' params.regex",
+                    )
+                    _check_patterns(
+                        params.get("filter_patterns"),
+                        f"步骤 '{sid}' params.filter_patterns",
+                    )
+                    _check_patterns(
+                        params.get("success_patterns"),
+                        f"步骤 '{sid}' params.success_patterns",
+                    )
+                    _check_patterns(
+                        params.get("failure_patterns"),
+                        f"步骤 '{sid}' params.failure_patterns",
                     )
                 config = step.get("config")
                 if isinstance(config, dict):

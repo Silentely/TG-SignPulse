@@ -121,6 +121,12 @@ def task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
         if node_type == "wait_event":
             return True
 
+        if (
+            isinstance(item, dict)
+            and bool(item.get("wait_for_reply") or item.get("wait_reply"))
+        ) or bool(getattr(item, "wait_for_reply", False)):
+            return True
+
         raw_act = (
             item.get("action")
             if isinstance(item, dict) and "action" in item

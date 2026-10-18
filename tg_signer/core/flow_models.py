@@ -1,11 +1,11 @@
-# tg_signer/core/flow_models.py
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 TERMINAL_COMPLETE_ID = "_TERMINAL_COMPLETE"
 TERMINAL_FAIL_ID = "_TERMINAL_FAIL"
@@ -199,6 +199,23 @@ class WaitEventNode(BaseFlowNode):
     node_type: NodeType = NodeType.WAIT_EVENT
     event_type: str = "NEW_MESSAGE"
     filter_patterns: List[str] = Field(default_factory=list)
+    success_patterns: List[str] = Field(default_factory=list)
+    failure_patterns: List[str] = Field(default_factory=list)
+
+    @validator(
+        "filter_patterns", "success_patterns", "failure_patterns", each_item=True
+    )
+    def _validate_patterns(cls, v: str) -> str:
+        if v:
+            try:
+                re.compile(v)
+            except Exception as e:
+                raise ValueError(f"正则表达式语法错误 '{v}': {e}")
+            from tg_signer.utils import is_unsafe_keyword_regex
+
+            if is_unsafe_keyword_regex(v):
+                raise ValueError(f"正则表达式存在灾难性回溯风险(ReDoS): '{v}'")
+        return v
 
 
 class ConditionNode(BaseFlowNode):

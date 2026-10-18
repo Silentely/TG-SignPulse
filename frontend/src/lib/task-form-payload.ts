@@ -4,7 +4,7 @@
  */
 import type { CreateSignTaskRequest } from './api'
 import type { BuiltAction, RawTaskAction, TaskActionItem } from './types'
-import { buildActions } from './task-form-utils'
+import { buildActions, actionsToFlowSteps } from './task-form-utils'
 
 export type TargetChatDraftLike = {
   chatId: number
@@ -149,7 +149,8 @@ export function buildTaskFormPayload(
   }
 
   const isAdvanced = input.flowMode === "advanced"
-  const defaultEngine = isAdvanced ? "v4" : undefined
+  const hasWaitForReply = !isAdvanced && ca.some((a) => (a as any).wait_for_reply)
+  const defaultEngine = (isAdvanced || hasWaitForReply) ? "v4" : undefined
   const effectiveEngine = input.executionEngine?.trim() || defaultEngine
 
   const seenChatTargets = new Set<string>()
@@ -174,7 +175,7 @@ export function buildTaskFormPayload(
         message_thread_id: c.messageThreadId ? Number(c.messageThreadId) : undefined,
         sender_filter: c.senderFilter ? c.senderFilter.trim() || undefined : undefined,
         source_account: c.sourceAccount || undefined,
-        execution_engine: input.executionEngine?.trim() || (isAdvanced ? "v4" : undefined),
+        execution_engine: input.executionEngine?.trim() || (isAdvanced || hasWaitForReply ? "v4" : undefined),
       }
 
       if (isAdvanced && (chatGraph || chatSteps)) {
@@ -186,6 +187,8 @@ export function buildTaskFormPayload(
             chatObj.initial_step_id = c.initial_step_id
           }
         }
+      } else if (hasWaitForReply) {
+        chatObj.steps = actionsToFlowSteps(ca)
       } else {
         chatObj.actions = ca as RawTaskAction[]
       }
@@ -207,7 +210,7 @@ export function buildTaskFormPayload(
               : undefined,
             sender_filter: input.fallbackSenderFilter ? input.fallbackSenderFilter.trim() || undefined : undefined,
             source_account: input.fallbackSourceAccount || undefined,
-            execution_engine: input.executionEngine?.trim() || (isAdvanced ? "v4" : undefined),
+            execution_engine: input.executionEngine?.trim() || (isAdvanced || hasWaitForReply ? "v4" : undefined),
           }
           if (isAdvanced && (chatGraph || chatSteps)) {
             if (chatGraph) {
@@ -215,6 +218,8 @@ export function buildTaskFormPayload(
             } else if (chatSteps) {
               chatObj.steps = chatSteps
             }
+          } else if (hasWaitForReply) {
+            chatObj.steps = actionsToFlowSteps(ca)
           } else {
             chatObj.actions = ca as RawTaskAction[]
           }

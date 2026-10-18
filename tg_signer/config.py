@@ -204,6 +204,23 @@ class SignAction(BaseModel):
     continue_on_error: bool = False
     skip_if_matched: Optional[str] = None
     stop_flow_on_terminal: bool = False
+    wait_for_reply: bool = False
+    reply_success_patterns: List[str] = Field(default_factory=list)
+    reply_failure_patterns: List[str] = Field(default_factory=list)
+    reply_timeout_seconds: float = 30.0
+
+    @validator("reply_success_patterns", "reply_failure_patterns", each_item=True)
+    def _validate_reply_patterns(cls, v: str) -> str:
+        if v:
+            try:
+                re.compile(v)
+            except Exception as e:
+                raise ValueError(f"正则表达式语法错误 '{v}': {e}")
+            from tg_signer.utils import is_unsafe_keyword_regex
+
+            if is_unsafe_keyword_regex(v):
+                raise ValueError(f"正则表达式存在灾难性回溯风险(ReDoS): '{v}'")
+        return v
 
 
 class SendTextAction(SignAction):
@@ -362,6 +379,23 @@ class FlowStepConfig(BaseModel):
     # 3. WaitEvent 专用
     event_type: str = "NEW_MESSAGE"
     filter_patterns: List[str] = Field(default_factory=list)
+    success_patterns: List[str] = Field(default_factory=list)
+    failure_patterns: List[str] = Field(default_factory=list)
+
+    @validator(
+        "filter_patterns", "success_patterns", "failure_patterns", each_item=True
+    )
+    def _validate_pattern_syntax(cls, v: str) -> str:
+        if v:
+            try:
+                re.compile(v)
+            except Exception as e:
+                raise ValueError(f"正则表达式语法错误 '{v}': {e}")
+            from tg_signer.utils import is_unsafe_keyword_regex
+
+            if is_unsafe_keyword_regex(v):
+                raise ValueError(f"正则表达式存在灾难性回溯风险(ReDoS): '{v}'")
+        return v
 
     # 4. Delay 专用
     delay_seconds: float = 1.0
@@ -875,6 +909,8 @@ class SignChatV3(BaseJSONConfig):
         if self.actions is not None:
             for action in self.actions:
                 if _is_resp_act(action.action):
+                    return True
+                if getattr(action, "wait_for_reply", False):
                     return True
                 if (
                     action.action == SupportAction.CUSTOM_PLUGIN
