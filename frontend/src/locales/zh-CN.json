@@ -475,7 +475,7 @@
     "executionEngineHint": "留空或选择跟随全局时使用系统全局配置；亦可显式指定强制使用 PulseFlow (v4) 或 Classic (v3)。",
     "engineGlobal": "跟随全局系统设置 (默认)",
     "waitForReply": "等待机器人回复确认",
-    "waitForReplyDesc": "发送命令后监听并等待机器人回复，匹配成功关键词后才判定为成功",
+    "waitForReplyDesc": "执行此动作后监听并等待机器人回复或编辑消息，匹配成功关键词后才判定为成功",
     "replySuccessPatterns": "成功匹配规则 (每行一条正则)",
     "replySuccessPatternsPlaceholder": "例如：出席率\\s*成功",
     "replyFailurePatterns": "失败匹配规则 (每行一条正则)",

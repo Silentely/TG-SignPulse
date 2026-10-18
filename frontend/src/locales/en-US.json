@@ -475,7 +475,7 @@
     "executionEngineHint": "Follows global system settings by default; or explicitly enforce PulseFlow (v4) or Classic (v3) for this task.",
     "engineGlobal": "Follow Global Settings (Default)",
     "waitForReply": "Wait for Bot Reply Confirmation",
-    "waitForReplyDesc": "Wait for bot reply after sending command; mark task successful only after matching success patterns",
+    "waitForReplyDesc": "Wait for bot reply or edited message after this action; mark task successful only after matching success patterns",
     "replySuccessPatterns": "Success Match Patterns (One regex per line)",
     "replySuccessPatternsPlaceholder": "e.g. 出席率\\s*成功",
     "replyFailurePatterns": "Failure Match Patterns (One regex per line)",

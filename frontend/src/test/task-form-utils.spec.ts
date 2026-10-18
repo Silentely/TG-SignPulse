@@ -385,4 +385,32 @@ describe('wait_for_reply and actionsToFlowSteps', () => {
     expect(actions![0].reply_failure_patterns).toEqual(['签到失败'])
     expect(actions![0].reply_timeout_seconds).toBe(30)
   })
+  it('supports wait_for_reply on vision_click or click_text_button in multi-step scenarios', () => {
+    const actions = [
+      { action: 1, text: '/checkin' },
+      {
+        action: 4, // vision_click
+        ai_prompt: '识别图中签到按钮并点击',
+        wait_for_reply: true,
+        reply_success_patterns: ['签到成功'],
+        reply_failure_patterns: ['失败'],
+        reply_timeout_seconds: 30,
+      },
+    ]
+    const steps = actionsToFlowSteps(actions)
+    expect(steps).toHaveLength(3)
+    expect(steps[0].step_id).toBe('step_0')
+    expect(steps[0].action_type).toBe('SEND_TEXT')
+    expect(steps[0].next_step_id).toBe('step_1')
+
+    expect(steps[1].step_id).toBe('step_1')
+    expect(steps[1].action_type).toBe('CHOOSE_OPTION_BY_IMAGE')
+    expect(steps[1].params.ai_prompt).toBe('识别图中签到按钮并点击')
+    expect(steps[1].next_step_id).toBe('step_1_wait')
+
+    expect(steps[2].step_id).toBe('step_1_wait')
+    expect(steps[2].node_type).toBe('wait_event')
+    expect(steps[2].success_patterns).toEqual(['签到成功'])
+    expect(steps[2].next_step_id).toBe('COMPLETE')
+  })
 })

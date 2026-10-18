@@ -7,7 +7,13 @@ import pytest
 
 from backend.services.sign_task_config_inspect import task_requires_updates
 from backend.services.sign_task_crud import _validate_chats_regex_safety
-from tg_signer.config import FlowStepConfig, SendTextAction, SignChatV3
+from tg_signer.config import (
+    ClickKeyboardByTextAction,
+    FlowStepConfig,
+    SendTextAction,
+    SignChatV3,
+    SupportAction,
+)
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_engine import PulseFlowEngine
 from tg_signer.core.flow_event_bus import TelegramEventBus, TelegramMessageEvent
@@ -17,6 +23,7 @@ from tg_signer.core.flow_models import (
     ActionNode,
     ExecutionGraph,
     NodeStatus,
+    StepOutcome,
     WaitEventNode,
 )
 from tg_signer.core.flow_normalizer import GraphNormalizer
@@ -874,3 +881,66 @@ def test_21_crud_validation_no_mutual_exclusion_error_for_auto_steps():
     ]
     assert len(configured_modes) == 1
     assert configured_modes[0] == "steps"
+
+
+@pytest.mark.asyncio
+async def test_22_multi_step_send_then_click_button_with_reply_confirmation():
+    """TEST 22: 多步骤签到场景（第一步发送命令，第二步点击按钮并开启回复确认）"""
+    chat = SignChatV3(
+        chat_id=8300459562,
+        actions=[
+            SendTextAction(action=1, text="/checkin"),
+            # 第二步点击文字按钮，并开启等待回复确认
+            ClickKeyboardByTextAction(
+                action=SupportAction.CLICK_KEYBOARD_BY_TEXT,
+                text="立即签到",
+                wait_for_reply=True,
+                reply_success_patterns=[r"签到成功"],
+                reply_failure_patterns=[r"签到失败"],
+                reply_timeout_seconds=5.0,
+            ),
+        ],
+    )
+    graph = GraphNormalizer.from_chat(chat)
+    assert "step_0" in graph.nodes
+    assert "step_1" in graph.nodes
+    assert "step_1_wait" in graph.nodes
+
+    # 拓扑验证：step_0 (发送) -> step_1 (点击按钮) -> step_1_wait (等待Bot回复) -> COMPLETE
+    assert graph.nodes["step_0"].next_node_id == "step_1"
+    assert graph.nodes["step_1"].next_node_id == "step_1_wait"
+    assert graph.nodes["step_1_wait"].next_node_id == TERMINAL_COMPLETE_ID
+
+    bus = TelegramEventBus()
+    engine = PulseFlowEngine(event_bus=bus)
+    ctx = ScopedFlowContext()
+    ctx.system["chat_id"] = 8300459562
+
+    async def mock_executor(node, context):
+        if node.id == "step_0":
+            # 第一步仅发送文本，产生按钮消息（此时并未完成签到）
+            return StepOutcome(
+                node_id=node.id, status=NodeStatus.SUCCESS, output_text="/checkin"
+            )
+        elif node.id == "step_1":
+            # 第二步点击按钮，模拟点击后 Bot 发出/编辑成功消息
+            asyncio.create_task(
+                _delayed_publish(
+                    bus,
+                    chat_id=8300459562,
+                    msg_id=202,
+                    text="🎉 签到成功！获得 10 积分",
+                    delay=0.05,
+                    event_type="EDITED_MESSAGE",
+                )
+            )
+            return StepOutcome(
+                node_id=node.id,
+                status=NodeStatus.SUCCESS,
+                output_text="clicked:立即签到",
+            )
+        return None
+
+    res = await engine.run(graph, ctx, mock_executor, event_bus=bus)
+    assert res["status"] == "success"
+    assert res["path"] == ["step_0", "step_1", "step_1_wait"]

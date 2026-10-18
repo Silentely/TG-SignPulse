@@ -674,9 +674,8 @@ const emit = defineEmits<{
           </div>
 
 
-          <!-- 等待机器人回复确认 (仅发送文本动作) -->
+          <!-- 等待机器人回复确认 (支持所有交互动作) -->
           <div
-            v-if="action.type === 'send_text'"
             class="pt-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] flex flex-col gap-2.5"
           >
             <label class="flex items-start gap-2 cursor-pointer">
