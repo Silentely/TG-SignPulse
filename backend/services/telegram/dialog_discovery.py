@@ -197,20 +197,41 @@ class TelegramDialogDiscoveryMixin:
                     await client.connect()
                     need_disconnect = True
 
-                result = await asyncio.wait_for(
-                    client.invoke(raw.functions.messages.GetDialogFilters()),
-                    timeout=timeout_seconds,
-                )
-                raw_filters = getattr(result, "filters", None)
-                if raw_filters is None:
-                    if isinstance(result, list):
-                        raw_filters = result
-                    else:
-                        raw_filters = []
-                return parse_dialog_filters(raw_filters)
+                try:
+                    result = await asyncio.wait_for(
+                        client.invoke(raw.functions.messages.GetDialogFilters()),
+                        timeout=timeout_seconds,
+                    )
+                    raw_filters = getattr(result, "filters", None)
+                    if raw_filters is None:
+                        if isinstance(result, list):
+                            raw_filters = result
+                        else:
+                            raw_filters = []
+                    return parse_dialog_filters(raw_filters)
+                except (asyncio.TimeoutError, TimeoutError) as exc:
+                    logger.warning(
+                        "获取文件夹列表超时 %s（网络延迟或代理连接超时）: %s",
+                        account_name,
+                        exc,
+                    )
+                    return []
+                except Exception as exc:
+                    logger.warning(
+                        "获取文件夹列表异常 %s: %s",
+                        account_name,
+                        exc,
+                    )
+                    return []
         except AccountLockTimeout as e:
             logger.warning("获取文件夹列表获取锁超时 %s: %s", account_name, e)
             raise AccountLockTimeout("ACCOUNT_BUSY") from e
+        except (asyncio.TimeoutError, TimeoutError) as exc:
+            logger.warning("获取文件夹列表连接超时 %s: %s", account_name, exc)
+            return []
+        except Exception as exc:
+            logger.warning("获取文件夹列表失败 %s: %s", account_name, exc)
+            return []
         finally:
             if need_disconnect:
                 try:
@@ -282,6 +303,12 @@ class TelegramDialogDiscoveryMixin:
         except AccountLockTimeout as e:
             logger.warning("获取论坛话题列表获取锁超时 %s: %s", account_name, e)
             raise AccountLockTimeout("ACCOUNT_BUSY") from e
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            logger.warning("获取论坛话题列表连接超时 %s: %s", account_name, e)
+            return []
+        except Exception as e:
+            logger.warning("获取论坛话题列表失败 %s: %s", account_name, e)
+            return []
         finally:
             if need_disconnect:
                 try:

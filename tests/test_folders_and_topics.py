@@ -342,3 +342,64 @@ def test_topics_route_success(api_client, db):  # noqa: F811
         )
         assert busy_resp.status_code == 409
         assert busy_resp.json()["detail"] == "ACCOUNT_BUSY"
+
+
+@pytest.mark.asyncio
+async def test_list_account_folders_handles_timeout_gracefully():
+    """测试当 invoke 获取文件夹超时时，服务优雅返回空列表而不抛出 500。"""
+    service = DummyDiscoveryService()
+    service.verify_account_proxy = AsyncMock()
+
+    mock_client = MagicMock()
+    mock_client.is_connected = True
+    mock_client.invoke = AsyncMock(side_effect=TimeoutError("Network timeout"))
+    service._build_account_client = MagicMock(return_value=(mock_client, None))
+
+    class MockLockContext:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    with patch(
+        "backend.services.telegram.dialog_discovery.acquire_account_lock_with_timeout",
+        return_value=MockLockContext(),
+    ):
+        folders = await service.list_account_folders("my_acc", timeout_seconds=5.0)
+        assert folders == []
+
+
+def test_folders_route_timeout_returns_empty(api_client, db):  # noqa: F811
+    """测试文件夹接口在超时时优雅降级返回空列表而不是 500。"""
+    token = _login(api_client)
+
+    svc = MagicMock()
+    svc.account_exists.return_value = True
+    svc.list_account_folders = AsyncMock(side_effect=TimeoutError("Timeout"))
+
+    with patch("backend.api.routes.accounts.get_telegram_service", return_value=svc):
+        resp = api_client.get(
+            "/api/accounts/acc1/folders",
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
+def test_topics_route_user_chat_id_returns_empty_immediately(api_client, db):  # noqa: F811
+    """测试当查询私聊/Bot ID 的话题时，接口直接短路返回空列表。"""
+    token = _login(api_client)
+
+    svc = MagicMock()
+    svc.account_exists.return_value = True
+    svc.list_forum_topics = AsyncMock()
+
+    with patch("backend.api.routes.accounts.get_telegram_service", return_value=svc):
+        resp = api_client.get(
+            "/api/accounts/acc1/chats/8300459562/topics",
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+        svc.list_forum_topics.assert_not_called()

@@ -518,6 +518,15 @@ async def safe_get_forum_topics(
     if not has_messages_rpc and not has_channels_rpc:
         return []
 
+    # 快捷检查：Telegram 中只有超级群组（ID 为以 -100 开头的负数）才支持论坛话题
+    # 用户/Bot ID（正整数）和普通群组（非 -100 开头的负数）均不可能存在 Forum Topics
+    try:
+        numeric_id = int(chat_id)
+        if numeric_id > 0 or not str(numeric_id).startswith("-100"):
+            return []
+    except (ValueError, TypeError):
+        pass
+
     if hasattr(client, "get_chat"):
         try:
             chat = await client.get_chat(chat_id)
@@ -554,10 +563,22 @@ async def safe_get_forum_topics(
             "channelinvalid",
             "channelforummissing",
             "forumclosed",
+            "peeridinvalid",
         )
-        if any(term in err_type for term in expected_forum_errors) or (
-            "forum" in err_msg
-            and any(w in err_msg for w in ("not", "closed", "missing", "disabled"))
+        if (
+            any(term in err_type for term in expected_forum_errors)
+            or (
+                "forum" in err_msg
+                and any(w in err_msg for w in ("not", "closed", "missing", "disabled"))
+            )
+            or any(
+                term in err_msg
+                for term in (
+                    "peer_id_invalid",
+                    "peer id being used is invalid",
+                    "id not found",
+                )
+            )
         ):
             logger.debug(
                 "Chat %s is not a forum or topics unavailable: %s", chat_id, exc

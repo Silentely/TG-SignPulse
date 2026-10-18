@@ -743,3 +743,56 @@ async def test_call_with_retry_flood_wait_exceeds_threshold():
 
     assert mock_cb.await_count == 1
     assert any("长时 FloodWait" in msg for lvl, msg in logs)
+
+
+@pytest.mark.asyncio
+async def test_safe_get_forum_topics_user_or_bot_chat_id_returns_empty_immediately():
+    from tg_signer.compat import safe_get_forum_topics
+
+    mock_client = MagicMock()
+    mock_client.is_connected = True
+    mock_client.resolve_peer = AsyncMock()
+    mock_client.get_chat = AsyncMock()
+
+    # User / Bot ID (正整数)
+    topics = await safe_get_forum_topics(mock_client, 8300459562)
+    assert topics == []
+    mock_client.resolve_peer.assert_not_called()
+    mock_client.get_chat.assert_not_called()
+
+    # String format of user ID
+    topics_str = await safe_get_forum_topics(mock_client, "8300459562")
+    assert topics_str == []
+    mock_client.resolve_peer.assert_not_called()
+
+    # Legacy basic group (非 -100 开头的负数)
+    topics_basic = await safe_get_forum_topics(mock_client, -12345678)
+    assert topics_basic == []
+    mock_client.resolve_peer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_safe_get_forum_topics_peer_id_invalid_logs_debug_not_warning(caplog):
+    import logging
+
+    from pyrogram.errors import PeerIdInvalid
+
+    from tg_signer.compat import safe_get_forum_topics
+
+    mock_client = MagicMock()
+    mock_client.is_connected = True
+    mock_client.resolve_peer = AsyncMock(
+        side_effect=PeerIdInvalid(
+            value="[400 PEER_ID_INVALID] - The peer id being used is invalid or not known yet."
+        )
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        topics = await safe_get_forum_topics(mock_client, "@unknown_forum_peer")
+
+    assert topics == []
+    # 验证没有触发 warning 级别的日志
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not any(
+        "Unexpected error fetching forum topics" in r.message for r in warnings
+    )

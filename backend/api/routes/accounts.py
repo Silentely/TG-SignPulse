@@ -1247,14 +1247,14 @@ async def list_account_folders(
             status_code=status.HTTP_409_CONFLICT,
             detail="ACCOUNT_BUSY",
         )
+    except (asyncio.TimeoutError, TimeoutError) as e:
+        logger.warning("获取文件夹列表超时 %s: %s", account_name, e)
+        return []
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error("获取文件夹列表失败: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取文件夹列表失败，请稍后重试",
-        )
+        logger.warning("获取文件夹列表失败 %s: %s", account_name, e)
+        return []
 
 
 @router.get("/{account_name}/chats/{chat_id}/topics", response_model=list[TopicItem])
@@ -1278,6 +1278,11 @@ async def list_account_forum_topics(
         except ValueError:
             target_chat_id = chat_id
 
+        # 快捷短路：非超级群组（非以 -100 开头的负数）不可能是 Forum 群组，直接返回空列表
+        if isinstance(target_chat_id, int):
+            if target_chat_id > 0 or not str(target_chat_id).startswith("-100"):
+                return []
+
         topics = await get_telegram_service().list_forum_topics(
             account_name,
             chat_id=target_chat_id,
@@ -1292,11 +1297,11 @@ async def list_account_forum_topics(
             status_code=status.HTTP_409_CONFLICT,
             detail="ACCOUNT_BUSY",
         )
+    except (asyncio.TimeoutError, TimeoutError) as e:
+        logger.warning("获取论坛话题列表超时 %s/%s: %s", account_name, chat_id, e)
+        return []
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error("获取论坛话题列表失败: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取论坛话题列表失败，请稍后重试",
-        )
+        logger.warning("获取论坛话题列表失败 %s/%s: %s", account_name, chat_id, e)
+        return []
