@@ -723,12 +723,14 @@ class SignerRunnerMixin:
 
     async def _run_config_chats(self, config) -> int:
         success_count = 0
+        last_chat_error = None
         for chat in config.chats:
             self.context.sign_chats[chat.chat_id].append(chat)
             try:
                 await self.sign_a_chat(chat)
                 success_count += 1
             except Exception as exc:
+                last_chat_error = exc
                 self.log(
                     f"签到失败: {exc} (chat_id={chat.chat_id})",
                     level="WARNING",
@@ -745,6 +747,8 @@ class SignerRunnerMixin:
 
             await asyncio.sleep(config.sign_interval)
 
+        if last_chat_error is not None:
+            self.context.last_chat_error = last_chat_error
         return success_count
 
     async def _run_workflow_chat(self, chat: SignChatV3):
@@ -1002,7 +1006,15 @@ class SignerRunnerMixin:
             raise RuntimeError("任务没有配置任何会话")
 
         sign_record = self.load_sign_record()
-        chat_ids = [c.chat_id for c in config.chats]
+        chat_ids = []
+        for c in config.chats:
+            chat_ids.append(c.chat_id)
+            try:
+                chat_ids.append(int(c.chat_id))
+            except (ValueError, TypeError):
+                pass
+            if isinstance(c.chat_id, int):
+                chat_ids.append(str(c.chat_id))
         need_update_handlers = bool(getattr(config, "requires_updates", True))
         message_handler_ref = None
         edited_handler_ref = None
@@ -1010,6 +1022,9 @@ class SignerRunnerMixin:
         async def sign_once():
             success_count = await self._run_config_chats(config)
             if success_count == 0 and len(config.chats) > 0:
+                last_chat_err = getattr(self.context, "last_chat_error", None)
+                if last_chat_err:
+                    raise RuntimeError(f"{last_chat_err}")
                 raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
 
             sign_record[str(now.date())] = now.isoformat()

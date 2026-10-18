@@ -262,6 +262,53 @@ class TestSendFailureNotification:
             )
         assert "Telegram 失败通知发送失败" in caplog.text
 
+    @pytest.mark.asyncio()
+    async def test_unmatched_bot_reply_notification_diagnostics(self, notify_env):
+        """当机器人已回复但未匹配成功规则时，通知分类为关键词未匹配，提取目标消息并给出针对性建议。"""
+        logs = [
+            "账户「dahao」- 任务「sheerid」: 步骤 [step_0] 执行完成（成功）",
+            "账户「dahao」- 任务「sheerid」: 步骤 [step_0_wait] 开始执行：等待机器人回复",
+            "账户「dahao」- 任务「sheerid」: 收到机器人回复（但未匹配成功规则）：🎉 出席率 成功！",
+            "账户「dahao」- 任务「sheerid」: 等待机器人回复确认超时（30 秒）。期间收到机器人回复（共 1 条，但未匹配设定的成功规则，当前设定规则: ['签到成功']）：\n「🎉 出席率 成功！」",
+        ]
+        await sign_task_notify.send_failure_notification(
+            account_name="dahao",
+            task_name="sheerid",
+            message="任务执行出错: RuntimeError: 会话执行失败: PulseFlow 执行失败（工作流节点执行失败）: 所有会话均执行失败（详细请看运行日志）",
+            flow_logs=logs,
+            failure_category="timeout",
+        )
+        assert len(notify_env.sent) == 1
+        text = notify_env.sent[0]["text"]
+        assert "失败分类" in text and "关键词未匹配" in text
+        assert "所有会话均执行失败" not in text
+        assert "期间收到机器人回复" in text and "🎉 出席率 成功！" in text
+        assert "目标消息" in text
+        assert "建议: 机器人已回复但未匹配成功关键词" in text
+        assert "【确认成功关键词】" in text
+
+    @pytest.mark.asyncio()
+    async def test_waiting_timeout_zero_replies_notification_diagnostics(
+        self, notify_env
+    ):
+        """当等待机器人回复超时且未收到任何回复时，通知分类为等待回复超时，并给出排查建议。"""
+        logs = [
+            "账户「dahao」- 任务「bot_task」: 等待机器人回复确认，超时 30 秒",
+            "账户「dahao」- 任务「bot_task」: 等待机器人回复确认超时（30 秒）。等待期间未收到机器人的任何回复消息。",
+        ]
+        await sign_task_notify.send_failure_notification(
+            account_name="dahao",
+            task_name="bot_task",
+            message="RuntimeError: 所有会话均执行失败（详细请看运行日志）",
+            flow_logs=logs,
+            failure_category="timeout",
+        )
+        assert len(notify_env.sent) == 1
+        text = notify_env.sent[0]["text"]
+        assert "失败分类" in text and "等待回复超时" in text
+        assert "未收到机器人的任何回复消息" in text
+        assert "建议: 等待机器人回复超时（期间未收到任何回复）" in text
+
 
 class TestSendSuccessNotification:
     @pytest.mark.asyncio()

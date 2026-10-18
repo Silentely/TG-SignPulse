@@ -436,3 +436,20 @@ class TestExtractLastTargetMessageBranches:
         from backend.utils.task_logs import extract_last_target_message
 
         assert extract_last_target_message(["普通日志输出"]) == ""
+
+    def test_account_task_prefixed_logs_extracted(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = [
+            "账户「MIBOYCH」- 任务「Gemini」: 步骤 [step_0] 执行完成",
+            "账户「MIBOYCH」- 任务「Gemini」: 收到机器人回复（但未匹配成功规则）：🎉 出席率 成功！",
+        ]
+        assert extract_last_target_message(logs) == "🎉 出席率 成功！"
+
+    def test_account_task_prefixed_target_msg_extracted(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = [
+            "账户「dahao」- 任务「test」: 任务对象最后一条消息: 明天再来签到",
+        ]
+        assert extract_last_target_message(logs) == "明天再来签到"

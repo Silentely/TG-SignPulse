@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("tg_signer.flow_event_bus")
 
@@ -21,6 +21,13 @@ class TelegramMessageEvent:
     text: str
     occurred_at: float
     is_outgoing: bool = False
+
+
+def _normalize_chat_id(cid: Any) -> Any:
+    try:
+        return int(cid)
+    except (ValueError, TypeError):
+        return cid
 
 
 class TelegramEventBus:
@@ -42,7 +49,7 @@ class TelegramEventBus:
         event_type: Optional[str] = "NEW_MESSAGE",
         since_timestamp: Optional[float] = None,
     ) -> asyncio.Queue:
-        key = (chat_id, message_thread_id)
+        key = (_normalize_chat_id(chat_id), message_thread_id)
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
         self._subscribers.setdefault(key, []).append(queue)
 
@@ -82,14 +89,14 @@ class TelegramEventBus:
         message_thread_id: Optional[int],
         queue: asyncio.Queue,
     ) -> None:
-        key = (chat_id, message_thread_id)
+        key = (_normalize_chat_id(chat_id), message_thread_id)
         if key in self._subscribers and queue in self._subscribers[key]:
             self._subscribers[key].remove(queue)
             if not self._subscribers[key]:
                 del self._subscribers[key]
 
     async def publish(self, event: TelegramMessageEvent) -> None:
-        key = (event.chat_id, event.message_thread_id)
+        key = (_normalize_chat_id(event.chat_id), event.message_thread_id)
         now = time.time()
 
         buf = self._history_buffers.setdefault(key, [])
@@ -112,10 +119,14 @@ class TelegramEventBus:
             self._subscribers.clear()
             self._history_buffers.clear()
         else:
-            to_del_sub = [k for k in self._subscribers if k[0] == chat_id]
+            to_del_sub = [
+                k for k in self._subscribers if k[0] == _normalize_chat_id(chat_id)
+            ]
             for k in to_del_sub:
                 self._subscribers.pop(k, None)
-            to_del_buf = [k for k in self._history_buffers if k[0] == chat_id]
+            to_del_buf = [
+                k for k in self._history_buffers if k[0] == _normalize_chat_id(chat_id)
+            ]
             for k in to_del_buf:
                 self._history_buffers.pop(k, None)
 
@@ -127,7 +138,7 @@ class TelegramEventBus:
         limit: int = 10,
     ) -> List[TelegramMessageEvent]:
         """获取指定会话与话题的最近事件历史，支持调试回溯与状态核验"""
-        key = (chat_id, message_thread_id)
+        key = (_normalize_chat_id(chat_id), message_thread_id)
         now = time.time()
         buf = [
             ev

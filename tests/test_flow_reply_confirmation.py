@@ -944,3 +944,79 @@ async def test_22_multi_step_send_then_click_button_with_reply_confirmation():
     res = await engine.run(graph, ctx, mock_executor, event_bus=bus)
     assert res["status"] == "success"
     assert res["path"] == ["step_0", "step_1", "step_1_wait"]
+
+
+@pytest.mark.asyncio
+async def test_23_unmatched_bot_replies_logged_and_timeout_includes_reply_preview():
+    """TEST 23: 机器人回复了内容但未匹配规则时，必须在日志回显并在超时信息中展示收到的回复"""
+    bus = TelegramEventBus()
+    engine = PulseFlowEngine(event_bus=bus)
+    chat_id = 8300459562
+
+    logs = []
+    ctx = ScopedFlowContext()
+    ctx.system["chat_id"] = chat_id
+    ctx.system["last_sent_message_id"] = 100
+    ctx.system["log"] = lambda msg, level="INFO": logs.append((level, msg))
+
+    # 机器人回复了“出席率 成功”，但配置了“签到成功”
+    reply_text = "\n".join(
+        ["🎉 出席率 成功！", "=====================", "💎 +1 硬币| $0.04"]
+    )
+    asyncio.create_task(
+        _delayed_publish(
+            bus,
+            chat_id=chat_id,
+            msg_id=101,
+            text=reply_text,
+            delay=0.05,
+        )
+    )
+
+    graph = ExecutionGraph(
+        entry_node_id="wait_node",
+        nodes={
+            "wait_node": WaitEventNode(
+                id="wait_node",
+                event_type="ANY",
+                success_patterns=["签到成功"],
+                timeout_seconds=0.2,
+                next_node_id=TERMINAL_COMPLETE_ID,
+                metadata={"chat_id": chat_id},
+            )
+        },
+    )
+
+    res = await engine.run(graph, ctx, AsyncMock(), event_bus=bus)
+    assert res["status"] == "failed"
+    outcome = ctx.step_outcomes["wait_node"]
+    assert outcome.status == NodeStatus.TIMEOUT
+    assert "期间收到机器人回复" in outcome.output_text
+    assert "出席率 成功" in outcome.output_text
+
+    # 验证日志中包含了未匹配提示与机器人的实际回复
+    assert any("收到机器人回复（但未匹配成功规则）" in msg for lvl, msg in logs)
+    assert any("建议在任务配置中调整【确认成功关键词】" in msg for lvl, msg in logs)
+
+
+@pytest.mark.asyncio
+async def test_24_event_bus_normalizes_string_and_int_chat_id():
+    """TEST 24: EventBus 兼容 str 和 int 类型的 chat_id 互相分发订阅"""
+    bus = TelegramEventBus()
+    queue = bus.subscribe(chat_id="8300459562", min_message_id=10)
+
+    # 整数发布
+    ev = TelegramMessageEvent(
+        event_id="ev_1",
+        chat_id=8300459562,
+        message_thread_id=None,
+        message_id=20,
+        sender_id=8300459562,
+        event_type="NEW_MESSAGE",
+        text="hello",
+        occurred_at=time.time(),
+    )
+    await bus.publish(ev)
+
+    received = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert received.text == "hello"

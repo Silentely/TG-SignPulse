@@ -255,6 +255,12 @@ class PulseFlowEngine:
                             if node.timeout_seconds and node.timeout_seconds > 0
                             else 25.0
                         )
+                        # 为 WaitEventNode 留出 3 秒缓冲区，确保内部超时先触发，完整输出未匹配回复等诊断日志
+                        wait_for_timeout = (
+                            timeout_sec + 3.0
+                            if isinstance(node, WaitEventNode)
+                            else timeout_sec
+                        )
                         outcome = await asyncio.wait_for(
                             self._execute_node(
                                 node,
@@ -264,7 +270,7 @@ class PulseFlowEngine:
                                 on_step_start,
                                 on_step_finish,
                             ),
-                            timeout=timeout_sec,
+                            timeout=wait_for_timeout,
                         )
 
                         if outcome.signal != FlowSignal.RETRY_NODE:
@@ -865,6 +871,47 @@ class PulseFlowEngine:
         _log_msg(f"步骤 [{node.id}] 开始执行：{node_desc}")
         _log_msg(f"等待机器人回复确认，超时 {int(timeout)} 秒")
 
+        unmatched_replies: list[str] = []
+        success_rules = (
+            node.success_patterns
+            if getattr(node, "success_patterns", None)
+            else getattr(node, "filter_patterns", None)
+        )
+
+        def _handle_timeout() -> StepOutcome:
+            rules_disp = f"，当前设定规则: {success_rules}" if success_rules else ""
+            if unmatched_replies:
+                last_sample = unmatched_replies[-1].strip()[:150]
+                out_msg = (
+                    f"等待机器人回复确认超时（{int(timeout)} 秒）。"
+                    f"期间收到机器人回复（共 {len(unmatched_replies)} 条，但未匹配设定的成功规则{rules_disp}）：\n「{last_sample}」"
+                )
+                _log_msg(f"等待机器人确认超时（{int(timeout)} 秒）", level="WARNING")
+                _log_msg(
+                    f"期间收到机器人回复（但未匹配设定的成功规则{rules_disp}）：\n「{last_sample}」",
+                    level="WARNING",
+                )
+                _log_msg(
+                    "建议在任务配置中调整【确认成功关键词】为匹配实际回复的关键词",
+                    level="WARNING",
+                )
+            else:
+                out_msg = f"等待机器人回复确认超时（{int(timeout)} 秒）。等待期间未收到机器人的任何回复消息。"
+                _log_msg(f"等待机器人确认超时（{int(timeout)} 秒）", level="WARNING")
+                _log_msg("等待期间未收到机器人的任何回复消息", level="WARNING")
+                _log_msg(
+                    "建议检查机器人是否正常在线，或适当提高超时时间", level="WARNING"
+                )
+
+            _log_msg(f"步骤 [{node.id}] 执行失败", level="WARNING")
+            return StepOutcome(
+                node_id=node.id,
+                status=NodeStatus.TIMEOUT,
+                output_text=out_msg,
+                updates_last_output=bool(unmatched_replies),
+                details={"chat_id": chat_id, "unmatched_count": len(unmatched_replies)},
+            )
+
         queue = bus.subscribe(
             chat_id=chat_id,
             message_thread_id=thread_id,
@@ -877,34 +924,14 @@ class PulseFlowEngine:
             while True:
                 remaining = deadline - time.perf_counter()
                 if remaining <= 0:
-                    _log_msg(
-                        f"等待机器人确认超时（{int(timeout)} 秒）", level="WARNING"
-                    )
-                    _log_msg("未检测到有效签到结果", level="WARNING")
-                    _log_msg(f"步骤 [{node.id}] 执行失败", level="WARNING")
-                    return StepOutcome(
-                        node_id=node.id,
-                        status=NodeStatus.TIMEOUT,
-                        output_text=f"等待机器人确认超时（{int(timeout)} 秒）",
-                        updates_last_output=False,
-                    )
+                    return _handle_timeout()
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=remaining)
                 except asyncio.TimeoutError:
-                    _log_msg(
-                        f"等待机器人确认超时（{int(timeout)} 秒）", level="WARNING"
-                    )
-                    _log_msg("未检测到有效签到结果", level="WARNING")
-                    _log_msg(f"步骤 [{node.id}] 执行失败", level="WARNING")
-                    return StepOutcome(
-                        node_id=node.id,
-                        status=NodeStatus.TIMEOUT,
-                        output_text=f"等待机器人确认超时（{int(timeout)} 秒）",
-                        updates_last_output=False,
-                    )
+                    return _handle_timeout()
 
-                # 1. 目标 chat 隔离
-                if event.chat_id != chat_id:
+                # 1. 目标 chat 隔离（兼容 int 与 str 对比）
+                if str(event.chat_id) != str(chat_id):
                     continue
 
                 # 2. 目标话题隔离
@@ -937,8 +964,12 @@ class PulseFlowEngine:
                     min_msg_id is not None
                     and getattr(event, "message_id", None) is not None
                 ):
-                    if event.message_id <= min_msg_id:
-                        continue
+                    try:
+                        if int(event.message_id) <= int(min_msg_id):
+                            continue
+                    except (ValueError, TypeError):
+                        if event.message_id <= min_msg_id:
+                            continue
                 elif since_ts is not None:
                     if event.occurred_at < since_ts:
                         continue
@@ -987,7 +1018,13 @@ class PulseFlowEngine:
                                 updates_last_output=True,
                                 details=details,
                             )
-                    # 未命中任何成功规则，继续等待后续消息
+                    # 未命中任何成功规则，记录到未匹配列表并回显日志
+                    unmatched_replies.append(text)
+                    preview = " ".join(text.strip().split())[:100]
+                    _log_msg(
+                        f"收到机器人回复（但未匹配成功规则）：{preview}",
+                        level="WARNING",
+                    )
                     logger.debug(
                         f"WaitEventNode {node.id} 收到不匹配消息，继续等待: {text[:60]}"
                     )

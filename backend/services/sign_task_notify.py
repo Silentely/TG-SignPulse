@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 
 from backend.services.sign_task_failure import failure_category_label_by_value
@@ -56,15 +57,78 @@ _FRIENDLY_ERROR_PATTERNS = [
 ]
 
 
+_LOG_RUNNER_PREFIX = re.compile(r"^账户「.*?」\s*-\s*任务「.*?」\s*[:：]\s*")
+
+_WRAPPER_PREFIXES = (
+    "任务执行出错:",
+    "任务执行出错：",
+    "RuntimeError:",
+    "Exception:",
+    "会话执行失败:",
+    "会话执行失败：",
+    "PulseFlow 执行失败（工作流节点执行失败）:",
+    "PulseFlow 执行失败（工作流节点执行失败）：",
+    "PulseFlow 执行失败:",
+    "PulseFlow 执行失败：",
+    "工作流节点执行失败:",
+    "工作流节点执行失败：",
+)
+
+
+def strip_error_wrappers(text: str) -> str:
+    """去除层层嵌套的技术性包装前缀，直接提取核心原因。"""
+    if not isinstance(text, str):
+        return "" if text is None else str(text)
+    res = text.strip()
+    changed = True
+    while changed:
+        changed = False
+        for p in _WRAPPER_PREFIXES:
+            if res.startswith(p):
+                res = res[len(p) :].strip()
+                changed = True
+    return res
+
+
+def extract_failure_reason_from_logs(flow_logs: Optional[List[str]]) -> Optional[str]:
+    """从流程日志倒序提取高价值的核心错误原因（用于替代无意义的泛化兜底）。"""
+    if not flow_logs:
+        return None
+    for line in reversed(flow_logs):
+        if not isinstance(line, str):
+            continue
+        line_clean = _LOG_RUNNER_PREFIX.sub("", line).strip()
+        if "期间收到机器人回复" in line_clean and "未匹配" in line_clean:
+            return line_clean
+        if line_clean.startswith("等待机器人回复确认超时") or line_clean.startswith(
+            "等待机器人确认超时"
+        ):
+            return line_clean
+        if line_clean.startswith("签到失败:"):
+            reason = strip_error_wrappers(line_clean[len("签到失败:") :].strip())
+            if reason and not reason.startswith("所有会话均执行失败"):
+                return reason
+        if "命中失败规则" in line_clean or "机器人明确返回失败" in line_clean:
+            return line_clean
+    return None
+
+
 def friendly_error_message(message: str) -> str:
-    """常见异常英文文本映射为中文摘要；无命中时原样返回。"""
+    """常见异常英文文本映射为中文摘要；已有业务级详细中文说明时原样返回。"""
     if not isinstance(message, str):
         return "" if message is None else str(message)
-    lower = message.lower()
+    stripped = strip_error_wrappers(message)
+    # 若已有详细的业务级描述（如等待机器人确认、未匹配规则等），完整保留真实细节
+    if any(
+        k in stripped
+        for k in ("等待机器人", "未匹配", "工作流", "会话执行失败", "节点执行失败")
+    ):
+        return stripped
+    lower = stripped.lower()
     for pattern, friendly in _FRIENDLY_ERROR_PATTERNS:
         if pattern in lower:
             return friendly
-    return message
+    return stripped
 
 
 async def send_failure_notification(
@@ -103,28 +167,68 @@ async def send_failure_notification(
             ("账号", account_name),
             ("任务", task_name),
         ]
+
+        # 1. 动态细化失败分类标签，使通知一目了然
+        combined_err_context = (message or "") + " " + " ".join((flow_logs or [])[-10:])
         category_label = _failure_category_label(failure_category)
+        if "未匹配" in combined_err_context:
+            category_label = "关键词未匹配"
+        elif "等待机器人" in combined_err_context and (
+            "超时" in combined_err_context or failure_category == "timeout"
+        ):
+            category_label = "等待回复超时"
         if category_label:
             fields.append(("失败分类", category_label))
-        # 空错误原本显示「未知错误」，换成更准确的指引文案
-        raw_error = (
-            friendly_error_message(message) or "未捕获到错误明细，请展开流程日志查看"
-        )
+
+        # 2. 提炼核心错误原因，去除多余包装并过滤无意义泛化兜底
+        raw_error = friendly_error_message(message)
+        if not raw_error or raw_error in (
+            "所有会话均执行失败（详细请看运行日志）",
+            "所有会话均执行失败",
+            "执行失败",
+        ):
+            from_logs = extract_failure_reason_from_logs(flow_logs)
+            if from_logs:
+                raw_error = from_logs
+            elif not raw_error:
+                raw_error = "未捕获到错误明细，请展开流程日志查看"
         error_text = raw_error[:400] + ("..." if len(raw_error) > 400 else "")
         fields.append(("错误", error_text))
-        # 错误与目标消息常同源（runner 会把最后回复同时填入两者），相同则只展示一处
+
+        # 3. 提取机器人实际回复内容（展示为目标消息）
+        from backend.utils.task_logs import extract_last_target_message
+
+        bot_reply = (last_target_message or "").strip()
+        if not bot_reply and flow_logs:
+            bot_reply = extract_last_target_message(flow_logs).strip()
+
+        # 错误与目标消息常同源，相同时只展示一处
         if (
-            last_target_message
-            and last_target_message.strip() != (message or "").strip()
+            bot_reply
+            and bot_reply != (message or "").strip()
+            and bot_reply != error_text
+            and bot_reply != raw_error
         ):
-            target_msg = last_target_message.strip()
+            target_msg = bot_reply
             if len(target_msg) > 300:
                 target_msg = target_msg[:297] + "..."
             fields.append(("目标消息", target_msg))
+
         log_tail = "\n".join((flow_logs or [])[-20:])
         truncated = len(flow_logs or []) > 20
         footer_parts: List[str] = []
-        advice = FAILURE_CATEGORY_ADVICE.get(failure_category or "")
+
+        # 4. 给出具体可落地的排查与修改建议
+        advice = None
+        if "未匹配" in combined_err_context:
+            if bot_reply:
+                advice = "机器人已回复但未匹配成功关键词。请参考上方【目标消息】，在任务配置中将【确认成功关键词】修改为机器人回复中的词语（如：出席率 成功 或 成功）"
+            else:
+                advice = "机器人已回复但未匹配成功关键词，请查看日志中机器人的实际回复，并在任务配置中调整【确认成功关键词】"
+        elif "等待机器人" in combined_err_context:
+            advice = "等待机器人回复超时（期间未收到任何回复）。请确认目标机器人是否正常在线，或适当提高【回复等待超时】时间"
+        if not advice:
+            advice = FAILURE_CATEGORY_ADVICE.get(failure_category or "")
         if advice:
             footer_parts.append(f"建议: {advice}")
         if log_tail:

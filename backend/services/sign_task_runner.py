@@ -711,7 +711,9 @@ async def _runner_send_notifications(
             account_name=state["account_name"],
             task_name=state["task_name"],
             message=state.get("error_msg", "") or state.get("last_reply", ""),
-            last_target_message=state.get("last_target_message") or None,
+            last_target_message=state.get("last_target_message")
+            or state.get("last_reply")
+            or None,
             flow_logs=state.get("final_logs", []),
             failure_category=failure_category,
         )
@@ -932,11 +934,33 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
     _set_ctx(state, "output_str", "\n".join(final_logs))
 
     try:
-        if state.get("success") and not state.get("last_reply"):
+        if not state.get("last_reply"):
             await _runner_parse_reply(state)
+
+        signer = state.get("signer")
+        if not state.get("last_reply") and signer and hasattr(signer, "context"):
+            signer_last_recv = getattr(
+                signer.context, "last_received_text", None
+            ) or getattr(signer.context, "last_output", None)
+            if (
+                signer_last_recv
+                and isinstance(signer_last_recv, str)
+                and signer_last_recv.strip()
+            ):
+                if not signer_last_recv.startswith("等待机器人回复确认超时"):
+                    _set_ctx(state, "last_reply", signer_last_recv.strip())
 
         if state.get("success"):
             await _runner_fetch_target_message(state)
+        elif not state.get("last_target_message"):
+            if state.get("last_reply"):
+                _set_ctx(state, "last_target_message", state.get("last_reply"))
+            else:
+                from backend.utils.task_logs import extract_last_target_message
+
+                extracted = extract_last_target_message(final_logs)
+                if extracted:
+                    _set_ctx(state, "last_target_message", extracted)
 
         if not state.get("cancelled"):
             with contextlib.suppress(Exception):

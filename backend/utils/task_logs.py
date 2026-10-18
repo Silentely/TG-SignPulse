@@ -4,6 +4,7 @@ import re
 from typing import Iterable
 
 _TIMESTAMP_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}.*? -\s*")
+_LOG_RUNNER_PREFIX = re.compile(r"^账户「.*?」\s*-\s*任务「.*?」\s*[:：]\s*")
 # 标签分隔符：全角与半角冒号都可能是日志前缀的分隔符
 _LABEL_SEPARATOR = re.compile(r"[：:]")
 
@@ -13,6 +14,10 @@ def normalize_log_line(value: object) -> str:
     if not text:
         return ""
     return _TIMESTAMP_PREFIX.sub("", text).strip()
+
+
+def _clean_line_prefix(line: str) -> str:
+    return _LOG_RUNNER_PREFIX.sub("", line).strip()
 
 
 def _value_after_label(line: str, label: str = "") -> str:
@@ -55,45 +60,51 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
         return ""
 
     for line in reversed(lines):
-        if line.startswith("任务对象最后一条消息:") or line.startswith(
+        clean = _clean_line_prefix(line)
+        if clean.startswith("任务对象最后一条消息:") or clean.startswith(
             "任务对象最后一条消息："
         ):
-            value = _value_after_label(line)
+            value = _value_after_label(clean)
             if value:
                 return value
 
     for line in reversed(lines):
+        clean = _clean_line_prefix(line)
         if (
-            line.startswith("收到回复")
-            or line.startswith("Bot回复")
-            or line.startswith("机器人回复")
+            clean.startswith("收到回复")
+            or clean.startswith("Bot回复")
+            or clean.startswith("机器人回复")
+            or clean.startswith("收到机器人回复")
         ):
-            value = _value_after_label(line)
+            value = _value_after_label(clean)
             if value:
                 return value
 
     for line in reversed(lines):
-        if line.startswith("收到图片"):
-            value = _value_after_label(line)
+        clean = _clean_line_prefix(line)
+        if clean.startswith("收到图片"):
+            value = _value_after_label(clean)
             if value:
                 return value
 
     for line in reversed(lines):
-        lower = line.lower()
+        clean = _clean_line_prefix(line)
+        lower = clean.lower()
         idx = lower.find("text:")
         if idx != -1:
-            value = line[idx + len("text:") :].strip()
+            value = clean[idx + len("text:") :].strip()
             if value:
                 return value
-        idx_zh = line.find("text：")
+        idx_zh = clean.find("text：")
         if idx_zh != -1:
-            value = line[idx_zh + len("text：") :].strip()
+            value = clean[idx_zh + len("text：") :].strip()
             if value:
                 return value
 
     for line in reversed(lines):
-        if "图片:" in line or "图片：" in line:
-            value = _value_after_label(line, label="图片")
+        clean = _clean_line_prefix(line)
+        if "图片:" in clean or "图片：" in clean:
+            value = _value_after_label(clean, label="图片")
             if value:
                 return f"[图片] {value}"
 
