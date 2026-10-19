@@ -131,6 +131,94 @@ def friendly_error_message(message: str) -> str:
     return stripped
 
 
+def is_bot_offline_timeout(
+    message: str,
+    flow_logs: Optional[List[str]] = None,
+    failure_category: Optional[str] = None,
+) -> tuple[bool, Optional[str]]:
+    """判断是否属于等待机器人回复超时且期间未收到任何回复（疑似机器人离线/未响应）。
+
+    返回 (is_offline, timeout_seconds_str)。
+    """
+    combined = (message or "") + " " + " ".join((flow_logs or [])[-15:])
+
+    # 若期间收到了机器人的回复（虽然未匹配成功关键词），属于规则未匹配，而非未响应离线
+    if "期间收到机器人回复" in combined:
+        return False, None
+
+    offline_indicators = (
+        "等待期间未收到机器人的任何回复消息",
+        "等待期间未收到机器人的任何回复",
+        "未收到机器人的任何回复",
+        "未收到任何回复",
+    )
+    is_offline = any(ind in combined for ind in offline_indicators)
+    if not is_offline:
+        if (
+            "等待机器人回复确认超时" in combined
+            or "等待机器人确认超时" in combined
+            or (failure_category == "timeout" and "等待机器人" in combined)
+        ):
+            is_offline = True
+
+    if not is_offline:
+        return False, None
+
+    timeout_sec = None
+    m = re.search(r"超时[（(]?\s*(\d+)\s*秒", combined) or re.search(
+        r"(\d+)\s*秒", combined
+    )
+    if m:
+        timeout_sec = m.group(1)
+
+    return True, timeout_sec
+
+
+def clean_flow_logs_for_notification(
+    flow_logs: Optional[List[str]],
+    max_lines: int = 20,
+) -> tuple[List[str], bool]:
+    """清洗流程日志供 Telegram 通知展示：过滤 Python Traceback 与代码回溯，保留业务步骤日志。"""
+    if not flow_logs:
+        return [], False
+    cleaned: List[str] = []
+    skip_stack = False
+    for line in flow_logs:
+        if not isinstance(line, str):
+            continue
+        strip_line = line.strip()
+        if not strip_line:
+            continue
+        if "Traceback (most recent call last):" in strip_line:
+            skip_stack = True
+            continue
+        if skip_stack:
+            if (
+                strip_line.startswith('File "')
+                or strip_line.startswith("await self.")
+                or strip_line.startswith("raise ")
+                or strip_line.startswith("return await ")
+                or strip_line.startswith("await ")
+            ):
+                continue
+            if strip_line.startswith("RuntimeError:") or strip_line.startswith(
+                "Exception:"
+            ):
+                skip_stack = False
+                continue
+        if (
+            strip_line.startswith('File "')
+            or ("line " in strip_line and "in normal_run" in strip_line)
+            or strip_line.startswith("await self.normal_run")
+            or strip_line.startswith("await sign_once()")
+        ):
+            continue
+        cleaned.append(strip_line)
+
+    truncated = len(cleaned) > max_lines
+    return cleaned[-max_lines:], truncated
+
+
 async def send_failure_notification(
     *,
     account_name: str,
@@ -162,13 +250,47 @@ async def send_failure_notification(
         if not bot_token or not chat_id:
             return
 
+        # 1. 机器人长时间未返回消息 / 疑似离线场景：精简发送清晰通知，不附带冗余日志与堆栈
+        is_offline, timeout_sec = is_bot_offline_timeout(
+            message=message,
+            flow_logs=flow_logs,
+            failure_category=failure_category,
+        )
+        if is_offline:
+            sec_disp = f"（{timeout_sec} 秒）" if timeout_sec else ""
+            fields = [
+                ("时间 (UTC)", utc_now_iso_z_seconds()),
+                ("账号", account_name),
+                ("任务", task_name),
+                ("失败分类", "等待回复超时"),
+                (
+                    "错误说明",
+                    f"账号「{account_name}」执行任务「{task_name}」遇到机器人未在规定时间{sec_disp}返回消息，疑似离线或未响应",
+                ),
+            ]
+            advice = "请确认目标机器人是否正常在线，或适当提高【回复等待超时】时间"
+            text = build_html_notification(
+                title=f"❌ {account_name} · {task_name} 执行失败（机器人疑似离线）",
+                fields=fields,
+                footer=f"建议: {advice}",
+            )
+            await send_telegram_bot_message(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                text=text,
+                message_thread_id=thread_id,
+                parse_mode="HTML",
+            )
+            return
+
+        # 2. 通用失败通知分支
         fields = [
             ("时间 (UTC)", utc_now_iso_z_seconds()),
             ("账号", account_name),
             ("任务", task_name),
         ]
 
-        # 1. 动态细化失败分类标签，使通知一目了然
+        # 动态细化失败分类标签
         combined_err_context = (message or "") + " " + " ".join((flow_logs or [])[-10:])
         category_label = _failure_category_label(failure_category)
         if "未匹配" in combined_err_context:
@@ -180,7 +302,7 @@ async def send_failure_notification(
         if category_label:
             fields.append(("失败分类", category_label))
 
-        # 2. 提炼核心错误原因，去除多余包装并过滤无意义泛化兜底
+        # 提炼核心错误原因，去除多余包装并过滤无意义泛化兜底
         raw_error = friendly_error_message(message)
         if not raw_error or raw_error in (
             "所有会话均执行失败（详细请看运行日志）",
@@ -195,14 +317,14 @@ async def send_failure_notification(
         error_text = raw_error[:400] + ("..." if len(raw_error) > 400 else "")
         fields.append(("错误", error_text))
 
-        # 3. 提取机器人实际回复内容（展示为目标消息）
+        # 提取机器人实际回复内容（展示为目标消息）
         from backend.utils.task_logs import extract_last_target_message
 
         bot_reply = (last_target_message or "").strip()
         if not bot_reply and flow_logs:
             bot_reply = extract_last_target_message(flow_logs).strip()
 
-        # 错误与目标消息常同源，相同时只展示一处
+        # 错误与目标消息常同源，相同时只展示一处；且避免将发送的消息作为目标消息展示
         if (
             bot_reply
             and bot_reply != (message or "").strip()
@@ -214,11 +336,11 @@ async def send_failure_notification(
                 target_msg = target_msg[:297] + "..."
             fields.append(("目标消息", target_msg))
 
-        log_tail = "\n".join((flow_logs or [])[-20:])
-        truncated = len(flow_logs or []) > 20
+        clean_logs, truncated = clean_flow_logs_for_notification(flow_logs)
+        log_tail = "\n".join(clean_logs)
         footer_parts: List[str] = []
 
-        # 4. 给出具体可落地的排查与修改建议
+        # 给出具体可落地的排查与修改建议
         advice = None
         if "未匹配" in combined_err_context:
             if bot_reply:

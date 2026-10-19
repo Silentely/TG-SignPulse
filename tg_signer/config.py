@@ -207,7 +207,7 @@ class SignAction(BaseModel):
     wait_for_reply: bool = False
     reply_success_patterns: List[str] = Field(default_factory=list)
     reply_failure_patterns: List[str] = Field(default_factory=list)
-    reply_timeout_seconds: float = 30.0
+    reply_timeout_seconds: float = 120.0
 
     @validator("reply_success_patterns", "reply_failure_patterns", each_item=True)
     def _validate_reply_patterns(cls, v: str) -> str:

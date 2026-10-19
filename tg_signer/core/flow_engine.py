@@ -865,7 +865,7 @@ class PulseFlowEngine:
             or ctx.system.get("last_action_started_at")
             or ctx.system.get("last_action_finished_at")
         )
-        timeout = float(node.timeout_seconds or 30.0)
+        timeout = float(node.timeout_seconds or 120.0)
 
         node_desc = node.name or "等待机器人回复"
         _log_msg(f"步骤 [{node.id}] 开始执行：{node_desc}")

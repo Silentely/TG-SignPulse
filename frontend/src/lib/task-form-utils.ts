@@ -284,7 +284,7 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
       const failurePatterns = act.reply_failure_patterns && act.reply_failure_patterns.length > 0
         ? [...act.reply_failure_patterns]
         : ['出席率\\s*失败', '签到失败', '操作失败']
-      const timeout = act.reply_timeout_seconds !== undefined ? Number(act.reply_timeout_seconds) : 30
+      const timeout = act.reply_timeout_seconds !== undefined ? Number(act.reply_timeout_seconds) : 120
 
       const step: any = {
         step_id: item.stepId,

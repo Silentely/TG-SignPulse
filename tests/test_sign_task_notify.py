@@ -291,23 +291,36 @@ class TestSendFailureNotification:
     async def test_waiting_timeout_zero_replies_notification_diagnostics(
         self, notify_env
     ):
-        """当等待机器人回复超时且未收到任何回复时，通知分类为等待回复超时，并给出排查建议。"""
+        """当等待机器人回复超时且未收到任何回复时，发送精简版疑似离线通知，不带冗余日志与堆栈。"""
         logs = [
+            "账户「dahao」- 任务「bot_task」: 步骤 [step_0] 开始执行：Action-step_0",
+            "账户「dahao」- 任务「bot_task」: 已发送文本消息到 8300459562: /checkin",
             "账户「dahao」- 任务「bot_task」: 等待机器人回复确认，超时 30 秒",
             "账户「dahao」- 任务「bot_task」: 等待机器人回复确认超时（30 秒）。等待期间未收到机器人的任何回复消息。",
+            "任务执行出错: 等待机器人回复确认超时（30 秒）。等待期间未收到机器人的任何回复消息。",
+            "      await self.normal_run(",
+            '    File "/app/tg_signer/core/signer_runner.py", line 1077, in normal_run',
         ]
         await sign_task_notify.send_failure_notification(
             account_name="dahao",
             task_name="bot_task",
-            message="RuntimeError: 所有会话均执行失败（详细请看运行日志）",
+            message="PulseFlow 执行失败（工作流节点执行失败）: 等待机器人回复确认超时（30 秒）。等待期间未收到机器人的任何回复消息。",
+            last_target_message="/checkin",  # 模拟上游被误传的发送命令
             flow_logs=logs,
             failure_category="timeout",
         )
         assert len(notify_env.sent) == 1
         text = notify_env.sent[0]["text"]
+        assert "机器人疑似离线" in text
         assert "失败分类" in text and "等待回复超时" in text
-        assert "未收到机器人的任何回复消息" in text
-        assert "建议: 等待机器人回复超时（期间未收到任何回复）" in text
+        assert "遇到机器人未在规定时间（30 秒）返回消息，疑似离线或未响应" in text
+        assert (
+            "建议: 请确认目标机器人是否正常在线，或适当提高【回复等待超时】时间" in text
+        )
+        # 绝不包含误报的目标消息与冗长日志
+        assert "目标消息" not in text
+        assert "最近日志" not in text
+        assert "/app/tg_signer" not in text
 
 
 class TestSendSuccessNotification:
@@ -652,3 +665,39 @@ async def test_close_shared_http_client_resets_cache():
     assert second is not first
     assert second.is_closed is False
     await close_shared_http_client()
+
+
+class TestCleanFlowLogsForNotification:
+    def test_clean_traceback_and_code_lines(self):
+        logs = [
+            "账户「dahao」- 任务「t1」: 步骤 [step_0] 开始执行：Action-step_0",
+            "账户「dahao」- 任务「t1」: 已发送文本消息到 123456: /checkin",
+            "Traceback (most recent call last):",
+            '  File "/app/tg_signer/core/signer_runner.py", line 1077, in normal_run',
+            "    await sign_once()",
+            '  File "/app/tg_signer/core/signer_runner.py", line 1027, in sign_once',
+            '    raise RuntimeError(f"{last_chat_err}")',
+            "RuntimeError: Some technical error",
+            "账户「dahao」- 任务「t1」: 步骤 [step_0] 执行失败",
+        ]
+        cleaned, truncated = sign_task_notify.clean_flow_logs_for_notification(logs)
+        text = "\n".join(cleaned)
+        assert "步骤 [step_0] 开始执行" in text
+        assert "步骤 [step_0] 执行失败" in text
+        assert "normal_run" not in text
+        assert "Traceback" not in text
+        assert "/app/tg_signer" not in text
+
+
+class TestTargetMessageExcludesSendActions:
+    def test_sent_command_not_treated_as_target_reply(self):
+        from backend.utils.task_logs import extract_last_target_message
+
+        logs = [
+            "账户「dahao」- 任务「bot_task」: 步骤 [step_0] 开始执行：Action-step_0",
+            "账户「dahao」- 任务「bot_task」: 已发送文本消息到 8300459562: /checkin",
+            "账户「dahao」- 任务「bot_task」: 等待机器人回复确认，超时 30 秒",
+            "账户「dahao」- 任务「bot_task」: 等待期间未收到机器人的任何回复消息",
+        ]
+        result = extract_last_target_message(logs)
+        assert result == ""

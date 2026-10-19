@@ -334,7 +334,14 @@ class SignerRunnerMixin:
                             self.context.workflow_steps = len(flow_executed_path)
                         if ctx.last_output:
                             self.context.last_output = ctx.last_output
-                            self.context.last_received_text = ctx.last_output
+                            err_str = str(flow_res.get("error") or "")
+                            if (
+                                "等待期间未收到机器人的任何回复消息" not in err_str
+                                and "未收到机器人的任何回复" not in err_str
+                            ):
+                                self.context.last_received_text = ctx.last_output
+                            else:
+                                self.context.last_received_text = ""
                         err_detail = (
                             flow_res.get("error")
                             or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"

@@ -258,7 +258,7 @@ const onToggleWaitForReply = (action: TaskActionItem, checked: boolean) => {
       action.reply_failure_patterns = ['出席率\\s*失败', '签到失败', '操作失败']
     }
     if (action.reply_timeout_seconds === undefined) {
-      action.reply_timeout_seconds = 30
+      action.reply_timeout_seconds = 120
     }
   }
 }

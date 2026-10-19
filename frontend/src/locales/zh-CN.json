@@ -481,7 +481,7 @@
     "replyFailurePatterns": "失败匹配规则 (每行一条正则)",
     "replyFailurePatternsPlaceholder": "例如：\n出席率\\s*失败\n签到失败\n操作失败",
     "replyTimeout": "等待超时时间 (秒)",
-    "replyTimeoutPlaceholder": "默认 30"
+    "replyTimeoutPlaceholder": "默认 120"
   },
   "taskModal": {
     "addTitle": "添加任务",

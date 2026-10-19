@@ -7,6 +7,15 @@ _TIMESTAMP_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}.*? -\s*")
 _LOG_RUNNER_PREFIX = re.compile(r"^账户「.*?」\s*-\s*任务「.*?」\s*[:：]\s*")
 # 标签分隔符：全角与半角冒号都可能是日志前缀的分隔符
 _LABEL_SEPARATOR = re.compile(r"[：:]")
+_SEND_ACTIONS = (
+    "已发送",
+    "发送文本",
+    "发送消息",
+    "发送命令",
+    "Action-",
+    "点击按钮",
+    "执行步骤",
+)
 
 
 def normalize_log_line(value: object) -> str:
@@ -61,6 +70,8 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
 
     for line in reversed(lines):
         clean = _clean_line_prefix(line)
+        if any(p in clean for p in _SEND_ACTIONS):
+            continue
         if clean.startswith("任务对象最后一条消息:") or clean.startswith(
             "任务对象最后一条消息："
         ):
@@ -70,6 +81,8 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
 
     for line in reversed(lines):
         clean = _clean_line_prefix(line)
+        if any(p in clean for p in _SEND_ACTIONS):
+            continue
         if (
             clean.startswith("收到回复")
             or clean.startswith("Bot回复")
@@ -82,6 +95,8 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
 
     for line in reversed(lines):
         clean = _clean_line_prefix(line)
+        if any(p in clean for p in _SEND_ACTIONS):
+            continue
         if clean.startswith("收到图片"):
             value = _value_after_label(clean)
             if value:
@@ -89,6 +104,8 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
 
     for line in reversed(lines):
         clean = _clean_line_prefix(line)
+        if any(p in clean for p in _SEND_ACTIONS):
+            continue
         lower = clean.lower()
         idx = lower.find("text:")
         if idx != -1:
@@ -103,6 +120,8 @@ def extract_last_target_message(flow_logs: Iterable[object] | None) -> str:
 
     for line in reversed(lines):
         clean = _clean_line_prefix(line)
+        if any(p in clean for p in _SEND_ACTIONS):
+            continue
         if "图片:" in clean or "图片：" in clean:
             value = _value_after_label(clean, label="图片")
             if value:

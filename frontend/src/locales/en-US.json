@@ -481,7 +481,7 @@
     "replyFailurePatterns": "Failure Match Patterns (One regex per line)",
     "replyFailurePatternsPlaceholder": "e.g.\n出席率\\s*失败\n签到失败\n操作失败",
     "replyTimeout": "Wait Timeout (seconds)",
-    "replyTimeoutPlaceholder": "Default 30"
+    "replyTimeoutPlaceholder": "Default 120"
   },
   "taskModal": {
     "addTitle": "Add Task",

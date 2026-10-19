@@ -939,9 +939,9 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
 
         signer = state.get("signer")
         if not state.get("last_reply") and signer and hasattr(signer, "context"):
-            signer_last_recv = getattr(
-                signer.context, "last_received_text", None
-            ) or getattr(signer.context, "last_output", None)
+            signer_last_recv = getattr(signer.context, "last_received_text", None)
+            if not signer_last_recv and state.get("success"):
+                signer_last_recv = getattr(signer.context, "last_output", None)
             if (
                 signer_last_recv
                 and isinstance(signer_last_recv, str)
@@ -953,14 +953,24 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
         if state.get("success"):
             await _runner_fetch_target_message(state)
         elif not state.get("last_target_message"):
-            if state.get("last_reply"):
-                _set_ctx(state, "last_target_message", state.get("last_reply"))
-            else:
-                from backend.utils.task_logs import extract_last_target_message
+            combined_err = (
+                str(state.get("error_raw") or "")
+                + " "
+                + str(state.get("error_msg") or "")
+            )
+            is_unresponsive = (
+                "等待期间未收到机器人的任何回复消息" in combined_err
+                or "未收到机器人的任何回复" in combined_err
+            )
+            if not is_unresponsive:
+                if state.get("last_reply"):
+                    _set_ctx(state, "last_target_message", state.get("last_reply"))
+                else:
+                    from backend.utils.task_logs import extract_last_target_message
 
-                extracted = extract_last_target_message(final_logs)
-                if extracted:
-                    _set_ctx(state, "last_target_message", extracted)
+                    extracted = extract_last_target_message(final_logs)
+                    if extracted:
+                        _set_ctx(state, "last_target_message", extracted)
 
         if not state.get("cancelled"):
             with contextlib.suppress(Exception):

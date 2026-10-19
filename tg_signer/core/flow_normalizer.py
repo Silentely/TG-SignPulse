@@ -264,11 +264,11 @@ class GraphNormalizer:
                     else act.get("reply_timeout_seconds")
                 )
                 if reply_timeout is None:
-                    reply_timeout = 30.0
+                    reply_timeout = 120.0
                 try:
                     reply_timeout = float(reply_timeout)
                 except (ValueError, TypeError):
-                    reply_timeout = 30.0
+                    reply_timeout = 120.0
 
                 wait_node = WaitEventNode(
                     id=wait_node_id,
