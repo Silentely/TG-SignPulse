@@ -910,6 +910,14 @@ class SignerRunnerMixin:
                         )
                         break
                     except Exception as step_exc:
+                        if getattr(
+                            self.context, "pulseflow_side_effect_started", False
+                        ) or getattr(step_exc, "non_retryable", False):
+                            self.log(
+                                f"步骤 {step.step_id} 已产生外部副作用或不可重试，跳过步骤级重试: {step_exc}",
+                                level="WARNING",
+                            )
+                            raise
                         if (
                             self._is_transient_step_error(step_exc)
                             and _step_attempt < _step_max_retries

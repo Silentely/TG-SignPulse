@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -53,6 +54,7 @@ from tg_signer.compat import (
     clean_text_for_match,
     collect_clickable_buttons,
     errors,
+    parse_click_targets,
 )
 from tg_signer.core.telegram_actions import click_inline_button_unified
 from tg_signer.log_utils import (
@@ -406,6 +408,89 @@ async def click_keyboard_by_text(
     return clicked
 
 
+async def click_keyboard_sequence_result(
+    service: Any,
+    client: Any,
+    target_chat_id: Union[int, str],
+    target_thread_id: Optional[int],
+    targets: List[str],
+    message: Message,
+    *,
+    delay_min: float = 1.0,
+    delay_max: float = 2.0,
+) -> tuple[bool, bool]:
+    """按顺序依次点击多个按钮（返回 (success, side_effect_started)）。"""
+    if not targets:
+        return False, False
+
+    current_message = message
+    side_effect_started = False
+    for idx, target in enumerate(targets):
+        if idx > 0:
+            wait_sec = random.uniform(delay_min, delay_max)
+            await asyncio.sleep(wait_sec)
+            msg_id = getattr(current_message, "id", None)
+            if msg_id and hasattr(client, "get_messages"):
+                try:
+                    refreshed = await service._call_client_with_retry(
+                        client,
+                        lambda _mid=msg_id: client.get_messages(target_chat_id, _mid),
+                        operation=f"keyword monitor refresh message {target_chat_id}:{msg_id}",
+                    )
+                    if refreshed is not None:
+                        current_message = refreshed
+                except Exception as refresh_exc:
+                    logger.debug("刷新消息状态失败，继续使用上一消息: %s", refresh_exc)
+
+        single_action = {"action": 3, "text": target}
+        clicked, matched = await click_keyboard_by_text_result(
+            service,
+            client,
+            target_chat_id,
+            target_thread_id,
+            single_action,
+            current_message,
+        )
+        if clicked:
+            side_effect_started = True
+        if not clicked or not matched:
+            logger.warning(
+                "顺序点击按钮在第 %d/%d 步失败: target=%r, matched=%s, clicked=%s",
+                idx + 1,
+                len(targets),
+                target,
+                matched,
+                clicked,
+            )
+            return False, side_effect_started
+
+    return True, side_effect_started
+
+
+async def click_keyboard_sequence(
+    service: Any,
+    client: Any,
+    target_chat_id: Union[int, str],
+    target_thread_id: Optional[int],
+    targets: List[str],
+    message: Message,
+    *,
+    delay_min: float = 1.0,
+    delay_max: float = 2.0,
+) -> bool:
+    success, _ = await click_keyboard_sequence_result(
+        service,
+        client,
+        target_chat_id,
+        target_thread_id,
+        targets,
+        message,
+        delay_min=delay_min,
+        delay_max=delay_max,
+    )
+    return success
+
+
 async def load_recent_messages(
     service: Any,
     client: Any,
@@ -671,10 +756,21 @@ async def execute_ai_action(
         )
         if answer is None:
             return False
-        proxy_action = {"action": 3, "text": answer}
-        return await click_keyboard_by_text(
-            service, client, target_chat_id, target_thread_id, proxy_action, message
+        available_texts = [
+            btn_text for _, _, btn_text in collect_clickable_buttons(message)
+        ]
+        targets = parse_click_targets(answer, available_buttons=available_texts)
+        if not targets:
+            logger.warning("AI 计算后未解析出有效点击目标: answer=%r", answer)
+            return False
+        success, side_effect = await click_keyboard_sequence_result(
+            service, client, target_chat_id, target_thread_id, targets, message
         )
+        if not success and side_effect:
+            raise TerminalAIActionError(
+                "AI calculate+click partially executed (first step succeeded, subsequent step failed); aborted to prevent replay"
+            )
+        return success
 
     if action_id == 4:
         if not message.photo:
@@ -1086,6 +1182,31 @@ async def execute_continue_action(
 
         for recent_message in usable_messages:
             if action_id == 3:
+                raw_text = str(action.get("text") or "")
+                available_texts = [
+                    btn_text
+                    for _, _, btn_text in collect_clickable_buttons(recent_message)
+                ]
+                targets = parse_click_targets(
+                    raw_text, available_buttons=available_texts
+                )
+                if len(targets) > 1:
+                    success, side_effect = await click_keyboard_sequence_result(
+                        service,
+                        client,
+                        target_chat_id,
+                        target_thread_id,
+                        targets,
+                        recent_message,
+                    )
+                    if success:
+                        return True
+                    if side_effect:
+                        logger.warning(
+                            "多目标顺序点击已部分执行但后续步骤失败，为避免重复操作终止本次执行"
+                        )
+                        return False
+                    continue
                 before_state = _messages_state(recent_messages)
                 clicked, matched = await click_keyboard_by_text_result(
                     service,

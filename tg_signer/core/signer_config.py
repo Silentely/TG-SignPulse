@@ -377,6 +377,8 @@ class SignerConfigMixin:
         长 FloodWait（超过 FLOOD_WAIT_RETRY_MAX_SECONDS）同样不重试：
         等待时间已超出单步可承受范围，应由上层登记冷却并结束本次运行。
         """
+        if getattr(exc, "non_retryable", False):
+            return False
         if isinstance(exc, PluginTimeoutError):
             return False
         if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):

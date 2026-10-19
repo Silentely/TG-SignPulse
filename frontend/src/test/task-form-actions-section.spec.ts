@@ -69,4 +69,33 @@ describe('TaskFormActionsSection.vue 动作区插件调试集成', () => {
       expect(document.body.textContent).toContain('推送地址')
     })
   })
+
+  it("默认以及显式允许时，自定义插件选项处于可用状态", async () => {
+    vi.spyOn(pluginsApi, "getPlugins").mockResolvedValueOnce([])
+    const actions = [
+      {
+        id: 1,
+        type: "send_text" as const,
+        value: "hello",
+        aiPrompt: "",
+        continue_on_error: false,
+        skip_if_matched: "",
+      },
+    ]
+
+    const wrapper = mount(TaskFormActionsSection, {
+      props: {
+        actions,
+        stepNum: "04",
+      },
+      global: { plugins: [i18n] },
+    })
+
+    const customSelect = wrapper.findComponent({ name: "CustomSelect" })
+    expect(customSelect.exists()).toBe(true)
+    const options = customSelect.props("options") as Array<{ label: string; value: string; disabled?: boolean }>
+    const pluginOpt = options.find((opt) => opt.value === "custom_plugin")
+    expect(pluginOpt).toBeDefined()
+    expect(pluginOpt?.disabled).toBe(false)
+  })
 })

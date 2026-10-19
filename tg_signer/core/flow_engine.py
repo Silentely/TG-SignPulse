@@ -284,10 +284,23 @@ class PulseFlowEngine:
                         )
                         exc_name = type(exc).__name__
                         allowed = node.retry_policy.retry_on_exceptions
+                        has_side_effect = (
+                            getattr(ctx, "pulseflow_side_effect_started", False)
+                            or getattr(ctx, "side_effect_started", False)
+                            or (
+                                hasattr(ctx, "system")
+                                and isinstance(ctx.system, dict)
+                                and ctx.system.get("side_effect_started", False)
+                            )
+                        )
                         if (
-                            allowed
-                            and exc_name not in allowed
-                            and not (is_timeout and "TimeoutError" in allowed)
+                            getattr(exc, "non_retryable", False)
+                            or has_side_effect
+                            or (
+                                allowed
+                                and exc_name not in allowed
+                                and not (is_timeout and "TimeoutError" in allowed)
+                            )
                         ):
                             outcome = StepOutcome(
                                 node_id=node.id,

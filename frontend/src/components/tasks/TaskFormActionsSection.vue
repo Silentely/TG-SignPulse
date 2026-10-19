@@ -263,16 +263,21 @@ const onToggleWaitForReply = (action: TaskActionItem, checked: boolean) => {
   }
 }
 
-defineProps<{
-  actions: TaskActionItem[]
-  /** 步骤编号展示：listen 为 04，定时为 03 */
-  stepNum: string
-  /** 监听后续动作目前由后端白名单执行，不支持自定义插件。 */
-  allowCustomPlugin?: boolean
-  adaptiveScheduleEnabled?: boolean
-  adaptiveSchedulePaddingSeconds?: number
-  adaptiveSchedulePatterns?: string[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    actions: TaskActionItem[]
+    /** 步骤编号展示：listen 为 04，定时为 03 */
+    stepNum: string
+    /** 是否允许选用自定义插件（默认为 true）。 */
+    allowCustomPlugin?: boolean
+    adaptiveScheduleEnabled?: boolean
+    adaptiveSchedulePaddingSeconds?: number
+    adaptiveSchedulePatterns?: string[]
+  }>(),
+  {
+    allowCustomPlugin: true,
+  }
+)
 
 const emit = defineEmits<{
   (e: 'add'): void
@@ -331,7 +336,7 @@ const emit = defineEmits<{
                 { label: t('taskForm.aiCalc'), value: '_ai_calc', disabled: true },
                 { label: t('taskForm.calcSend'), value: 'calc_send', indent: true },
                 { label: t('taskForm.calcClick'), value: 'calc_click', indent: true },
-                { label: t('taskForm.customPlugin'), value: 'custom_plugin', disabled: allowCustomPlugin === false },
+                { label: t('taskForm.customPlugin'), value: 'custom_plugin', disabled: props.allowCustomPlugin === false },
               ]"
               className="w-full"
             />

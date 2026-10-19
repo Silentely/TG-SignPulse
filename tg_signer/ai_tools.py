@@ -726,10 +726,19 @@ class AITools:
                     raw_options = result[key]
                     break
             if raw_options is not None:
+                opt_texts = [text for _, text in options]
                 if isinstance(raw_options, str):
                     parsed_inner = robust_json_loads(raw_options, fallback=None)
                     if isinstance(parsed_inner, (list, dict)):
                         raw_options = parsed_inner
+                    else:
+                        from tg_signer.compat import parse_click_targets
+
+                        targets = parse_click_targets(
+                            raw_options, available_buttons=opt_texts
+                        )
+                        if len(targets) > 1:
+                            raw_options = targets
                 if not isinstance(raw_options, list):
                     raw_options = [raw_options]
                 collected = []
@@ -741,6 +750,23 @@ class AITools:
                     except (ValueError, TypeError, KeyError):
                         continue
                 return collected
+
+        if isinstance(result, str):
+            opt_texts = [text for _, text in options]
+            from tg_signer.compat import parse_click_targets
+
+            targets = parse_click_targets(result, available_buttons=opt_texts)
+            if len(targets) > 1:
+                collected = []
+                for item in targets:
+                    try:
+                        idx = cls._coerce_option_index(item, options)
+                        if cls._is_valid_option_index(idx, options):
+                            collected.append(idx)
+                    except (ValueError, TypeError, KeyError):
+                        continue
+                if collected:
+                    return collected
 
         try:
             idx = cls._coerce_option_index(result, options)

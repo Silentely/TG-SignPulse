@@ -23,6 +23,7 @@ from tg_signer.compat import (
     clean_text_for_match,
     collect_clickable_buttons,
     errors,
+    parse_click_targets,
 )
 from tg_signer.config import (
     ActionT,
@@ -75,6 +76,12 @@ def _normalize_button_text(text: Any) -> str:
     if not text:
         return ""
     return "".join(str(text).split()).lower()
+
+
+class SequenceClickPartialError(RuntimeError):
+    """顺序点击部分执行后失败，标记为不可重试以防破坏已完成的前置步骤。"""
+
+    non_retryable = True
 
 
 class SignerActionsMixin:
@@ -432,49 +439,163 @@ class SignerActionsMixin:
         if not answer:
             return False
 
-        proxy_action = ClickKeyboardByTextAction(text=answer)
+        targets = parse_click_targets(answer, available_buttons=options)
+        if not targets:
+            return False
+        return await self._click_targets_sequence(targets, message)
+
+    async def _click_single_target_by_text(self, target: str, message: Message) -> bool:
+        proxy_action = ClickKeyboardByTextAction(text=target)
         if await self._click_keyboard_by_text(proxy_action, message):
             return True
 
-        norm_answer = _normalize_button_text(answer)
-        if norm_answer:
-            matched_btn_info = None
-            # 第一轮：归一化后精确匹配（消除按钮文案中的空白/大小写差异）
+        clickable_buttons = collect_clickable_buttons(message)
+        norm_target = _normalize_button_text(target)
+        if not norm_target:
+            return False
+
+        matched_btn_info = None
+        for btn_kind, btn, btn_text in clickable_buttons:
+            if _normalize_button_text(btn_text) == norm_target:
+                matched_btn_info = (btn_kind, btn, btn_text)
+                break
+        if not matched_btn_info:
             for btn_kind, btn, btn_text in clickable_buttons:
-                if _normalize_button_text(btn_text) == norm_answer:
+                norm_btn = _normalize_button_text(btn_text)
+                if norm_target.isdigit() and norm_btn.isdigit():
+                    continue
+                if (len(norm_target) >= 2 and norm_target in norm_btn) or (
+                    len(norm_btn) >= 2 and norm_btn in norm_target
+                ):
                     matched_btn_info = (btn_kind, btn, btn_text)
                     break
-            # 第二轮：宽松子串匹配兜底；双方均为纯数字时要求整串相等，
-            # 避免答案 "1" 误命中编号按钮 "10"
-            if not matched_btn_info:
-                for btn_kind, btn, btn_text in clickable_buttons:
-                    norm_btn = _normalize_button_text(btn_text)
-                    if norm_answer.isdigit() and norm_btn.isdigit():
-                        continue
-                    if (len(norm_answer) >= 2 and norm_answer in norm_btn) or (
-                        len(norm_btn) >= 2 and norm_btn in norm_answer
-                    ):
-                        matched_btn_info = (btn_kind, btn, btn_text)
-                        break
 
-            if matched_btn_info:
-                btn_kind, btn, btn_text = matched_btn_info
-                self.log(f"宽松匹配到按钮: [{btn_text}] (AI答案: {answer})")
-                if btn_kind == "inline":
-                    return await self._click_inline_button(message, btn)
-                else:
-                    kwargs = {}
-                    message_thread_id = (
-                        self._resolve_message_thread_id(message)
-                        if hasattr(self, "_resolve_message_thread_id")
-                        else None
-                    )
-                    if message_thread_id is not None:
-                        kwargs["message_thread_id"] = message_thread_id
-                    await self.send_message(message.chat.id, btn_text, **kwargs)
-                    return True
-
+        if matched_btn_info:
+            btn_kind, btn, btn_text = matched_btn_info
+            self.log(f"宽松匹配到按钮: [{btn_text}] (目标: {target})")
+            if btn_kind == "inline":
+                return await self._click_inline_button(message, btn)
+            else:
+                kwargs = {}
+                message_thread_id = (
+                    self._resolve_message_thread_id(message)
+                    if hasattr(self, "_resolve_message_thread_id")
+                    else None
+                )
+                if message_thread_id is not None:
+                    kwargs["message_thread_id"] = message_thread_id
+                await self.send_message(message.chat.id, btn_text, **kwargs)
+                if getattr(self, "context", None) is not None:
+                    try:
+                        self.context.pulseflow_side_effect_started = True
+                    except Exception:
+                        pass
+                self.pulseflow_side_effect_started = True
+                return True
         return False
+
+    async def _click_targets_sequence(
+        self,
+        targets: list[str],
+        message: Message,
+        *,
+        delay_min: float = 1.0,
+        delay_max: float = 2.0,
+    ) -> bool:
+        if not targets:
+            return False
+        current_message = message
+        for idx, target in enumerate(targets):
+            if idx > 0:
+                wait_sec = random.uniform(delay_min, delay_max)
+                self.log(
+                    f"顺序点击等待防风控间隔: {wait_sec:.2f}秒 (第 {idx + 1}/{len(targets)} 步)"
+                )
+                try:
+                    await asyncio.sleep(wait_sec)
+                except (asyncio.CancelledError, Exception) as sleep_err:
+                    if getattr(self, "context", None) is not None:
+                        try:
+                            self.context.pulseflow_side_effect_started = True
+                        except Exception:
+                            pass
+                    self.pulseflow_side_effect_started = True
+                    raise SequenceClickPartialError(
+                        f"顺序点击在等待防风控间隔时被中断（前置目标已点击），终止动作以避免重复点击: {sleep_err}"
+                    ) from sleep_err
+
+                msg_id = getattr(current_message, "id", None)
+                chat_id = getattr(getattr(current_message, "chat", None), "id", None)
+                if (
+                    msg_id
+                    and chat_id
+                    and hasattr(getattr(self, "app", None), "get_messages")
+                ):
+                    try:
+                        refreshed = await self.app.get_messages(chat_id, msg_id)
+                        if refreshed is not None:
+                            current_message = refreshed
+                    except (asyncio.CancelledError, Exception) as refresh_err:
+                        if isinstance(refresh_err, asyncio.CancelledError):
+                            if getattr(self, "context", None) is not None:
+                                try:
+                                    self.context.pulseflow_side_effect_started = True
+                                except Exception:
+                                    pass
+                            self.pulseflow_side_effect_started = True
+                            raise SequenceClickPartialError(
+                                "顺序点击在刷新消息状态时被中断（前置目标已点击），终止动作以避免重复点击"
+                            ) from refresh_err
+                        self.log(
+                            f"刷新消息状态失败，继续使用上一消息: {refresh_err}",
+                            level="DEBUG",
+                        )
+
+            try:
+                clicked = await self._click_single_target_by_text(
+                    target, current_message
+                )
+            except (asyncio.CancelledError, Exception) as click_err:
+                if idx > 0:
+                    if getattr(self, "context", None) is not None:
+                        try:
+                            self.context.pulseflow_side_effect_started = True
+                        except Exception:
+                            pass
+                    self.pulseflow_side_effect_started = True
+                    self.log(
+                        f"顺序点击在第 {idx + 1}/{len(targets)} 步抛出异常: 目标={target!r}, 错误={click_err}",
+                        level="WARNING",
+                    )
+                    raise SequenceClickPartialError(
+                        f"顺序点击在第 {idx + 1}/{len(targets)} 步异常（前置目标已点击），终止动作以避免重复点击: {click_err}"
+                    ) from click_err
+                raise
+
+            if not clicked:
+                self.log(
+                    f"顺序点击在第 {idx + 1}/{len(targets)} 步失败: 目标={target!r}",
+                    level="WARNING",
+                )
+                if idx > 0:
+                    if getattr(self, "context", None) is not None:
+                        try:
+                            self.context.pulseflow_side_effect_started = True
+                        except Exception:
+                            pass
+                    self.pulseflow_side_effect_started = True
+                    raise SequenceClickPartialError(
+                        f"顺序点击在第 {idx + 1}/{len(targets)} 步失败（前置目标已点击），终止动作以避免重复点击"
+                    )
+                return False
+
+            if getattr(self, "context", None) is not None:
+                try:
+                    self.context.pulseflow_side_effect_started = True
+                except Exception:
+                    pass
+            self.pulseflow_side_effect_started = True
+        return True
 
     def _find_previous_photo_message(
         self,
@@ -1258,6 +1379,8 @@ class SignerActionsMixin:
                         if ok:
                             return None
                 except Exception as e:
+                    if getattr(e, "non_retryable", False):
+                        raise
                     self.log(f"历史消息回退失败: {e}", level="WARNING")
 
             self.log(

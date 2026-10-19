@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 import unicodedata
 from types import SimpleNamespace
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 from tg_signer.async_utils import compute_backoff
 
@@ -221,27 +222,127 @@ def is_valid_session_string(session_string: str | None) -> bool:
 
 
 def clean_text_for_match(text: str) -> str:
-    """归一化匹配文本：NFKC + 小写 + 去标点/符号/空白/控制字符。"""
+    """归一化匹配文本：NFKC + 小写 + 去标点/空白/控制字符，保留 Emoji/符号与文字数字。"""
     if not text:
         return ""
     text = unicodedata.normalize("NFKC", str(text))
-    return "".join(
+    # 过滤掉 P (标点), Z (空白/分隔符), C (控制字符)
+    # 保留 L (字母), M (结合符号), N (数字), S (包括 So 绝大部分 Emoji/图标，以及 Sm 数学符号)
+    cleaned = "".join(
         ch
         for ch in text.lower()
-        if not unicodedata.category(ch).startswith(("P", "S", "Z", "C"))
+        if not unicodedata.category(ch).startswith(("P", "Z", "C"))
     )
+    if cleaned:
+        return cleaned
+    # 保底：若原字符串全由标点等构成（如纯 "..." 或 "!?"），则去除空白并小写后作为兜底
+    return "".join(text.split()).lower()
+
+
+_THOUSANDS_COMMA_RE = re.compile(r"^\d{1,3}(?:,\d{3})+(?:\.\d+)?$")
+
+
+def parse_click_targets(
+    raw_text: Any, available_buttons: Optional[List[str]] = None
+) -> List[str]:
+    """将文本或结构化数据解析为有序的点击目标列表。
+
+    支持：
+    1. 列表/元组直接传入：["🐸", "🦁"]
+    2. JSON 数组字符串：'["🐸", "🦁"]'
+    3. JSON 对象：{"answer": ["🐸", "🦁"]} 或 {"result": "🐸, 🦁"}
+    4. 分隔符切分（若未直接命中完整按钮）：
+       - 箭头：->、→、=>、⇒
+       - 换行：\n
+       - 逗号：,、，（千分位数字如 1,000 不拆分）
+       - 分号：;、；
+    5. 单项回退：保持原始纯文本。
+    """
+    if raw_text is None:
+        return []
+    if isinstance(raw_text, (list, tuple)):
+        return [str(item).strip() for item in raw_text if str(item).strip()]
+    if isinstance(raw_text, dict):
+        for key in (
+            "targets",
+            "options",
+            "answers",
+            "answer",
+            "result",
+            "results",
+            "buttons",
+            "button",
+        ):
+            if key in raw_text:
+                return parse_click_targets(
+                    raw_text[key], available_buttons=available_buttons
+                )
+        return []
+
+    text = str(raw_text).strip()
+    if not text:
+        return []
+
+    # 1. 优先尝试 JSON 解析（强结构化显式序列优先）
+    if (text.startswith("[") and text.endswith("]")) or (
+        text.startswith("{") and text.endswith("}")
+    ):
+        try:
+            import json
+
+            data = json.loads(text)
+            parsed = parse_click_targets(data, available_buttons=available_buttons)
+            if parsed:
+                return parsed
+        except Exception:
+            pass
+
+    # 若当前键盘中存在按现有归一化语义一致的完整按钮，优先作为单个完整按钮，不执行文本拆分
+    if available_buttons:
+        clean_target = clean_text_for_match(text)
+        if clean_target and any(
+            clean_text_for_match(btn) == clean_target for btn in available_buttons
+        ):
+            return [text]
+
+    # 2. 强序列指示符拆分（箭头、换行）
+    for arrow in ("->", "→", "=>", "⇒"):
+        if arrow in text:
+            parts = [p.strip() for p in text.split(arrow) if p.strip()]
+            if len(parts) > 1:
+                return parts
+
+    if "\n" in text:
+        parts = [p.strip() for p in text.split("\n") if p.strip()]
+        if len(parts) > 1:
+            return parts
+
+    # 3. 弱序列指示符拆分（逗号、分号）
+    # 千分位数字如 "1,000" 不拆分
+    if not _THOUSANDS_COMMA_RE.match(text):
+        for sep in (",", "，", ";", "；"):
+            if sep in text:
+                parts = [p.strip() for p in text.split(sep) if p.strip()]
+                if len(parts) > 1:
+                    return parts
+
+    return [text]
 
 
 def button_text_matches(target_text: str, button_text: str) -> bool:
-    """判定按钮文本是否命中目标文本（相等或互为子串）。"""
+    """判定按钮文本是否命中目标文本（相等或互为子串，带数字整词边界保护）。"""
     if not target_text or not button_text:
         return False
     if target_text == button_text:
         return True
-    if target_text.isdigit() and button_text.isdigit():
-        return False
+    # 数字保护：若目标为纯数字，要求在按钮文本中作为完整独立数字出现，严禁误命中更长数字（如 10 误命中 100）
+    if target_text.isdigit():
+        return bool(
+            re.search(r"(?<!\d)" + re.escape(target_text) + r"(?!\d)", button_text)
+        )
+
     if target_text in button_text:
-        return len(target_text) >= 2 or not target_text.isdigit()
+        return True
     return len(button_text) >= 2 and button_text in target_text
 
 

@@ -673,7 +673,7 @@ onMounted(() => { loadAccounts() })
       v-if="scheduleMode === 'scheduled' || listenerPushChannel === 'continue'"
       :actions="actions"
       :step-num="scheduleMode === 'listen' ? '04' : '03'"
-      :allow-custom-plugin="scheduleMode !== 'listen'"
+      :allow-custom-plugin="true"
       :adaptive-schedule-enabled="adaptiveScheduleEnabled"
       :adaptive-schedule-padding-seconds="adaptiveSchedulePaddingSeconds"
       :adaptive-schedule-patterns="adaptiveSchedulePatterns"
