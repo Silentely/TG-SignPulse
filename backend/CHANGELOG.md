@@ -2,6 +2,10 @@
 
 > 记录后端服务的主要改动。变更记录撰写规范参见 [CLAUDE.md](../CLAUDE.md)。
 
+## 2026-10-19 (v2.6.2)
+- **新增**：关键词监听与工作流引擎全面支持多目标顺序点击（Action 3 与 Action 7），多步点击之间注入拟人随机延迟并在步间刷新消息键盘状态（Issue #15）。
+- **加固**：重构 `parse_click_targets` 与 `clean_text_for_match`，修复纯 Emoji 清洗清空与单按钮保护切分；新增 `SequenceClickPartialError` 并与 PulseFlowEngine 及 SignerRunner 联动，避免部分点击成功后因超时等异常误触发非幂等重试。
+
 ## 2026-10-16 (v2.6.1)
 - **修复**：WebDAV 客户端各接口启用 `follow_redirects=True`，探测集合目录时自动补齐末尾斜杠，修复服务商重定向返回 HTTP 301 探测失败问题（Issue #14）。
 - **新增**：全局设置与 WebDAV 客户端新增 `webdav_skip_ssl_verify` 开关（默认关闭），开启时传递 `verify=False` 并放宽 SSRF 私网校验，支持内网自建 WebDAV 与自签名证书（Issue #14）。
