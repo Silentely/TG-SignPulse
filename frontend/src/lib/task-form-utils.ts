@@ -103,6 +103,15 @@ export function parseSingleAction(raw: RawTaskAction): TaskActionItem[] {
       item.reply_timeout_seconds = raw.reply_timeout_seconds
     }
   }
+  if (raw.semantic_result) {
+    item.semantic_result = { ...raw.semantic_result }
+  }
+  if (raw.semantic_button) {
+    item.semantic_button = { ...raw.semantic_button }
+  }
+  if (raw.semantic_triage) {
+    item.semantic_triage = { ...raw.semantic_triage }
+  }
   items.push(item)
   return items
 }
@@ -191,6 +200,15 @@ export function buildSingleAction(
     if (action.reply_timeout_seconds !== undefined) {
       result.reply_timeout_seconds = Number(action.reply_timeout_seconds)
     }
+  }
+  if (action.semantic_result) {
+    result.semantic_result = { ...action.semantic_result }
+  }
+  if (action.semantic_button) {
+    result.semantic_button = { ...action.semantic_button }
+  }
+  if (action.semantic_triage) {
+    result.semantic_triage = { ...action.semantic_triage }
   }
   return result
 }

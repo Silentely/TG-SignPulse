@@ -1235,7 +1235,13 @@ class AIConfigMixin:
         try:
             from openai import AsyncOpenAI
 
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            from tg_signer.version import get_user_agent
+
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                default_headers={"User-Agent": get_user_agent("SettingsTest")},
+            )
 
             # 发送测试请求，自适应兼容新模型（如 gpt-5 / o 系列废弃 max_tokens 改用 max_completion_tokens）
             token_key = (

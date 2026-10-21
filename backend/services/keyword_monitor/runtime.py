@@ -49,6 +49,7 @@ from backend.utils.tg_session import (
 )
 from backend.utils.time import utc_now_iso_z_seconds, utc_now_naive
 from tg_signer.compat import (
+    EditedMessageHandler,
     Message,
     MessageHandler,
     call_with_retry,
@@ -1038,11 +1039,21 @@ class KeywordMonitorService:
                             filters.chat(chat_ids) & (filters.text | filters.caption),
                         )
                     )
+                    edited_handler_ref = client.add_handler(
+                        EditedMessageHandler(
+                            handler,
+                            filters.chat(chat_ids) & (filters.text | filters.caption),
+                        )
+                    )
                     try:
                         await client.__aenter__()
                     except Exception:
                         try:
                             client.remove_handler(*handler_ref)
+                        except Exception:
+                            pass
+                        try:
+                            client.remove_handler(*edited_handler_ref)
                         except Exception:
                             pass
                         try:
@@ -1064,7 +1075,9 @@ class KeywordMonitorService:
                             )
                         continue
 
-                    self._handler_refs.append((account_name, client, handler_ref))
+                    self._handler_refs.append(
+                        (account_name, client, [handler_ref, edited_handler_ref])
+                    )
                     started_accounts.add(account_name)
                     logger.info(
                         "关键词监听已启动 account=%s chats=%s", account_name, chat_ids
@@ -1085,13 +1098,15 @@ class KeywordMonitorService:
                 "关键词后台监听已停止",
                 active=False,
             )
-        for account_name, client, handler_ref in self._handler_refs:
+        for account_name, client, refs in self._handler_refs:
             lock = get_account_lock(account_name)
             async with lock:
-                try:
-                    client.remove_handler(*handler_ref)
-                except Exception:
-                    pass
+                ref_list = refs if isinstance(refs, list) else [refs]
+                for href in ref_list:
+                    try:
+                        client.remove_handler(*href)
+                    except Exception:
+                        pass
                 try:
                     await client.__aexit__(None, None, None)
                 except Exception:

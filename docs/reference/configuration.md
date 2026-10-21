@@ -28,6 +28,7 @@
 | `APP_ACCESS_TOKEN_EXPIRE_HOURS` | `12` | | JWT Token 过期时间（小时） |
 | `APP_TOTP_VALID_WINDOW` | `1` | | 面板 2FA 时间窗口容差（0=仅当前30s） |
 | `ENABLE_API_DOCS` | `false` | | 启用 Swagger UI 与 OpenAPI 规范端点（`/docs`、`/redoc`、`/openapi.json`）；默认关闭以加固生产安全 |
+| `WEB_CONCURRENCY` | `1` | | Web Worker 进程数。TG-SignPulse 采用单写进程原子文件模型，生产环境请务必保持为 `1` |
 
 ### 时区管理
 

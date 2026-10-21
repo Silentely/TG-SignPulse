@@ -1446,5 +1446,19 @@
     "errorsTitle": "Validation Errors",
     "warningsTitle": "Validation Warnings",
     "diagramPreview": "Mermaid Diagram"
+  },
+  "ruleSuggestions": {
+    "title": "Jev Smart Rule Suggestions",
+    "empty": "No pending adaptive rule suggestions",
+    "refresh": "Refresh",
+    "errorConflict": "Task configuration was modified externally. This suggestion is now obsolete. Please re-evaluate or refresh.",
+    "loadFailed": "Failed to load rule suggestions",
+    "applyFailed": "Failed to apply suggestion",
+    "dismissFailed": "Failed to dismiss suggestion",
+    "confidence": "Confidence",
+    "currentConfig": "Current Config (Old)",
+    "suggestedValue": "Suggested Value (New)",
+    "dismiss": "Dismiss",
+    "apply": "Accept & Update"
   }
 }

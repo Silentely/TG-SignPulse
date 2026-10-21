@@ -105,6 +105,9 @@ export interface TaskActionItem {
   reply_success_patterns?: string[];
   reply_failure_patterns?: string[];
   reply_timeout_seconds?: number;
+  semantic_result?: Record<string, any>;
+  semantic_button?: Record<string, any>;
+  semantic_triage?: Record<string, any>;
 }
 
 // 后端原始 action 结构
@@ -139,6 +142,9 @@ export interface RawTaskAction {
   reply_success_patterns?: string[];
   reply_failure_patterns?: string[];
   reply_timeout_seconds?: number;
+  semantic_result?: Record<string, any>;
+  semantic_button?: Record<string, any>;
+  semantic_triage?: Record<string, any>;
 }
 
 // 构建 API 请求体时的中间类型
@@ -173,6 +179,9 @@ export interface BuiltAction {
   reply_success_patterns?: string[];
   reply_failure_patterns?: string[];
   reply_timeout_seconds?: number;
+  semantic_result?: Record<string, any>;
+  semantic_button?: Record<string, any>;
+  semantic_triage?: Record<string, any>;
 }
 
 // ─── API 错误类型 ───

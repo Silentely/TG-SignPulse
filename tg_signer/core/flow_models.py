@@ -201,6 +201,7 @@ class WaitEventNode(BaseFlowNode):
     filter_patterns: List[str] = Field(default_factory=list)
     success_patterns: List[str] = Field(default_factory=list)
     failure_patterns: List[str] = Field(default_factory=list)
+    semantic_result: Optional[Dict[str, Any]] = None
 
     @validator(
         "filter_patterns", "success_patterns", "failure_patterns", each_item=True

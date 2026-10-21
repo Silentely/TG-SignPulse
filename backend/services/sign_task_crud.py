@@ -302,6 +302,109 @@ class SignTaskCrudMixin:
     def is_wildcard_removed(self, account_name: str, task_name: str) -> bool:
         return False
 
+    def resolve_task_config_path(self, *, account_name: str, task_name: str) -> Path:
+        """安全解析并归属校验任务的真实 config.json 路径"""
+        validate_storage_name(task_name, field_name="任务名")
+        task_dir = self._resolve_task_dir(task_name, account_name)
+        return task_dir / "config.json"
+
+    def toggle_task_enabled(
+        self, *, account_name: str, task_name: str
+    ) -> dict[str, Any]:
+        """原子翻转任务启用状态并使调度与缓存生效"""
+        config_path = self.resolve_task_config_path(
+            account_name=account_name, task_name=task_name
+        )
+        from backend.services.task_config_io import update_task_config
+
+        def _transform(current: dict[str, Any]) -> dict[str, Any]:
+            cur_enabled = current.get("enabled", True)
+            current["enabled"] = not cur_enabled
+            return current
+
+        def _validate(cfg: dict[str, Any]) -> None:
+            _validate_chats_workflow(
+                cfg.get("chats", []), task_engine=cfg.get("execution_engine")
+            )
+            _validate_chats_regex_safety(cfg.get("chats"))
+
+        updated = update_task_config(config_path, _transform, validate=_validate)
+        self.invalidate_tasks_cache(account_name=account_name)
+
+        try:
+            from backend.services.sign_task_crud_helpers import resolve_schedule_plan
+
+            schedule_plan = resolve_schedule_plan(
+                sign_at=updated.get("sign_at", ""),
+                enabled=updated.get("enabled", True),
+                execution_mode=updated.get("execution_mode", "fixed"),
+                range_start=updated.get("range_start", ""),
+                range_end=updated.get("range_end", ""),
+            )
+            from backend.scheduler import (
+                add_or_update_sign_task_job,
+                remove_sign_task_job,
+            )
+
+            if schedule_plan["should_schedule"]:
+                add_or_update_sign_task_job(
+                    account_name,
+                    task_name,
+                    schedule_plan["trigger_cron"],
+                    enabled=updated.get("enabled", True),
+                    jitter=updated.get("jitter_seconds", 0),
+                )
+            else:
+                remove_sign_task_job(account_name, task_name)
+        except Exception as exc:
+            _logger.warning("任务 %s 状态翻转后调度更新失败: %s", task_name, exc)
+
+        if hasattr(self, "get_task") and callable(self.get_task):
+            task_info = self.get_task(task_name, account_name=account_name)
+            if task_info:
+                return task_info
+
+        return {**updated, "name": task_name, "account_name": account_name}
+
+    def apply_semantic_patch(
+        self,
+        *,
+        account_name: str,
+        task_name: str,
+        expected_revision: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        """在单写事务与 revision 强校验下应用规则建议补丁"""
+        config_path = self.resolve_task_config_path(
+            account_name=account_name, task_name=task_name
+        )
+        from backend.services.semantic.suggestions import apply_checked_patch
+        from backend.services.task_config_io import update_task_config
+
+        def _transform(current: dict[str, Any]) -> dict[str, Any]:
+            return apply_checked_patch(current, patch)
+
+        def _validate(cfg: dict[str, Any]) -> None:
+            _validate_chats_workflow(
+                cfg.get("chats") or [],
+                task_engine=cfg.get("execution_engine"),
+            )
+
+        updated = update_task_config(
+            config_path,
+            _transform,
+            validate=_validate,
+            expected_revision=expected_revision,
+        )
+        self.invalidate_tasks_cache(account_name=account_name)
+
+        if hasattr(self, "get_task") and callable(self.get_task):
+            task_info = self.get_task(task_name, account_name=account_name)
+            if task_info:
+                return task_info
+
+        return {**updated, "name": task_name, "account_name": account_name}
+
     def create_task(
         self,
         task_name: str,

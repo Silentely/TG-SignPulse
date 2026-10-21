@@ -12,6 +12,7 @@ import logging
 import os
 import random
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Union
 
@@ -210,202 +211,11 @@ class SignerRunnerMixin:
         )
         if engine_code == ENGINE_V4:
             self.log(f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})")
-            from tg_signer.core.flow_context import ScopedFlowContext
-            from tg_signer.core.flow_engine import PulseFlowEngine
-            from tg_signer.core.flow_models import ExecutionGraph
-
-            def _reset_v4_legacy_context() -> None:
-                # v4 使用独立 ScopedFlowContext；清理旧 runner context，避免跨 chat
-                # 或跨重试的 last_output/step_outputs/终态标记被兼容适配器误读。
-                if chat.chat_id in self.context.chat_messages:
-                    self.context.chat_messages[chat.chat_id].clear()
-                else:
-                    self.context.chat_messages[chat.chat_id] = {}
-                self.context.step_outputs = {}
-                self.context.last_output = ""
-                self.context.last_received_text = ""
-                self.context.stop_after_current_action = False
-                self.context.stop_reason = None
-                self.context.last_callback_answer = None
-
-            auto_fallback_env = os.getenv("PULSEFLOW_AUTO_FALLBACK", "").strip().lower()
-            # 平滑降级判定：
-            # 1. 显式开启 PULSEFLOW_AUTO_FALLBACK=1/true/yes；
-            # 2. 或当 engine_source 非 task 显式指定（灰度 canary、系统 settings、环境变量 env、默认 default 切流）且未显式关闭降级时自动开启降级保护。
-            allow_fallback = auto_fallback_env in {"1", "true", "yes", "on"} or (
-                engine_source in {"canary", "settings", "env", "default", "override"}
-                and auto_fallback_env not in {"0", "false", "no", "off"}
-            )
-            self.context.pulseflow_side_effect_started = False
-
-            graph = None
-            try:
-                graph = ExecutionGraph.compile(chat)
-            except Exception as norm_err:
-                if allow_fallback and not getattr(
-                    self.context, "pulseflow_side_effect_started", False
-                ):
-                    self.log(
-                        f"⚠️ PulseFlow 图构建失败 ({norm_err})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
-                        level="WARNING",
-                    )
-                    self.context.pulseflow_fallback_occurred = True
-                    self.context.pulseflow_fallback_reason = str(norm_err)
-                    _reset_v4_legacy_context()
-                else:
-                    raise
-
-            if graph is not None:
-                max_flow_attempts = max(
-                    1,
-                    int(
-                        task_retry_count_var.get()
-                        or read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
-                    ),
-                )
-                from tg_signer.core.flow_event_bus import TelegramEventBus
-
-                bus = TelegramEventBus()
-                self._event_bus = bus
-                engine = PulseFlowEngine(event_bus=bus)
-                last_error: Optional[Exception] = None
-                flow_succeeded = False
-
-                for flow_attempt in range(1, max_flow_attempts + 1):
-                    _reset_v4_legacy_context()
-                    ctx = ScopedFlowContext(
-                        account={"name": getattr(self, "_account", "")}
-                    )
-                    ctx.system["log"] = self.log
-                    ctx.system["chat_id"] = chat.chat_id
-                    if chat.message_thread_id is not None:
-                        ctx.system["message_thread_id"] = chat.message_thread_id
-                    flow_executed_path = []
-
-                    executor = _CutoverNodeExecutor(
-                        self, chat, graph, executed_path=flow_executed_path
-                    )
-                    try:
-                        flow_res = await engine.run(graph, ctx, executor, event_bus=bus)
-                        if flow_res.get("status") == "success":
-                            dur = flow_res.get("duration_ms", 0.0)
-                            steps = flow_res.get("steps", 0)
-                            self.log(
-                                f"PulseFlow (v4) 执行成功：共推进 {steps} 个节点，耗时 {dur:.1f}ms"
-                            )
-                            # 回填上下文与执行结果，确保下游通知、历史日志与进度状态无缝衔接
-                            if ctx.last_output:
-                                self.context.last_output = ctx.last_output
-                                self.context.last_received_text = ctx.last_output
-                            if not isinstance(
-                                getattr(self.context, "step_outputs", None), dict
-                            ):
-                                self.context.step_outputs = {}
-                            for idx, (node_id, outcome) in enumerate(
-                                ctx.step_outcomes.items(), start=1
-                            ):
-                                out_text = outcome.output_text or ""
-                                out_dict = {"output": out_text}
-                                self.context.step_outputs[node_id] = out_dict
-                                self.context.step_outputs[idx] = out_dict
-                                self.context.step_outputs[str(idx)] = out_dict
-                            flow_path = flow_res.get("path")
-                            if flow_path:
-                                self.context.workflow_path = list(flow_path)
-                            elif flow_executed_path:
-                                self.context.workflow_path = list(flow_executed_path)
-                            self.context.workflow_steps = steps or len(
-                                flow_executed_path
-                            )
-                            self.context.flow_trace = flow_res.get("trace")
-                            self.context.flow_metrics = flow_res.get("metrics")
-                            flow_succeeded = True
-                            if getattr(self, "_event_bus", None) is bus:
-                                self._event_bus = None
-                            return True
-                        flow_path = flow_res.get("path")
-                        if flow_path:
-                            self.context.workflow_path = list(flow_path)
-                        elif flow_executed_path:
-                            self.context.workflow_path = list(flow_executed_path)
-                        if flow_res.get("steps"):
-                            self.context.workflow_steps = flow_res.get("steps")
-                        elif flow_executed_path:
-                            self.context.workflow_steps = len(flow_executed_path)
-                        if ctx.last_output:
-                            self.context.last_output = ctx.last_output
-                            err_str = str(flow_res.get("error") or "")
-                            if (
-                                "等待期间未收到机器人的任何回复消息" not in err_str
-                                and "未收到机器人的任何回复" not in err_str
-                            ):
-                                self.context.last_received_text = ctx.last_output
-                            else:
-                                self.context.last_received_text = ""
-                        err_detail = (
-                            flow_res.get("error")
-                            or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
-                        )
-                        last_error = RuntimeError(
-                            f"PulseFlow 执行失败（工作流节点执行失败）: {err_detail}"
-                        )
-                    except Exception as exc:
-                        last_error = exc
-                        if flow_executed_path:
-                            self.context.workflow_path = list(flow_executed_path)
-                            self.context.workflow_steps = len(flow_executed_path)
-                    if flow_attempt < max_flow_attempts:
-                        if getattr(
-                            self.context, "pulseflow_side_effect_started", False
-                        ):
-                            self.log(
-                                "PulseFlow 已产生外部副作用（消息/按钮等），跳过整流程重试以避免重复执行",
-                                level="ERROR",
-                            )
-                            break
-                        self.log(
-                            f"PulseFlow 第 {flow_attempt}/{max_flow_attempts} 次执行失败，准备重试: {last_error}",
-                            level="WARNING",
-                        )
-
-                if getattr(self, "_event_bus", None) is bus:
-                    self._event_bus = None
-
-                if not flow_succeeded:
-                    if allow_fallback and not getattr(
-                        self.context, "pulseflow_side_effect_started", False
-                    ):
-                        self.log(
-                            f"⚠️ PulseFlow (v4) 执行未成功 ({last_error})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
-                            level="WARNING",
-                        )
-                        self.context.pulseflow_fallback_occurred = True
-                        self.context.pulseflow_fallback_reason = str(last_error)
-                        _reset_v4_legacy_context()
-                    else:
-                        if getattr(
-                            self.context, "pulseflow_side_effect_started", False
-                        ):
-                            self.log(
-                                "PulseFlow 已产生外部副作用，禁止自动回退 Classic，避免重复执行",
-                                level="ERROR",
-                            )
-                        if last_error is not None:
-                            from tg_signer.core.flow_models import (
-                                FlowLoopLimitExceededError,
-                            )
-                            from tg_signer.core.workflow_engine import (
-                                WorkflowLoopExceededError,
-                            )
-
-                            if isinstance(last_error, FlowLoopLimitExceededError):
-                                raise WorkflowLoopExceededError(
-                                    str(last_error)
-                                ) from last_error
-                            raise last_error
-                        raise RuntimeError(
-                            "PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果"
-                        )
+            flow_ok = await self._run_pulseflow_chat(chat, engine_source=engine_source)
+            if flow_ok or not getattr(
+                self.context, "pulseflow_fallback_occurred", False
+            ):
+                return flow_ok
 
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。
@@ -1224,3 +1034,247 @@ class SignerRunnerMixin:
 
     async def on_edited_message(self, client, message: Message):
         await self._on_message(client, message, is_edit=True)
+
+    async def _run_pulseflow_chat(
+        self, chat: SignChatV3, engine_source: str = "auto"
+    ) -> bool:
+        from tg_signer.core.flow_context import ScopedFlowContext
+        from tg_signer.core.flow_engine import PulseFlowEngine
+        from tg_signer.core.flow_models import ExecutionGraph
+        from tg_signer.core.flow_routing import task_requires_semantic
+
+        has_semantic = task_requires_semantic(chat)
+
+        def _reset_v4_legacy_context() -> None:
+            if chat.chat_id in self.context.chat_messages:
+                self.context.chat_messages[chat.chat_id].clear()
+            else:
+                self.context.chat_messages[chat.chat_id] = {}
+            self.context.step_outputs = {}
+            self.context.last_output = ""
+            self.context.last_received_text = ""
+            self.context.stop_after_current_action = False
+            self.context.stop_reason = None
+            self.context.last_callback_answer = None
+
+        auto_fallback_env = os.getenv("PULSEFLOW_AUTO_FALLBACK", "").strip().lower()
+        allow_fallback = auto_fallback_env in {"1", "true", "yes", "on"} or (
+            engine_source
+            in {"canary", "settings", "env", "default", "override", "auto"}
+            and engine_source != "task"
+            and auto_fallback_env not in {"0", "false", "no", "off"}
+        )
+        if has_semantic:
+            allow_fallback = False
+
+        self.context.pulseflow_side_effect_started = False
+
+        graph = None
+        try:
+            graph = ExecutionGraph.compile(chat)
+        except Exception as norm_err:
+            if (
+                allow_fallback
+                and not has_semantic
+                and not getattr(self.context, "pulseflow_side_effect_started", False)
+            ):
+                self.log(
+                    f"⚠️ PulseFlow 图构建失败 ({norm_err})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
+                    level="WARNING",
+                )
+                self.context.pulseflow_fallback_occurred = True
+                self.context.pulseflow_fallback_reason = str(norm_err)
+                _reset_v4_legacy_context()
+                return False
+            else:
+                raise
+
+        if graph is not None:
+            max_flow_attempts = max(
+                1,
+                int(
+                    task_retry_count_var.get()
+                    or read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 1, 1)
+                ),
+            )
+            from tg_signer.core.flow_event_bus import TelegramEventBus
+
+            bus = TelegramEventBus()
+            self._event_bus = bus
+            engine = PulseFlowEngine(event_bus=bus)
+            last_error: Optional[Exception] = None
+            flow_succeeded = False
+
+            for flow_attempt in range(1, max_flow_attempts + 1):
+                _reset_v4_legacy_context()
+                ctx = ScopedFlowContext(account={"name": getattr(self, "_account", "")})
+                ctx.system["log"] = self.log
+                ctx.system["chat_id"] = chat.chat_id
+                if chat.message_thread_id is not None:
+                    ctx.system["message_thread_id"] = chat.message_thread_id
+                task_cfg = getattr(self, "task_config", None)
+                if task_cfg:
+                    from tg_signer.semantic.models import config_revision
+
+                    cfg_d = (
+                        task_cfg.to_dict()
+                        if hasattr(task_cfg, "to_dict")
+                        else (task_cfg.dict() if hasattr(task_cfg, "dict") else {})
+                    )
+                    ctx.system["config_revision"] = (
+                        config_revision(cfg_d) if cfg_d else ""
+                    )
+                    ctx.system["task_name"] = getattr(task_cfg, "name", "")
+                else:
+                    ctx.system["config_revision"] = ""
+                    ctx.system["task_name"] = getattr(chat, "name", "")
+                ctx.system["run_id"] = (
+                    getattr(self.context, "run_id", "")
+                    or f"run_{int(time.time() * 1000)}"
+                )
+                flow_executed_path = []
+
+                executor = _CutoverNodeExecutor(
+                    self, chat, graph, executed_path=flow_executed_path
+                )
+                try:
+                    flow_res = await engine.run(graph, ctx, executor, event_bus=bus)
+                    if flow_res.get("status") == "success":
+                        dur = flow_res.get("duration_ms", 0.0)
+                        steps = flow_res.get("steps", 0)
+                        self.log(
+                            f"PulseFlow (v4) 执行成功：共推进 {steps} 个节点，耗时 {dur:.1f}ms"
+                        )
+                        if ctx.last_output:
+                            self.context.last_output = ctx.last_output
+                            self.context.last_received_text = ctx.last_output
+                        if not isinstance(
+                            getattr(self.context, "step_outputs", None), dict
+                        ):
+                            self.context.step_outputs = {}
+                        for idx, (node_id, outcome) in enumerate(
+                            ctx.step_outcomes.items(), start=1
+                        ):
+                            out_text = outcome.output_text or ""
+                            out_dict = {"output": out_text}
+                            self.context.step_outputs[node_id] = out_dict
+                            self.context.step_outputs[idx] = out_dict
+                            self.context.step_outputs[str(idx)] = out_dict
+                        flow_path = flow_res.get("path")
+                        if flow_path:
+                            self.context.workflow_path = list(flow_path)
+                        elif flow_executed_path:
+                            self.context.workflow_path = list(flow_executed_path)
+                        self.context.workflow_steps = steps or len(flow_executed_path)
+                        self.context.flow_trace = flow_res.get("trace")
+                        self.context.flow_metrics = flow_res.get("metrics")
+                        flow_succeeded = True
+                        if getattr(self, "_event_bus", None) is bus:
+                            self._event_bus = None
+                        return True
+                    flow_path = flow_res.get("path")
+                    if flow_path:
+                        self.context.workflow_path = list(flow_path)
+                    elif flow_executed_path:
+                        self.context.workflow_path = list(flow_executed_path)
+                    if flow_res.get("steps"):
+                        self.context.workflow_steps = flow_res.get("steps")
+                    elif flow_executed_path:
+                        self.context.workflow_steps = len(flow_executed_path)
+                    if ctx.last_output:
+                        self.context.last_output = ctx.last_output
+                        err_str = str(flow_res.get("error") or "")
+                        if (
+                            "等待期间未收到机器人的任何回复消息" not in err_str
+                            and "未收到机器人的任何回复" not in err_str
+                        ):
+                            self.context.last_received_text = ctx.last_output
+                        else:
+                            self.context.last_received_text = ""
+                    err_detail = (
+                        flow_res.get("error")
+                        or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
+                    )
+                    failure_code = flow_res.get("failure_code")
+                    is_non_retryable = flow_res.get("non_retryable", False)
+                    if failure_code == "semantic_review_required":
+                        from tg_signer.semantic.models import SemanticReviewRequired
+
+                        last_error = SemanticReviewRequired(err_detail)
+                    elif failure_code == "semantic_stop_requested":
+                        from tg_signer.semantic.models import SemanticStopRequested
+
+                        last_error = SemanticStopRequested(err_detail)
+                    else:
+                        last_error = RuntimeError(
+                            f"PulseFlow 执行失败（工作流节点执行失败）: {err_detail}"
+                        )
+                        if is_non_retryable:
+                            last_error.non_retryable = True
+
+                    if is_non_retryable or getattr(last_error, "non_retryable", False):
+                        break
+                except Exception as exc:
+                    last_error = exc
+                    if flow_executed_path:
+                        self.context.workflow_path = list(flow_executed_path)
+                        self.context.workflow_steps = len(flow_executed_path)
+                    if getattr(last_error, "non_retryable", False):
+                        break
+
+                if flow_attempt < max_flow_attempts:
+                    if getattr(last_error, "non_retryable", False) or getattr(
+                        self.context, "pulseflow_side_effect_started", False
+                    ):
+                        self.log(
+                            "PulseFlow 触发不可重试条件或已产生外部副作用，跳过整流程重试以避免重复执行",
+                            level="ERROR",
+                        )
+                        break
+                    self.log(
+                        f"PulseFlow 第 {flow_attempt}/{max_flow_attempts} 次执行失败，准备重试: {last_error}",
+                        level="WARNING",
+                    )
+
+            if getattr(self, "_event_bus", None) is bus:
+                self._event_bus = None
+
+            if not flow_succeeded:
+                if (
+                    allow_fallback
+                    and not has_semantic
+                    and not getattr(
+                        self.context, "pulseflow_side_effect_started", False
+                    )
+                ):
+                    self.log(
+                        f"⚠️ PulseFlow (v4) 执行未成功 ({last_error})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
+                        level="WARNING",
+                    )
+                    self.context.pulseflow_fallback_occurred = True
+                    self.context.pulseflow_fallback_reason = str(last_error)
+                    _reset_v4_legacy_context()
+                    return False
+                else:
+                    if getattr(self.context, "pulseflow_side_effect_started", False):
+                        self.log(
+                            "PulseFlow 已产生外部副作用，禁止自动回退 Classic，避免重复执行",
+                            level="ERROR",
+                        )
+                    if last_error is not None:
+                        from tg_signer.core.flow_models import (
+                            FlowLoopLimitExceededError,
+                        )
+                        from tg_signer.core.workflow_engine import (
+                            WorkflowLoopExceededError,
+                        )
+
+                        if isinstance(last_error, FlowLoopLimitExceededError):
+                            raise WorkflowLoopExceededError(
+                                str(last_error)
+                            ) from last_error
+                        raise last_error
+                    raise RuntimeError(
+                        "PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果"
+                    )
+        return False

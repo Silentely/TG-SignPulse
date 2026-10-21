@@ -64,10 +64,59 @@ def canary_hash_bucket(key: str, total_buckets: int = 100) -> int:
     return crc % max(1, total_buckets)
 
 
-def _chat_requires_flow_engine(c: Any) -> bool:
-    """检测单会话是否包含图结构或新控制节点 FlowStepConfig。"""
+def task_requires_semantic(c: Any) -> bool:
+    """检测任务或会话是否启用了任何语义策略 (semantic_result / semantic_button / semantic_triage)。"""
     if c is None:
         return False
+    if isinstance(c, dict) and "chats" in c:
+        chats = c.get("chats") or []
+        return any(task_requires_semantic(item) for item in chats)
+    elif getattr(c, "chats", None) is not None:
+        return any(task_requires_semantic(item) for item in getattr(c, "chats", []))
+
+    def _has_sem(obj: Any) -> bool:
+        if obj is None:
+            return False
+        if isinstance(obj, dict):
+            for k in ("semantic_result", "semantic_button", "semantic_triage"):
+                v = obj.get(k)
+                if isinstance(v, dict) and v.get("mode") in {"observe", "assist"}:
+                    return True
+                elif getattr(v, "mode", None) in {"observe", "assist"}:
+                    return True
+            return False
+        for k in ("semantic_result", "semantic_button", "semantic_triage"):
+            v = getattr(obj, k, None)
+            if isinstance(v, dict) and v.get("mode") in {"observe", "assist"}:
+                return True
+            elif getattr(v, "mode", None) in {"observe", "assist"}:
+                return True
+        return False
+
+    if _has_sem(c):
+        return True
+
+    steps = c.get("steps") if isinstance(c, dict) else getattr(c, "steps", None)
+    if steps:
+        for s in steps:
+            if _has_sem(s):
+                return True
+
+    actions = c.get("actions") if isinstance(c, dict) else getattr(c, "actions", None)
+    if actions:
+        for a in actions:
+            if _has_sem(a):
+                return True
+
+    return False
+
+
+def _chat_requires_flow_engine(c: Any) -> bool:
+    """检测单会话是否包含图结构或新控制节点 FlowStepConfig 或语义自动化策略。"""
+    if c is None:
+        return False
+    if task_requires_semantic(c):
+        return True
     if isinstance(c, dict):
         fg = c.get("flow_graph")
         if fg is not None and bool(fg):

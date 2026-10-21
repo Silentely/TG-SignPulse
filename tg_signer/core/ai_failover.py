@@ -55,12 +55,17 @@ class AIProviderManager:
     async def _call_single_provider(
         self, provider: ProviderConfig, payload: Dict[str, Any], timeout: float
     ) -> Dict[str, Any]:
+        from tg_signer.version import get_user_agent
+
         headers = {
             "Authorization": f"Bearer {provider.api_key}",
             "Content-Type": "application/json",
+            "User-Agent": get_user_agent("AIFailover"),
         }
         url = f"{provider.base_url.rstrip('/')}/chat/completions"
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout, headers={"User-Agent": get_user_agent("AIFailover")}
+        ) as client:
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code in {401, 403}:
                 raise AIProviderConfigError(

@@ -1446,5 +1446,19 @@
     "errorsTitle": "拓扑校验错误",
     "warningsTitle": "拓扑校验告警",
     "diagramPreview": "Mermaid 拓扑表示"
+  },
+  "ruleSuggestions": {
+    "title": "Jev 智能规则维护建议",
+    "empty": "当前无待处理的规则自适应建议",
+    "refresh": "刷新",
+    "errorConflict": "任务配置在外部被修改，该规则建议已失效，请重新评估或刷新。",
+    "loadFailed": "加载规则建议失败",
+    "applyFailed": "应用建议失败",
+    "dismissFailed": "忽略建议失败",
+    "confidence": "置信度",
+    "currentConfig": "当前配置 (Old)",
+    "suggestedValue": "建议值 (New)",
+    "dismiss": "忽略",
+    "apply": "采纳并更新"
   }
 }

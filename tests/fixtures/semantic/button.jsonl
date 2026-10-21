@@ -1,0 +1,5 @@
+{"id": "btn_1", "accepted": true, "selected": "b0_0", "expected": "b0_0", "is_stale": false}
+{"id": "btn_2", "accepted": true, "selected": "b0_1", "expected": "b0_1", "is_stale": false}
+{"id": "btn_3", "accepted": true, "selected": "none", "expected": "none", "is_stale": false}
+{"id": "btn_4", "accepted": false, "selected": "unknown", "expected": "none", "is_stale": false}
+{"id": "btn_5", "accepted": true, "selected": "none", "expected": "none", "is_stale": true}

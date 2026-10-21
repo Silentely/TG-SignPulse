@@ -26,6 +26,8 @@ class FailureCategory(str, Enum):
     TIMEOUT = "timeout"
     STRONG_FAILURE = "strong_failure"
     TASK_LOOP_EXCEEDED = "task_loop_exceeded"
+    SEMANTIC_REVIEW_REQUIRED = "semantic_review_required"
+    SEMANTIC_STOP_REQUESTED = "semantic_stop_requested"
     UNKNOWN = "unknown"
 
 
@@ -60,6 +62,19 @@ _SUCCESS_MARKERS = (
 )
 
 _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
+    (
+        FailureCategory.SEMANTIC_REVIEW_REQUIRED,
+        (
+            "semantic_review_required",
+            "semantic review required",
+            "需人工介入复核",
+            "人工复核",
+        ),
+    ),
+    (
+        FailureCategory.SEMANTIC_STOP_REQUESTED,
+        ("semantic_stop_requested", "semantic stop requested", "语义分流终止"),
+    ),
     (
         FailureCategory.SESSION_INVALID,
         (

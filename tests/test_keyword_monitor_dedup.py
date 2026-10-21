@@ -240,7 +240,8 @@ async def test_sync_cleans_up_client_on_aenter_failure(tmp_path: Path, monkeypat
 
     await service.restart_from_tasks()
     assert "acc" in closed_accounts
-    mock_client.remove_handler.assert_called_once_with("handler_obj", 0)
+    assert mock_client.remove_handler.call_count == 2
+    mock_client.remove_handler.assert_called_with("handler_obj", 0)
 
 
 @pytest.mark.asyncio

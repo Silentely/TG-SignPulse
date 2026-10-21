@@ -763,6 +763,22 @@ async def _runner_handle_error(
         e
     ).__name__ in ("WorkflowLoopExceededError", "FlowLoopLimitExceededError"):
         _set_ctx(state, "failure_category", FailureCategory.TASK_LOOP_EXCEEDED.value)
+    if (
+        getattr(e, "failure_code", None) == "semantic_review_required"
+        or type(e).__name__ == "SemanticReviewRequired"
+    ):
+        _set_ctx(
+            state, "failure_category", FailureCategory.SEMANTIC_REVIEW_REQUIRED.value
+        )
+        _set_ctx(state, "failure_code", "semantic_review_required")
+    elif (
+        getattr(e, "failure_code", None) == "semantic_stop_requested"
+        or type(e).__name__ == "SemanticStopRequested"
+    ):
+        _set_ctx(
+            state, "failure_category", FailureCategory.SEMANTIC_STOP_REQUESTED.value
+        )
+        _set_ctx(state, "failure_code", "semantic_stop_requested")
     if state.get("account_invalid_detected") or svc._is_invalid_session_error(e):
         _set_ctx(state, "account_invalid_detected", True)
         invalid_message = (

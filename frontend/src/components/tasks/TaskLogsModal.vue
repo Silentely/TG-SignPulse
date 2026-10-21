@@ -4,6 +4,7 @@ import { Download, RefreshCw, Loader2 } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import TaskLogsHitsPanel from './TaskLogsHitsPanel.vue'
 import TaskLogsHistoryPanel from './TaskLogsHistoryPanel.vue'
+import TaskRuleSuggestionsPanel from './TaskRuleSuggestionsPanel.vue'
 import VirtualLogViewer from '../common/VirtualLogViewer.vue'
 import { getSignTaskHistory } from '../../lib/api'
 import { getAuthToken } from '../../lib/api/core'
@@ -283,6 +284,12 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
     </template>
 
     <div class="px-1 min-h-[400px] max-h-[60vh] overflow-y-auto flex flex-col">
+      <TaskRuleSuggestionsPanel
+        v-if="props.task?.name"
+        :account-name="getTaskAccountName(props.task)"
+        :task-name="props.task?.name"
+        class="mb-3"
+      />
       <!-- 监听任务：历史 / 命中 Tab -->
       <div v-if="isListenTask" class="mb-3 flex flex-wrap items-center gap-1 border-b border-[var(--sp-border)] dark:border-[var(--sp-border)] pb-2" role="tablist">
         <button

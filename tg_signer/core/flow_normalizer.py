@@ -270,6 +270,11 @@ class GraphNormalizer:
                 except (ValueError, TypeError):
                     reply_timeout = 120.0
 
+                sem_res = (
+                    getattr(act, "semantic_result", None)
+                    if not isinstance(act, dict)
+                    else act.get("semantic_result")
+                )
                 wait_node = WaitEventNode(
                     id=wait_node_id,
                     name="等待机器人回复",
@@ -279,6 +284,7 @@ class GraphNormalizer:
                     timeout_seconds=reply_timeout,
                     next_node_id=next_action_id,
                     on_failure_node_id=TERMINAL_FAIL_ID,
+                    semantic_result=sem_res,
                     metadata={
                         "chat_id": chat.chat_id,
                         "chat_name": getattr(chat, "name", None),
@@ -544,6 +550,7 @@ class GraphNormalizer:
                 filter_patterns=list(getattr(step, "filter_patterns", []) or []),
                 success_patterns=list(getattr(step, "success_patterns", []) or []),
                 failure_patterns=list(getattr(step, "failure_patterns", []) or []),
+                semantic_result=getattr(step, "semantic_result", None),
                 **common_kwargs,
             )
 

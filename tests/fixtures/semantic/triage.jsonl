@@ -1,0 +1,5 @@
+{"id": "tri_1", "accepted": true, "selected": "stop", "expected": "stop", "hard_failure": false, "disposition": "stop", "retried_due_to_semantic": false}
+{"id": "tri_2", "accepted": true, "selected": "review", "expected": "review", "hard_failure": false, "disposition": "review", "retried_due_to_semantic": false}
+{"id": "tri_3", "accepted": true, "selected": "retryable", "expected": "retryable", "hard_failure": false, "disposition": "unchanged", "retried_due_to_semantic": false}
+{"id": "tri_4", "accepted": true, "selected": "stop", "expected": "stop", "hard_failure": true, "disposition": "unchanged", "retried_due_to_semantic": false}
+{"id": "tri_5", "accepted": false, "selected": "unknown", "expected": "unknown", "hard_failure": false, "disposition": "unchanged", "retried_due_to_semantic": false}

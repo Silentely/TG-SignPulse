@@ -208,6 +208,9 @@ class SignAction(BaseModel):
     reply_success_patterns: List[str] = Field(default_factory=list)
     reply_failure_patterns: List[str] = Field(default_factory=list)
     reply_timeout_seconds: float = 120.0
+    semantic_result: Optional[Dict[str, Any]] = None
+    semantic_triage: Optional[Dict[str, Any]] = None
+    semantic_button: Optional[Dict[str, Any]] = None
 
     @validator("reply_success_patterns", "reply_failure_patterns", each_item=True)
     def _validate_reply_patterns(cls, v: str) -> str:
@@ -381,6 +384,7 @@ class FlowStepConfig(BaseModel):
     filter_patterns: List[str] = Field(default_factory=list)
     success_patterns: List[str] = Field(default_factory=list)
     failure_patterns: List[str] = Field(default_factory=list)
+    semantic_result: Optional[Dict[str, Any]] = None
 
     @validator(
         "filter_patterns", "success_patterns", "failure_patterns", each_item=True

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import json
 import logging
 import random
 import re
@@ -636,3 +638,34 @@ def _message_has_terminal_success_text(message: Message) -> bool:
         "completed",
     )
     return any(marker in text for marker in success_markers)
+
+
+def message_edit_revision(message: Any) -> str:
+    """生成 EditedMessage 的确定性指纹 SHA-256，具备稀疏字段容错。"""
+    text = getattr(message, "text", None)
+    if text is None:
+        text = getattr(message, "caption", None) or ""
+    sender = getattr(message, "from_user", None)
+    sender_id = getattr(sender, "id", None) if sender else None
+    if sender_id is None:
+        sender_id = getattr(message, "sender_id", None) or "unknown"
+
+    ts = getattr(message, "edit_date", None) or getattr(message, "date", None) or 0
+    topic = getattr(message, "message_thread_id", None) or 0
+
+    raw = f"{sender_id}:{topic}:{ts}:{text}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def monitor_rule_revision(rule: Any) -> str:
+    """生成规则策略的确定性指纹。"""
+    action = getattr(rule, "action", {}) if hasattr(rule, "action") else {}
+    sem_monitor = action.get("semantic_monitor") or {}
+    data = {
+        "chat_id": getattr(rule, "chat_id", 0),
+        "mode": sem_monitor.get("mode", "off"),
+        "source": sem_monitor.get("source", ""),
+        "intent": sem_monitor.get("intent", ""),
+    }
+    raw = json.dumps(data, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()

@@ -165,6 +165,102 @@ class SignerActionsMixin:
                         if before_click:
                             await before_click()
                         return await self._click_inline_button(message, btn), True
+                # 精确规则未命中，若配置了 semantic_button 则尝试语义回退
+                sem_btn = getattr(action, "semantic_button", None)
+                if (
+                    sem_btn
+                    and isinstance(sem_btn, dict)
+                    and sem_btn.get("mode") == "assist"
+                ):
+                    try:
+                        import time
+
+                        from tg_signer.semantic.buttons import (
+                            build_button_snapshot,
+                            resolve_button,
+                        )
+                        from tg_signer.semantic.models import (
+                            DecisionRequest,
+                            config_revision,
+                        )
+                        from tg_signer.semantic.policy import accept_decision
+                        from tg_signer.semantic.runtime_port import (
+                            get_registered_semantic_runtime,
+                        )
+
+                        snapshot = build_button_snapshot(message)
+                        if snapshot.candidates:
+                            choices = {c.ref: c.text for c in snapshot.candidates}
+                            choices["none"] = "没有符合的按钮"
+                            goal = sem_btn.get("goal", action.text)
+                            task_cfg = getattr(self, "task_config", None)
+                            cfg_rev = ""
+                            if task_cfg:
+                                cfg_d = (
+                                    task_cfg.to_dict()
+                                    if hasattr(task_cfg, "to_dict")
+                                    else (
+                                        task_cfg.dict()
+                                        if hasattr(task_cfg, "dict")
+                                        else {}
+                                    )
+                                )
+                                cfg_rev = config_revision(cfg_d) if cfg_d else ""
+                            account_name = getattr(self, "_account", "")
+                            task_name = (
+                                getattr(task_cfg, "name", "") if task_cfg else ""
+                            )
+                            s_key = f"{account_name}:{task_name}:{message.chat.id}:{message.id}"
+                            req = DecisionRequest(
+                                kind="button",
+                                scope=s_key,
+                                state={"goal": goal, "target": action.text},
+                                choices=choices,
+                                instructions=f"请选出最符合业务目标的按钮: {goal}",
+                                request_key=f"btn:{message.chat.id}:{message.id}",
+                                config_revision=cfg_rev,
+                            )
+                            runtime = get_registered_semantic_runtime()
+                            if runtime and runtime.service:
+                                run_id = getattr(
+                                    getattr(self, "context", None), "run_id", ""
+                                )
+                                decision = await runtime.service.evaluate(
+                                    req, deadline=time.monotonic() + 10.0, run_id=run_id
+                                )
+                                runtime.record_observation(
+                                    req,
+                                    decision,
+                                    rule_result="unmatched",
+                                    run_id=run_id,
+                                )
+                                min_prob = float(sem_btn.get("min_probability", 0.98))
+                                min_marg = float(sem_btn.get("min_margin", 0.30))
+                                if accept_decision(
+                                    decision,
+                                    min_probability=min_prob,
+                                    min_margin=min_marg,
+                                    abstain=frozenset({"none", "unknown"}),
+                                ):
+                                    target_btn = resolve_button(
+                                        snapshot, message, decision.selected
+                                    )
+                                    if target_btn is not None:
+                                        self.log(
+                                            f"[AI 语义选择按钮] 选中按钮: [{target_btn.text}] (目标: {goal})"
+                                        )
+                                        if before_click:
+                                            await before_click()
+                                        return await self._click_inline_button(
+                                            message, target_btn
+                                        ), True
+                                    else:
+                                        self.log(
+                                            "[AI 语义选择按钮] 按钮快照二次校验未通过，放弃点击",
+                                            level="WARNING",
+                                        )
+                    except Exception as e:
+                        self.log(f"AI 语义选择按钮失败: {e}", level="WARNING")
                 if log_not_found:
                     self.log(
                         f"Target button '{action.text}' not found in inline keyboard.",

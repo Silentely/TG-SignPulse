@@ -11,6 +11,7 @@ from backend.api.routes import (
     logs,
     ops,
     plugins,
+    semantic,
     sign_tasks_v2,
     user,
 )
@@ -31,3 +32,4 @@ router.include_router(
 )
 router.include_router(plugins.router, prefix="/plugins", tags=["plugins"])
 router.include_router(data_dict.router, prefix="/data-dict", tags=["data-dict"])
+router.include_router(semantic.router)

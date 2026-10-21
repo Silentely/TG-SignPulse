@@ -151,6 +151,9 @@ class PulseFlowEngine:
         consecutive_failures = 0
         run_start = time.perf_counter()
         last_failure_error: Optional[str] = None
+        last_failure_code: Optional[str] = None
+        last_non_retryable: bool = False
+        last_semantic_disposition: Optional[str] = None
 
         try:
             while current_id and current_id not in {
@@ -342,6 +345,38 @@ class PulseFlowEngine:
 
                 ctx.record_step_outcome(outcome)
 
+                # 检查受控终止 (SemanticReviewRequired / SemanticStopRequested / non_retryable)
+                err = outcome.error
+                is_controlled = False
+                if err is not None:
+                    f_code = getattr(err, "failure_code", None)
+                    s_disp = getattr(err, "semantic_disposition", None)
+                    nr = getattr(err, "non_retryable", False)
+                    if f_code or s_disp or nr:
+                        last_failure_code = f_code
+                        last_semantic_disposition = s_disp
+                        last_non_retryable = nr or True
+                        is_controlled = True
+                if outcome.details and isinstance(outcome.details, dict):
+                    s_disp = outcome.details.get("semantic_disposition")
+                    if s_disp in {"review", "stop"}:
+                        last_semantic_disposition = s_disp
+                        last_non_retryable = True
+                        if s_disp == "review":
+                            last_failure_code = "semantic_review_required"
+                        elif s_disp == "stop":
+                            last_failure_code = "semantic_stop_requested"
+                        is_controlled = True
+
+                if is_controlled:
+                    current_id = TERMINAL_FAIL_ID
+                    last_failure_error = (
+                        outcome.output_text
+                        or (str(outcome.error) if outcome.error else None)
+                        or f"Node {node.id} controlled termination: {last_failure_code or last_semantic_disposition}"
+                    )
+                    break
+
                 # 统计连续失败与熔断检测
                 if outcome.status in {NodeStatus.SUCCESS, NodeStatus.TERMINAL_EARLY}:
                     consecutive_failures = 0
@@ -452,6 +487,9 @@ class PulseFlowEngine:
                     f"Workflow failed at node {current_id or 'unknown'}"
                 )
             res["error"] = _redact_trace_text(last_failure_error)
+            res["failure_code"] = last_failure_code
+            res["non_retryable"] = last_non_retryable
+            res["semantic_disposition"] = last_semantic_disposition
         return res
 
     @staticmethod
@@ -995,10 +1033,60 @@ class PulseFlowEngine:
                     "event_type": event.event_type,
                 }
 
+                def _trigger_observe_if_configured(rule_res: str, ev=event, t=text):
+                    sem_res = getattr(node, "semantic_result", None)
+                    if not sem_res or not isinstance(sem_res, dict):
+                        return
+                    if sem_res.get("mode") != "observe":
+                        return
+                    goal = sem_res.get("goal", "")
+                    try:
+                        from tg_signer.semantic.models import DecisionRequest
+                        from tg_signer.semantic.runtime_port import (
+                            get_registered_semantic_runtime,
+                        )
+
+                        runtime = get_registered_semantic_runtime()
+                        if not runtime:
+                            return
+                        account_name = (
+                            getattr(ctx, "account", {}).get("name", "")
+                            if hasattr(ctx, "account")
+                            else ""
+                        )
+                        task_name = ctx.system.get("task_name", "")
+                        config_rev = ctx.system.get("config_revision", "")
+                        s_key = f"{account_name}:{task_name}:{ev.chat_id}:{node.id}"
+                        req = DecisionRequest(
+                            kind="result",
+                            scope=s_key,
+                            state={"text": t, "goal": goal},
+                            choices={
+                                "success": "成功",
+                                "already_done": "已完成",
+                                "needs_action": "需要操作",
+                                "failure": "失败",
+                                "unknown": "未知",
+                            },
+                            instructions=f"判断回复是否达成目标：{goal}",
+                            request_key=f"{s_key}:{ev.message_id}",
+                            config_revision=config_rev,
+                        )
+                        deadline = time.monotonic() + 10.0
+                        runtime.enqueue_observation(
+                            req,
+                            rule_result=rule_res,
+                            run_id=ctx.system.get("run_id", ""),
+                            deadline=deadline,
+                        )
+                    except Exception:
+                        pass
+
                 # 7. failure_patterns 优先判定（防止误命中成功导致假阳性）
                 if getattr(node, "failure_patterns", None):
                     for pattern in node.failure_patterns:
                         if self._compile_regex(pattern).search(text):
+                            _trigger_observe_if_configured("failure")
                             _log_msg(f"收到机器人回复：\n{text}")
                             _log_msg(f"命中失败规则：\n{pattern}", level="WARNING")
                             _log_msg("机器人明确返回失败结果", level="WARNING")
@@ -1020,6 +1108,7 @@ class PulseFlowEngine:
                 if success_rules:
                     for pattern in success_rules:
                         if self._compile_regex(pattern).search(text):
+                            _trigger_observe_if_configured("success")
                             _log_msg(f"收到机器人回复：\n{text}")
                             _log_msg(f"命中成功规则：\n{pattern}")
                             _log_msg("机器人已确认签到成功")
@@ -1032,7 +1121,99 @@ class PulseFlowEngine:
                                 details=details,
                             )
                     # 未命中任何成功规则，记录到未匹配列表并回显日志
+                    _trigger_observe_if_configured("unmatched")
                     unmatched_replies.append(text)
+
+                    # 若配置了 assist 模式，执行语义辅助结果判定
+                    sem_res = getattr(node, "semantic_result", None)
+                    if isinstance(sem_res, dict) and sem_res.get("mode") == "assist":
+                        try:
+                            from tg_signer.semantic.models import (
+                                DecisionRequest,
+                                ResultPolicy,
+                            )
+                            from tg_signer.semantic.policy import result_disposition
+                            from tg_signer.semantic.runtime_port import (
+                                get_registered_semantic_runtime,
+                            )
+
+                            runtime = get_registered_semantic_runtime()
+                            if runtime and runtime.service:
+                                account_name = (
+                                    getattr(ctx, "account", {}).get("name", "")
+                                    if hasattr(ctx, "account")
+                                    else ""
+                                )
+                                task_name = ctx.system.get("task_name", "")
+                                config_rev = ctx.system.get("config_revision", "")
+                                s_key = f"{account_name}:{task_name}:{event.chat_id}:{node.id}"
+                                goal = sem_res.get("goal", "")
+                                req = DecisionRequest(
+                                    kind="result",
+                                    scope=s_key,
+                                    state={"text": text, "goal": goal},
+                                    choices={
+                                        "success": "成功",
+                                        "already_done": "已完成",
+                                        "needs_action": "需要操作",
+                                        "failure": "失败",
+                                        "unknown": "未知",
+                                    },
+                                    instructions=f"判断回复是否达成目标：{goal}",
+                                    request_key=f"{s_key}:{event.message_id}",
+                                    config_revision=config_rev,
+                                )
+                                pol = ResultPolicy(
+                                    mode="assist",
+                                    goal=goal,
+                                    min_probability=float(
+                                        sem_res.get("min_probability", 0.97)
+                                    ),
+                                    min_margin=float(sem_res.get("min_margin", 0.25)),
+                                )
+                                eval_deadline = min(deadline, time.monotonic() + 10.0)
+                                decision = await runtime.service.evaluate(
+                                    req,
+                                    deadline=eval_deadline,
+                                    run_id=ctx.system.get("run_id", ""),
+                                )
+                                runtime.record_observation(
+                                    req,
+                                    decision,
+                                    rule_result="unmatched",
+                                    run_id=ctx.system.get("run_id", ""),
+                                )
+                                disp = result_disposition(
+                                    decision=decision,
+                                    policy=pol,
+                                    rule_result="unmatched",
+                                )
+                            if disp == "success":
+                                _log_msg(
+                                    f"步骤 [{node.id}] 语义辅助判断确认签到成功: {decision.selected}",
+                                    level="INFO",
+                                )
+                                return StepOutcome(
+                                    node_id=node.id,
+                                    status=NodeStatus.SUCCESS,
+                                    output_text=text,
+                                    updates_last_output=True,
+                                    details=details,
+                                )
+                            elif disp == "failure":
+                                _log_msg(
+                                    f"步骤 [{node.id}] 语义辅助判断确认任务失败: {decision.selected}",
+                                    level="WARNING",
+                                )
+                                return StepOutcome(
+                                    node_id=node.id,
+                                    status=NodeStatus.FAILED,
+                                    output_text=text,
+                                    updates_last_output=True,
+                                    details=details,
+                                )
+                        except Exception as sem_err:
+                            _log_msg(f"语义辅助判断异常: {sem_err}", level="WARNING")
                     preview = " ".join(text.strip().split())[:100]
                     _log_msg(
                         f"收到机器人回复（但未匹配成功规则）：{preview}",

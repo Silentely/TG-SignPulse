@@ -588,11 +588,9 @@ def toggle_sign_task_enabled(
                 fallback=str(existing.get("account_name") or ""),
             )
 
-        current_enabled = bool(existing.get("enabled", True))
-        task = get_sign_task_service().update_task(
+        task = get_sign_task_service().toggle_task_enabled(
+            account_name=resolved_account,
             task_name=task_name,
-            account_name=resolved_account or None,
-            enabled=not current_enabled,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应

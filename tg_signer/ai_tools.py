@@ -427,6 +427,11 @@ def get_openai_client(
         "timeout",
         Timeout(connect=5.0, read=_read_timeout, write=10.0, pool=2.0),
     )
+    from tg_signer.version import get_user_agent
+
+    default_headers = dict(kwargs.pop("default_headers", None) or {})
+    default_headers.setdefault("User-Agent", get_user_agent("OpenAI"))
+    kwargs["default_headers"] = default_headers
     try:
         return AsyncOpenAI(api_key=api_key, base_url=base_url, **kwargs)
     except OpenAIError:
