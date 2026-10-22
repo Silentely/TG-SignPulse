@@ -94,7 +94,12 @@ async def test_connection(
     cfg = store.load()
     payload = body or {}
     req_base_url = payload.get("base_url") or cfg.base_url
-    req_api_key = payload.get("api_key")
+    raw_api_key = payload.get("api_key")
+    req_api_key = (
+        raw_api_key.strip()
+        if isinstance(raw_api_key, str) and raw_api_key.strip()
+        else None
+    )
 
     # 1. 目标 URL SSRF 检查
     is_valid, ssrf_err = validate_ssrf_and_host(req_base_url)

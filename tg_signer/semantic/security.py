@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import ipaddress
 import json
 import os
@@ -95,18 +96,28 @@ def redact_sensitive_text(text: str, key: str | None = None) -> str:
     """脱敏字符串中的密钥、Token 与认证凭据，绝不泄露 key。
 
     覆盖场景：
-    - 精确传入的 key
+    - 精确传入的 key 及其 Base64 / URL-Safe Base64 变体
     - Bearer tokens 与 sk-* 密钥
-    - {"password": "..."}、{"api_key": "..."} 等 JSON / Dict 格式
-    - apiKey: "..." 驼峰格式
+    - {"password": "..."}、{\"password\": \"...\"} 等 JSON / Dict 格式（支持转义引号）
+    - apiKey: "..."、password: hunter2 等冒号/等号赋值格式（支持无引号）
     - secret=opaque 等 query / assignment 格式
     """
     if not text:
         return ""
     result = text
-    # 精确匹配传入的 api_key
+    # 精确匹配传入的 api_key 及其 Base64 / URL-Safe 变体
     if key and len(key.strip()) >= 4:
-        result = result.replace(key.strip(), "[REDACTED]")
+        clean_k = key.strip()
+        result = result.replace(clean_k, "[REDACTED]")
+        try:
+            b64_k = base64.b64encode(clean_k.encode()).decode()
+            if b64_k in result:
+                result = result.replace(b64_k, "[REDACTED]")
+            url_b64_k = base64.urlsafe_b64encode(clean_k.encode()).decode().rstrip("=")
+            if url_b64_k and url_b64_k in result:
+                result = result.replace(url_b64_k, "[REDACTED]")
+        except Exception:
+            pass
 
     # Bearer tokens 脱敏
     result = re.sub(
@@ -118,16 +129,23 @@ def redact_sensitive_text(text: str, key: str | None = None) -> str:
     # sk- 前缀密钥脱敏
     result = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[REDACTED]", result)
 
-    # JSON/Dict 结构脱敏：{"password": "secret", "api_key": "secret"}
+    # JSON/Dict 结构脱敏：支持普通引号与转义引号 ({\"password\": \"secret\"})
+    def _redact_quoted(match: re.Match) -> str:
+        prefix = match.group(1)
+        val = match.group(2)
+        m_quote = re.match(r'^(?:\\*["\'])', val)
+        quote = m_quote.group(0) if m_quote else '"'
+        return f"{prefix}{quote}[REDACTED]{quote}"
+
     result = re.sub(
-        r'(?i)(["\']?(?:api[_-]?key|apiKey|password|passwd|token|secret|access[_-]?token|accessToken|client[_-]?secret|clientSecret)["\']?\s*[:=]\s*)(["\'][^"\']+["\'])',
-        r'\1"[REDACTED]"',
+        r'(?i)((?:\\*["\'])?(?:api[_-]?key|apiKey|password|passwd|token|secret|access[_-]?token|accessToken|client[_-]?secret|clientSecret)(?:\\*["\'])?\s*[:=]\s*)((?:\\*["\'])[^"\'\\]*(?:\\*["\']))',
+        _redact_quoted,
         result,
     )
 
-    # 赋值结构脱敏：secret=opaque_value 或 api_key=secret_123
+    # 赋值结构脱敏（支持 = 与 :，支持无引号值如 password: hunter2 或 secret=opaque）
     result = re.sub(
-        r'(?i)(\b(?:api[_-]?key|apiKey|password|passwd|token|secret|access[_-]?token)\s*=\s*)([^\s"\',;{}]+)',
+        r'(?i)(\b(?:api[_-]?key|apiKey|password|passwd|token|secret|access[_-]?token|accessToken|client[_-]?secret|clientSecret)\s*[:=]\s*)([^\s"\'\\,;{}]+)',
         r'\1[REDACTED]',
         result,
     )
@@ -171,7 +189,7 @@ def truncate_state_if_needed(
 
 
 def sanitize_request(request: DecisionRequest) -> DecisionRequest:
-    """对 DecisionRequest 进行超长截断与安全性标记。
+    """对 DecisionRequest 进行超长截断与安全性标注。
 
     若超长则截断并标注 truncated=True。
     """

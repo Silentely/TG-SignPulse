@@ -30,7 +30,7 @@ def normalize_base_url(url: str | None) -> str:
     """规范化 JEV Base URL：
     - 统一去除首尾空格与尾部斜杠
     - 若误填完整路径（如带 /systemone），剥离 /systemone
-    - 统一规范为包含 /v1 结尾（如 https://api.example.com -> https://api.example.com/v1）
+    - 统一规范化为包含 /v1 结尾（如 https://api.example.com -> https://api.example.com/v1）
     """
     if not url:
         return "https://api.typesafe.ai/v1"
@@ -158,24 +158,18 @@ class JevClient:
             await self._client.aclose()
 
     def _extract_error_message(self, resp: httpx.Response) -> str:
-        msg = ""
         try:
-            data = resp.json()
-            if isinstance(data, dict):
-                err = data.get("error")
-                if isinstance(err, dict):
-                    msg = str(err.get("message") or err.get("type") or err)
-                elif err:
-                    msg = str(err)
-                elif data.get("detail"):
-                    msg = str(data["detail"])
-                elif data.get("message"):
-                    msg = str(data["message"])
+            err_json = resp.json()
+            if isinstance(err_json, dict):
+                error_obj = err_json.get("error")
+                if isinstance(error_obj, dict) and "message" in error_obj:
+                    msg = str(error_obj["message"])
+                else:
+                    msg = str(err_json.get("message") or err_json.get("detail") or "")
+                return redact_sensitive_text(msg, self.api_key)
         except Exception:
-            msg = resp.text[:200].strip()
-        if not msg:
-            msg = resp.text[:200].strip()
-        return redact_sensitive_text(msg, self.api_key)
+            pass
+        return redact_sensitive_text(resp.text[:300], self.api_key)
 
     @staticmethod
     def _calculate_backoff(attempt_idx: int) -> float:
@@ -262,7 +256,23 @@ class JevClient:
         sanitized_req = sanitize_request(request)
         is_truncated = bool(sanitized_req.truncated)
 
-        # 4. 熔断判定与探测租约获取（永不静默放行）
+        # 4. 预算预检：在 acquire() 之前核查 deadline，避免注定超时的请求消耗半开探针
+        if time.monotonic() >= budget_deadline:
+            self.metrics.failed_calls += 1
+            elapsed_ms = (time.monotonic() - start_t) * 1000.0
+            decision = Decision(
+                status="budget_exceeded",
+                reason_code="DEADLINE_EXCEEDED",
+                elapsed_ms=elapsed_ms,
+                attempts=0,
+                breaker=self.breaker.get_state(),
+                truncated=is_truncated,
+                error_message="Total budget exceeded before request",
+            )
+            self._log_structured(decision)
+            return decision
+
+        # 5. 熔断判定与探测租约获取（永不静默放行）
         lease = self.breaker.acquire()
         breaker_state = self.breaker.get_state()
         if not lease.allowed:
@@ -283,24 +293,7 @@ class JevClient:
             return decision
 
         try:
-            # 预算硬检查：在缓存与网络处理前首先核查 deadline
-            if time.monotonic() >= budget_deadline:
-                lease.record_failure()
-                self.metrics.failed_calls += 1
-                elapsed_ms = (time.monotonic() - start_t) * 1000.0
-                decision = Decision(
-                    status="budget_exceeded",
-                    reason_code="DEADLINE_EXCEEDED",
-                    elapsed_ms=elapsed_ms,
-                    attempts=0,
-                    breaker=self.breaker.get_state(),
-                    truncated=is_truncated,
-                    error_message="Total budget exceeded before request",
-                )
-                self._log_structured(decision)
-                return decision
-
-            # 5. 缓存查询（含密钥/敏感路径或已截断请求不进缓存）
+            # 6. 缓存查询（含密钥/敏感路径或已截断请求不进缓存）
             is_sensitive = is_sensitive_request(sanitized_req)
             cache_key = compute_cache_key(
                 sanitized_req, model=self.model, base_url=self.base_url
@@ -308,9 +301,8 @@ class JevClient:
             if not is_sensitive and not is_truncated:
                 cached = self.cache.get(cache_key)
                 if cached is not None:
-                    # 缓存成功出口：必须在预算检查之后（若已超预算绝不返回 ok）
+                    # 缓存成功出口：必须在预算检查之后（若已超预算绝不返回 ok，本地超时不记上游失败）
                     if time.monotonic() >= budget_deadline:
-                        lease.record_failure()
                         self.metrics.failed_calls += 1
                         elapsed_ms = (time.monotonic() - start_t) * 1000.0
                         decision = Decision(
@@ -340,7 +332,7 @@ class JevClient:
                     return decision
                 self.metrics.cache_misses += 1
 
-            # 6. 构造请求 Payload
+            # 7. 构造请求 Payload
             if isinstance(sanitized_req.choices, dict):
                 criteria = dict(sanitized_req.choices)
             elif isinstance(sanitized_req.choices, list):
@@ -373,7 +365,7 @@ class JevClient:
                 else self.base_url
             )
 
-            # 7. 带分类重试的执行循环（最多 2 次重试，总共最多 3 次尝试），用 asyncio.wait_for 整体包住
+            # 8. 带分类重试的执行循环（最多 2 次重试，总共最多 3 次尝试），用 asyncio.wait_for 整体包住
             last_attempt_idx = 0
 
             async def _execute_with_retries() -> Decision:
@@ -518,6 +510,22 @@ class JevClient:
                             self._log_structured(decision)
                             return decision
 
+                        if not isinstance(data, dict):
+                            lease.record_failure()
+                            self.metrics.failed_calls += 1
+                            decision = Decision(
+                                status="invalid",
+                                reason_code="MALFORMED_JSON",
+                                elapsed_ms=elapsed_ms,
+                                http_status=200,
+                                attempts=attempt_idx + 1,
+                                breaker=self.breaker.get_state(),
+                                truncated=is_truncated,
+                                error_message=f"Response root must be a JSON object, got {type(data).__name__}",
+                            )
+                            self._log_structured(decision)
+                            return decision
+
                         raw_answers = data.get("answers")
                         first_ans: dict[str, Any] | None = None
                         if isinstance(raw_answers, dict):
@@ -621,10 +629,11 @@ class JevClient:
                             http_status=200,
                             attempts=attempt_idx + 1,
                             breaker=self.breaker.get_state(),
-                            cache_hit=False,
                             truncated=is_truncated,
                         )
-                        if selected != "unknown" and not is_sensitive and not is_truncated:
+
+                        # 写缓存（仅在未截断且非敏感且 selected 有效时）
+                        if not is_sensitive and not is_truncated and selected != "unknown":
                             self.cache.set(cache_key, decision)
 
                         self._log_structured(decision)
@@ -664,7 +673,7 @@ class JevClient:
             try:
                 return await asyncio.wait_for(_execute_with_retries(), timeout=remaining_overall)
             except (asyncio.TimeoutError, TimeoutError):
-                lease.record_failure()
+                # 本地预算超限不记上游失败、不推进 generation
                 self.metrics.failed_calls += 1
                 elapsed_ms = (time.monotonic() - start_t) * 1000.0
                 decision = Decision(
@@ -678,6 +687,24 @@ class JevClient:
                 )
                 self._log_structured(decision)
                 return decision
+        except asyncio.CancelledError:
+            self.metrics.failed_calls += 1
+            raise
+        except Exception as exc:
+            self.metrics.failed_calls += 1
+            lease.record_failure()
+            elapsed_ms = (time.monotonic() - start_t) * 1000.0
+            decision = Decision(
+                status="invalid",
+                reason_code=f"EXCEPTION_{type(exc).__name__}",
+                elapsed_ms=elapsed_ms,
+                attempts=0,
+                breaker=self.breaker.get_state(),
+                truncated=is_truncated,
+                error_message=redact_sensitive_text(f"{type(exc).__name__}: {exc}", self.api_key),
+            )
+            self._log_structured(decision)
+            return decision
         finally:
             # 保证在任何情况下（成功、失败、CancelledError、早退）释放试水探测位
             lease.release()

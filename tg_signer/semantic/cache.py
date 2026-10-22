@@ -14,14 +14,25 @@ from typing import Any
 from tg_signer.semantic.models import Decision, DecisionRequest
 
 # 敏感词模式匹配（含密钥/密码/认证Token/敏感系统路径，支持蛇形与驼峰）
+# 注意：避免使用 bare word (如 token|secret|auth|bearer) 将 "secret santa"、"token economy"、"auth service is down" 误判为敏感。
+# 对通用单词，要求匹配赋值/字段名形态（如 token=、"api_key":、Authorization: 等）。
 SENSITIVE_PATTERNS = [
+    # 明确且不可混淆的凭据类型关键字（蛇形与驼峰）
     re.compile(
         r"(?i)\b(api[_-]?key|apiKey|access[_-]?token|accessToken|client[_-]?secret|clientSecret|"
         r"secret[_-]?key|secretKey|auth[_-]?token|authToken|refresh[_-]?token|refreshToken|"
-        r"token|secret|auth|bearer|password|passwd|credentials|private[_-]?key|privateKey|id_rsa|id_ed25519)\b"
+        r"private[_-]?key|privateKey|id_rsa|id_ed25519)\b"
     ),
+    # 赋值形态与字段名形态匹配：token=, password: hunter2, "token": 等
+    re.compile(
+        r"(?i)\b(?:token|secret|auth|bearer|password|passwd|credentials)\s*[:=]\s*\S+"
+    ),
+    re.compile(
+        r"""(?i)["']?(?:api[_-]?key|apiKey|token|secret|auth|bearer|password|passwd|credentials)["']?\s*[:=]"""
+    ),
+    re.compile(r"(?i)\bauthorization\s*:\s*\S+"),
+    re.compile(r"(?i)\bbearer\s+[a-zA-Z0-9_\-\.]{6,}"),
     re.compile(r"(\.env|\.jev_config\.json|/etc/shadow|/etc/passwd|/proc/|~?/\.ssh)"),
-    re.compile(r"(?i)bearer\s+[a-zA-Z0-9_\-\.]{6,}"),
     re.compile(r"sk-[a-zA-Z0-9_\-]{8,}"),
 ]
 
@@ -116,7 +127,7 @@ def is_sensitive_value(val: Any) -> bool:
             except Exception:
                 pass
 
-        # 3. Base64 解码检查（逐 token 扫描可能编码的 Base64 串）
+        # 3. Base64 解码检查（逐 token 扫描可能编码的 Base64 串，支持 URL-safe 变体）
         tokens = _TOKEN_SPLIT_RE.split(val)
         for tok in tokens:
             cleaned_b64 = tok.strip()
@@ -124,7 +135,8 @@ def is_sensitive_value(val: Any) -> bool:
                 try:
                     pad_len = (4 - len(cleaned_b64) % 4) % 4
                     padded = cleaned_b64 + ("=" * pad_len)
-                    decoded_bytes = base64.b64decode(padded, validate=False)
+                    normalized_b64 = padded.replace("-", "+").replace("_", "/")
+                    decoded_bytes = base64.b64decode(normalized_b64, validate=False)
                     decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
                     if len(decoded_str) >= 4 and _check_text_sensitive(decoded_str):
                         return True

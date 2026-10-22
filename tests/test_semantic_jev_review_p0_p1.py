@@ -13,7 +13,7 @@ from tg_signer.semantic.cache import (
     is_sensitive_request,
 )
 from tg_signer.semantic.client import JevClient
-from tg_signer.semantic.models import DecisionRequest
+from tg_signer.semantic.models import Decision, DecisionRequest
 from tg_signer.semantic.security import redact_sensitive_text, validate_ssrf_and_host
 
 
@@ -777,3 +777,316 @@ async def test_route_test_connection_rejects_custom_base_url_without_explicit_ke
     assert exc_info.value.status_code == 400
     assert "UNTRUSTED_HOST" in exc_info.value.detail
     assert "requires explicit api_key" in exc_info.value.detail
+
+
+# -------------------------------------------------------------------------
+# Round 4 fixes & Mutation Sensitive Tests
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_route_test_connection_rejects_whitespace_key_as_untrusted_host(tmp_path):
+    """P0-1: api_key=" " 不能绕过保护，必须当作未提供，自定义 base_url 时必须 400 UNTRUSTED_HOST"""
+    from fastapi import HTTPException
+
+    from backend.api.routes.semantic import test_connection
+    from backend.services.semantic.config import JevConfigStore
+
+    store = JevConfigStore(tmp_path)
+    store.save_patch({"base_url": "https://api.typesafe.ai/v1", "api_key": "saved_secret_key"})
+
+    # 空白 api_key + 自定义 base_url -> 必须 400 UNTRUSTED_HOST
+    with pytest.raises(HTTPException) as exc_info:
+        await test_connection(
+            body={"base_url": "https://attacker-host.com/v1", "api_key": "   "},
+            store=store,
+            _=None,
+        )
+    assert exc_info.value.status_code == 400
+    assert "UNTRUSTED_HOST" in exc_info.value.detail
+
+    # 空字符串 api_key + 自定义 base_url -> 同样必须 400 UNTRUSTED_HOST
+    with pytest.raises(HTTPException) as exc_info2:
+        await test_connection(
+            body={"base_url": "https://attacker-host.com/v1", "api_key": ""},
+            store=store,
+            _=None,
+        )
+    assert exc_info2.value.status_code == 400
+    assert "UNTRUSTED_HOST" in exc_info2.value.detail
+
+
+@pytest.mark.asyncio
+async def test_budget_timeout_does_not_record_upstream_failure_or_advance_generation(monkeypatch):
+    """P1-2: 本地预算超限不记上游失败、不推进 generation"""
+    cb = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
+    cb.state = "half_open"
+    cb.generation = 1
+    cb.consecutive_failures = 0
+
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        total_budget=0.03,
+        breaker=cb,
+    )
+
+    async def fake_hanging_post(self, url, json=None, headers=None, timeout=None):
+        await asyncio.sleep(0.1)
+        return httpx.Response(200, json={}, request=httpx.Request("POST", str(url)))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_hanging_post)
+
+    dec = await client.query_choice(_make_req())
+    await client.close()
+
+    assert dec.status == "budget_exceeded"
+    assert dec.reason_code == "DEADLINE_EXCEEDED"
+    # 本地超时不记上游失败，不推进代次
+    assert cb.generation == 1
+    assert cb.consecutive_failures == 0
+    # 试水探针位已在 finally 中安全释放，状态依然为 half_open 且 probe_in_flight 为 False
+    assert cb.get_state() == "half_open"
+    assert cb._probe_in_flight is False
+
+
+@pytest.mark.asyncio
+async def test_budget_precheck_before_acquire_preserves_half_open_probe():
+    """P1-3: 预算预检在 acquire() 之前，注定超时的请求不消耗半开探针"""
+    cb = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
+    cb.state = "half_open"
+    cb.generation = 1
+    cb._probe_in_flight = False
+
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        breaker=cb,
+    )
+
+    # 传入已经过期的绝对 deadline
+    past_deadline = time.monotonic() - 1.0
+    dec = await client.query_choice(_make_req(), deadline=past_deadline)
+    await client.close()
+
+    assert dec.status == "budget_exceeded"
+    assert dec.reason_code == "DEADLINE_EXCEEDED"
+    # 探针没有被消耗，probe_in_flight 依然为 False
+    assert cb._probe_in_flight is False
+    assert cb.get_state() == "half_open"
+
+
+@pytest.mark.asyncio
+async def test_cache_bidirectional_secret_santa_cacheable_and_token_assignment_bypassed(monkeypatch):
+    """P1-4: 双向用例：secret santa/token economy/auth service is down 必须可缓存；token=abc 必须旁路"""
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        cache=cache,
+    )
+
+    async def fake_ok_post(self, url, json=None, headers=None, timeout=None):
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "pong", "confidence": 0.99}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_ok_post)
+
+    # 1. 正常业务短语：不应被误判敏感，必须进缓存且命中
+    for phrase in ["secret santa", "token economy", "auth service is down"]:
+        req = _make_req(instructions=phrase)
+        assert is_sensitive_request(req) is False
+
+        dec1 = await client.query_choice(req)
+        assert dec1.status == "ok"
+        assert dec1.cache_hit is False
+
+        # 第二次调用必须命中缓存
+        dec2 = await client.query_choice(req)
+        assert dec2.status == "ok"
+        assert dec2.cache_hit is True
+
+    # 2. 真实敏感赋值或凭据格式：必须旁路，不进缓存
+    sensitive_phrases = [
+        "token=abc",
+        "password: hunter2",
+        "api_key: sk-12345678",
+        "Authorization: Bearer mysecrettoken123",
+    ]
+    for s_phrase in sensitive_phrases:
+        req_s = _make_req(instructions=s_phrase)
+        assert is_sensitive_request(req_s) is True
+        cache_before = len(cache._cache)
+
+        dec_s = await client.query_choice(req_s)
+        assert dec_s.status == "ok"
+        assert dec_s.cache_hit is False
+        # 缓存条目数不增加
+        assert len(cache._cache) == cache_before
+
+
+def test_security_redaction_escaped_quotes_and_colon_assignments_and_urlsafe_b64():
+    """P1-5: 脱敏剩余项验证：JSON 转义引号、冒号赋值、Base64 URL-safe 凭据检测"""
+    import base64
+
+    from tg_signer.semantic.cache import is_sensitive_value
+
+    # 1. JSON 转义引号脱敏
+    s_escaped = r'{\"password\": \"hunter2\", \"api_key\": \"secret_123\"}'
+    redacted = redact_sensitive_text(s_escaped)
+    assert "hunter2" not in redacted
+    assert "secret_123" not in redacted
+    assert r'{\"password\": \"[REDACTED]\", \"api_key\": \"[REDACTED]\"}' == redacted
+
+    # 2. 冒号赋值结构脱敏（无引号）
+    s_colon = "Error occurred at step 2, password: hunter2 and api_key: secret_abc"
+    redacted_colon = redact_sensitive_text(s_colon)
+    assert "hunter2" not in redacted_colon
+    assert "secret_abc" not in redacted_colon
+    assert "password: [REDACTED]" in redacted_colon
+    assert "api_key: [REDACTED]" in redacted_colon
+
+    # 3. Base64 URL-safe 敏感凭据旁路检测（包含 - 与 _）
+    raw_secret = "token=secret-url_safe"
+    b64_url = base64.urlsafe_b64encode(raw_secret.encode()).decode()
+    # 含有 - 或 _ 的 Base64 token
+    assert is_sensitive_value(f"Auth data: {b64_url}") is True
+
+
+@pytest.mark.asyncio
+async def test_metrics_no_holes_on_malformed_json_and_external_cancellation(monkeypatch):
+    """P1-6: 指标无洞验证：JSON 返回 [] 与协程取消均正确计入结果桶"""
+    client = JevClient(api_key="test_key", base_url="https://api.typesafe.ai/v1")
+
+    # 1. 服务端返回 JSON 列表 []（非 dict）
+    async def fake_list_json_post(self, url, json=None, headers=None, timeout=None):
+        return httpx.Response(
+            status_code=200,
+            json=[],  # 返回列表
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_list_json_post)
+
+    dec = await client.query_choice(_make_req())
+    assert dec.status == "invalid"
+    assert dec.reason_code == "MALFORMED_JSON"
+    assert client.metrics.total_calls == 1
+    assert client.metrics.failed_calls == 1
+    assert client.metrics.total_calls == (
+        client.metrics.success_calls + client.metrics.failed_calls + client.metrics.escalate_calls
+    )
+
+    # 2. 外部协程取消
+    started_evt = asyncio.Event()
+
+    async def fake_hanging_post(self, url, json=None, headers=None, timeout=None):
+        started_evt.set()
+        await asyncio.sleep(10.0)
+        return httpx.Response(200, json={}, request=httpx.Request("POST", str(url)))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_hanging_post)
+
+    task = asyncio.create_task(client.query_choice(_make_req()))
+    await started_evt.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # 取消同样计入 failed_calls 且维持恒等式
+    assert client.metrics.total_calls == 2
+    assert client.metrics.failed_calls == 2
+    assert client.metrics.total_calls == (
+        client.metrics.success_calls + client.metrics.failed_calls + client.metrics.escalate_calls
+    )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_mutation_wait_for_cancels_hanging_network_call(monkeypatch):
+    """P1-7 变异敏感测试 1: 删掉 asyncio.wait_for(...) 包裹则测试必红（耗时必定超标）"""
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        total_budget=0.05,
+    )
+
+    async def fake_slow_hanging_post(self, url, json=None, headers=None, timeout=None):
+        # 模拟慢请求挂起 3.0s
+        await asyncio.sleep(3.0)
+        return httpx.Response(200, json={}, request=httpx.Request("POST", str(url)))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_slow_hanging_post)
+
+    t0 = time.monotonic()
+    dec = await client.query_choice(_make_req())
+    elapsed = time.monotonic() - t0
+    await client.close()
+
+    assert dec.status == "budget_exceeded"
+    assert dec.reason_code == "DEADLINE_EXCEEDED"
+    # 敏感性断言：wait_for 必须在 0.05s 左右取消任务，耗时远小于 1.0s
+    assert elapsed < 0.3
+
+
+@pytest.mark.asyncio
+async def test_mutation_cache_hit_deadline_check_sensitive(monkeypatch):
+    """P1-7 变异敏感测试 2: 删掉 client.py 缓存命中的 deadline 检查则测试必红（返回 ok 而非 budget_exceeded）"""
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        total_budget=10.0,
+        cache=cache,
+    )
+    req = _make_req()
+    cache_key = compute_cache_key(req, model=client.model, base_url=client.base_url)
+    dummy_decision = Decision(status="ok", selected="pong", confidence=0.99)
+    cache.set(cache_key, dummy_decision)
+
+    call_count = 0
+
+    def fake_monotonic():
+        nonlocal call_count
+        call_count += 1
+        # 第 1 次（计算 start_t 与 budget_deadline）及第 2 次（acquire 之前的预检）返回正常时间
+        if call_count <= 2:
+            return 100.0
+        # 第 3 次（在 cache hit 内部检查 deadline 时）返回超出 deadline 的时间
+        return 200.0
+
+    monkeypatch.setattr(time, "monotonic", fake_monotonic)
+
+    dec = await client.query_choice(req)
+    await client.close()
+
+    # 若删掉缓存命中内部的 if time.monotonic() >= budget_deadline:，此处会返回 "ok" 导致断言失败变红
+    assert dec.status == "budget_exceeded"
+    assert dec.reason_code == "DEADLINE_EXCEEDED"
+
+
+def test_mutation_breaker_generation_guard_in_failure_and_release():
+    """P1-7 变异敏感测试 3: 删掉 record_failure/release_probe 的 generation guard 则测试必红"""
+    cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
+    cb.generation = 1
+    cb.state = "half_open"
+    cb.consecutive_failures = 0
+
+    lease = cb.acquire()
+    assert lease.allowed is True
+    assert cb._probe_in_flight is True
+
+    # 1. 旧代（generation 0）上报失败：必须被 guard 拦截，不污染当前代
+    cb.record_failure(request_generation=0)
+    # 若删掉 guard，consecutive_failures 会变成 1
+    assert cb.consecutive_failures == 0
+
+    # 2. 旧代（generation 0）上报探针释放：必须被 guard 拦截，不释放当前代的 probe_in_flight
+    cb.release_probe(request_generation=0, is_probe=True)
+    # 若删掉 guard，_probe_in_flight 会被误重置为 False
+    assert cb._probe_in_flight is True
+
+    # 当前代的合法释放
+    lease.release()
+    assert cb._probe_in_flight is False
