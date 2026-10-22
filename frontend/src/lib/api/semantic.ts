@@ -1,5 +1,33 @@
 import { getAuthToken, request } from './core'
 
+export interface JevBreakerSnapshot {
+  state: 'closed' | 'open' | 'half_open'
+  consecutive_failures: number
+  failure_threshold?: number
+  recovery_timeout?: number
+  generation?: number
+}
+
+export interface JevStats {
+  total_calls: number
+  success_calls: number
+  failed_calls: number
+  escalate_calls: number
+  cache_hits: number
+  cache_misses: number
+  cache_hit_rate: number
+  breaker?: JevBreakerSnapshot
+}
+
+export interface JevDashboardStatus {
+  enabled: boolean
+  hasApiKey: boolean
+  breakerState: 'closed' | 'open' | 'half_open'
+  consecutiveFailures: number
+  totalCalls: number
+  cacheHitRate: number
+}
+
 export interface SemanticConfig {
   enabled: boolean
   drift_enabled: boolean
@@ -19,6 +47,7 @@ export interface SemanticConfig {
     capacity: number
     is_full: boolean
   }
+  stats?: JevStats
 }
 
 export interface SemanticObservation {

@@ -19,6 +19,7 @@ import type {
   AccountStatusJob,
 } from '../lib/api'
 import type { DashboardLog } from '../lib/types'
+import { getSemanticConfig, type JevDashboardStatus } from '../lib/api/semantic'
 import { getAuthToken } from '../lib/api/core'
 import { notifyApiError } from '../lib/notify'
 import { useActiveRunsStore } from '../stores/activeRuns'
@@ -60,6 +61,14 @@ export function useDashboardData() {
   const failureBreakdown = ref<Array<{ category: string; count: number }>>([])
   const recentHits = ref<KeywordHitRecord[]>([])
   const statusJobs = ref<AccountStatusJob[]>([])
+  const jevStatus = ref<JevDashboardStatus>({
+    enabled: false,
+    hasApiKey: false,
+    breakerState: 'closed',
+    consecutiveFailures: 0,
+    totalCalls: 0,
+    cacheHitRate: 0,
+  })
 
   const prependLiveLog = (payload: {
     account_name?: string
@@ -188,8 +197,9 @@ export function useDashboardData() {
       refreshActiveRunsIfIdle(),
       listKeywordHits(token, { limit: 8, offset: 0 }),
       listAccountStatusCheckJobs(token, 5),
+      getSemanticConfig(token),
     ])
-    const [accResult, tasksResult, logsResult, jobsResult, runsResult, hitsResult, statusJobsResult] = results
+    const [accResult, tasksResult, logsResult, jobsResult, runsResult, hitsResult, statusJobsResult, semanticResult] = results
 
     if (accResult.status === 'fulfilled') {
       accRes = { accounts: accountsStore.accounts, total: accountsStore.total }
@@ -230,6 +240,19 @@ export function useDashboardData() {
       hasLoadFailure = true
       loadError = hitsResult.reason
       devLog.error('Failed to load keyword hits', hitsResult.reason)
+    }
+    if (semanticResult.status === 'fulfilled') {
+      const cfg = semanticResult.value
+      const st = cfg?.stats
+      const br = st?.breaker
+      jevStatus.value = {
+        enabled: Boolean(cfg?.enabled && cfg?.has_api_key),
+        hasApiKey: Boolean(cfg?.has_api_key),
+        breakerState: (br?.state as 'closed' | 'open' | 'half_open') || 'closed',
+        consecutiveFailures: Number(br?.consecutive_failures || 0),
+        totalCalls: Number(st?.total_calls || 0),
+        cacheHitRate: Number(st?.cache_hit_rate || 0),
+      }
     }
     if (statusJobsResult.status === 'fulfilled') {
       statusJobsRes = statusJobsResult.value
@@ -371,6 +394,7 @@ export function useDashboardData() {
     failureBreakdown,
     recentHits,
     statusJobs,
+    jevStatus,
     formatTime,
     loadDashboardData,
     /** 手动刷新（不触发整页 loading，供局部失败重试按钮使用） */
