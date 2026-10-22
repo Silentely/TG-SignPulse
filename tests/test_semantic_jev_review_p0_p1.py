@@ -396,3 +396,384 @@ async def test_p1_11_retry_after_respected_and_exceptions_narrowed(monkeypatch):
     assert dec.status == "ok"
     assert len(sleep_durations) == 1
     assert sleep_durations[0] >= 2.0  # 尊重 Retry-After: 2
+
+# -------------------------------------------------------------------------
+# P0-3 升级：真实进入 half_open，挂起探针，经 client 路径验证代次隔离
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_p0_3_half_open_client_probe_isolation(monkeypatch):
+    """P0-3 升级：真实进入 half_open，挂起探针，经 client 路径验证代次隔离（删掉 breaker.py 校验必红）"""
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=60.0)
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        breaker=cb,
+    )
+
+    # 1. 第一次请求失败 -> 触发熔断进入 open, generation=1
+    async def fake_fail(self, url, json=None, headers=None, timeout=None):
+        return httpx.Response(
+            status_code=500,
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_fail)
+    await client.query_choice(_make_req())
+    assert cb.state == "open"
+    assert cb.generation == 1
+
+    # 2. 模拟时间快进 65s，真实进入 half_open
+    simulated_now = cb.last_failure_time + 65.0
+    monkeypatch.setattr(time, "monotonic", lambda: simulated_now)
+    assert cb.get_state() == "half_open"
+
+    # 3. 探针请求 A 发起并挂起 (in-flight probe)
+    probe_started = asyncio.Event()
+    probe_can_finish = asyncio.Event()
+
+    async def fake_probe_post(self, url, json=None, headers=None, timeout=None):
+        probe_started.set()
+        await probe_can_finish.wait()
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "pong", "confidence": 0.9}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_probe_post)
+
+    task_probe = asyncio.create_task(client.query_choice(_make_req()))
+    await probe_started.wait()
+    assert cb._probe_in_flight is True
+    assert cb.state == "half_open"
+
+    # 4. 旧代次（代次 0）的慢请求此时返回成功
+    from tg_signer.semantic.breaker import ProbeLease
+    old_lease = ProbeLease(cb, allowed=True, generation=0, is_probe=True)
+    old_lease.record_success()
+
+    # 关键断言：旧代次成功绝不能把当前熔断器关闭！
+    # 如果删掉 breaker.py 的代次身份限制，cb.state 会被错误置为 closed
+    assert cb.state == "half_open"
+    assert cb._probe_in_flight is True
+
+    # 此时并发请求 C 到来，必须被熔断器阻断降级为 escalate
+    dec_c = await client.query_choice(_make_req())
+    assert dec_c.status == "escalate"
+    assert dec_c.reason_code == "CIRCUIT_BREAKER_OPEN"
+
+    # 5. 放行探针 A 完成
+    probe_can_finish.set()
+    dec_a = await task_probe
+    assert dec_a.status == "ok"
+    assert cb.state == "closed"
+    assert cb.consecutive_failures == 0
+    assert cb._probe_in_flight is False
+    await client.close()
+
+
+# -------------------------------------------------------------------------
+# 配置代际切换：Runtime 集成测试（删掉 runtime.py:60 缓存重建必红）
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_runtime_generation_switch_rebuilds_cache(tmp_path):
+    """配置代际切换：Runtime 必须重建缓存命名空间，隔离旧缓存"""
+    from backend.services.semantic.runtime import SemanticRuntime
+    from tg_signer.semantic.models import Decision
+
+    runtime = SemanticRuntime(workdir=tmp_path)
+    cfg0 = runtime.config_store.save_patch({"enabled": True, "api_key": "test_key"})
+
+    svc0 = runtime.service
+    assert svc0 is not None
+    cache0 = runtime._cache
+    assert cache0.namespace == f"gen_{cfg0.generation}"
+
+    # 向当前缓存存入一条记录
+    req = _make_req()
+    k = compute_cache_key(req, model=cfg0.model, base_url=cfg0.base_url)
+    cache0.set(k, Decision(status="ok", selected="pong"))
+    assert cache0.get(k) is not None
+
+    # 配置代际切换：保存 patch 使 generation 递增
+    cfg1 = runtime.config_store.save_patch({"timeout_seconds": 12.0})
+
+    svc1 = runtime.service
+    assert svc1 is not None
+    cache1 = runtime._cache
+
+    # 关键断言：缓存必须重建为全新实例与命名空间，绝对看不到旧代次缓存
+    # 如果删掉 runtime.py:60 的缓存重建，cache1 is cache0 将为 True，assert 失败变红
+    assert cache1 is not cache0
+    assert cache1.namespace == f"gen_{cfg1.generation}"
+    assert cache1.get(k) is None
+    assert len(cache1._cache) == 0
+
+
+# -------------------------------------------------------------------------
+# 敏感旁路：cache get/set 零调用断言 + Base64 用例
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_sensitive_bypass_zero_cache_calls_and_base64(monkeypatch):
+    """敏感旁路：命中敏感信息时 cache get/set 零调用；覆盖 Base64 编码与短 token"""
+    from unittest.mock import MagicMock
+
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+    get_spy = MagicMock(wraps=cache.get)
+    set_spy = MagicMock(wraps=cache.set)
+    cache.get = get_spy
+    cache.set = set_spy
+
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        cache=cache,
+    )
+
+    async def fake_ok_post(self, url, json=None, headers=None, timeout=None):
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "pong", "confidence": 0.99}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_ok_post)
+
+    # 1. Base64 编码的敏感凭据：dG9rZW49c2VjcmV0 -> token=secret
+    req_b64 = _make_req(instructions="Authorization: dG9rZW49c2VjcmV0")
+    assert is_sensitive_request(req_b64) is True
+
+    dec_b64 = await client.query_choice(req_b64)
+    assert dec_b64.status == "ok"
+    # 断言：cache.get 和 cache.set 必须零调用
+    assert get_spy.call_count == 0
+    assert set_spy.call_count == 0
+
+    # 2. 短文本 token=abc
+    req_token = _make_req(instructions="token=abc")
+    assert is_sensitive_request(req_token) is True
+    await client.query_choice(req_token)
+    assert get_spy.call_count == 0
+    assert set_spy.call_count == 0
+
+    # 3. 文本带有空格的高熵 token: "Please use token a8B!x9Q#kL2$mZ5&vW8* here"
+    req_entropy = _make_req(instructions="Please use token a8B!x9Q#kL2$mZ5&vW8* here")
+    assert is_sensitive_request(req_entropy) is True
+    await client.query_choice(req_entropy)
+    assert get_spy.call_count == 0
+    assert set_spy.call_count == 0
+
+    # 对照组：正常请求必须调用 cache.get 和 cache.set
+    req_clean = _make_req(instructions="Please click confirm button")
+    assert is_sensitive_request(req_clean) is False
+    await client.query_choice(req_clean)
+    assert get_spy.call_count == 1
+    assert set_spy.call_count == 1
+    await client.close()
+
+
+# -------------------------------------------------------------------------
+# 预算三路分支用例：晚到 200 / 解析耗尽预算 / 命中缓存
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_budget_branch_late_200(monkeypatch):
+    """预算分支 1：网络耗时超过预算，返回 200 时必须被墙钟硬上限拦截"""
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        total_budget=0.04,
+        cache=cache,
+    )
+
+    async def fake_slow_post(self, url, json=None, headers=None, timeout=None):
+        await asyncio.sleep(0.08)
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "pong", "confidence": 0.99}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_slow_post)
+
+    dec = await client.query_choice(_make_req())
+    await client.close()
+
+    assert dec.status == "budget_exceeded"
+    assert dec.reason_code == "DEADLINE_EXCEEDED"
+    assert len(cache._cache) == 0
+    assert client.metrics.success_calls == 0
+    assert client.metrics.failed_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_budget_branch_parse_exhausts_budget(monkeypatch):
+    """预算分支 2：网络返回及时，但响应解析耗尽总预算，在末次检查拦截"""
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        total_budget=0.05,
+        cache=cache,
+    )
+
+    post_done = False
+    after_post_calls = 0
+
+    async def fake_fast_post(self, url, json=None, headers=None, timeout=None):
+        nonlocal post_done
+        post_done = True
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "pong", "confidence": 0.99}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_fast_post)
+
+    orig_monotonic = time.monotonic
+
+    def mock_time():
+        nonlocal after_post_calls
+        t = orig_monotonic()
+        if post_done:
+            after_post_calls += 1
+            # 第 1 次是 post_end_t -> 正常未超时
+            # 第 2 次是 parse_end_t -> 耗尽预算（超时）
+            if after_post_calls >= 2:
+                return t + 10.0
+        return t
+
+    monkeypatch.setattr(time, "monotonic", mock_time)
+
+    dec = await client.query_choice(_make_req())
+    await client.close()
+
+    assert dec.status == "budget_exceeded"
+    assert dec.reason_code == "DEADLINE_EXCEEDED"
+    assert len(cache._cache) == 0
+    assert client.metrics.success_calls == 0
+    assert client.metrics.failed_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_budget_branch_cache_hit_exceeds_budget():
+    """预算分支 3：缓存命中成功出口位于预算检查之后，传入已过期 deadline 绝不返回 ok"""
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        cache=cache,
+    )
+
+    req = _make_req()
+    k = compute_cache_key(req, model=client.model, base_url=client.base_url)
+    from tg_signer.semantic.models import Decision
+    cache.set(k, Decision(status="ok", selected="pong"))
+
+    # 传入已超期的 deadline
+    past_deadline = time.monotonic() - 1.0
+    dec = await client.query_choice(req, deadline=past_deadline)
+    await client.close()
+
+    assert dec.status == "budget_exceeded"
+    assert dec.reason_code == "DEADLINE_EXCEEDED"
+    assert dec.cache_hit is False
+    assert client.metrics.success_calls == 0
+    assert client.metrics.failed_calls == 1
+
+
+# -------------------------------------------------------------------------
+# Grok P1-2: 200 但 choice 为空或非法算失败，不重置熔断，不写缓存
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_200_empty_choice_treated_as_failure_no_cache_no_breaker_reset(monkeypatch):
+    """200 但 choice 为空串必须判失败，不重置熔断计数，不写缓存"""
+    cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
+    cb.consecutive_failures = 2
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        breaker=cb,
+        cache=cache,
+    )
+
+    async def fake_empty_choice_post(self, url, json=None, headers=None, timeout=None):
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "", "confidence": 0.5}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_empty_choice_post)
+
+    dec = await client.query_choice(_make_req())
+    await client.close()
+
+    assert dec.status == "invalid"
+    assert dec.reason_code == "EMPTY_CHOICE"
+    assert cb.consecutive_failures == 3  # 累加，绝不清零
+    assert len(cache._cache) == 0
+    assert client.metrics.failed_calls == 1
+    assert client.metrics.success_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_200_out_of_bounds_choice_treated_as_failure_no_cache_no_breaker_reset(monkeypatch):
+    """200 但 choice 超出候选列表必须判失败，不重置熔断计数，不写缓存"""
+    cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
+    cb.consecutive_failures = 2
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
+
+    client = JevClient(
+        api_key="test_key",
+        base_url="https://api.typesafe.ai/v1",
+        breaker=cb,
+        cache=cache,
+    )
+
+    async def fake_invalid_choice_post(self, url, json=None, headers=None, timeout=None):
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "invalid_option", "confidence": 0.8}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_invalid_choice_post)
+
+    dec = await client.query_choice(_make_req())
+    await client.close()
+
+    assert dec.selected == "unknown"
+    assert cb.consecutive_failures == 3  # 累加，绝不清零
+    assert len(cache._cache) == 0
+    assert client.metrics.failed_calls == 1
+    assert client.metrics.success_calls == 0
+
+
+# -------------------------------------------------------------------------
+# Grok P0-1: /test 端点凭据外送保护：未显式传 key 拒绝自定义 base_url
+# -------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_route_test_connection_rejects_custom_base_url_without_explicit_key(tmp_path):
+    """Grok P0-1: /test 只有显式传 api_key 才允许自定义 base_url；缺省 key 时发往不同 host 直接 400"""
+    from fastapi import HTTPException
+
+    from backend.api.routes.semantic import test_connection
+    from backend.services.semantic.config import JevConfigStore
+
+    store = JevConfigStore(tmp_path)
+    store.save_patch({"base_url": "https://api.typesafe.ai/v1", "api_key": "saved_secret_key"})
+
+    # 1. 尝试将已保存密钥发送至未授权的自定义 host，不显式提供 api_key -> 必须 400 UNTRUSTED_HOST
+    with pytest.raises(HTTPException) as exc_info:
+        await test_connection(
+            body={"base_url": "https://attacker-host.com/v1"},
+            store=store,
+            _=None,
+        )
+    assert exc_info.value.status_code == 400
+    assert "UNTRUSTED_HOST" in exc_info.value.detail
+    assert "requires explicit api_key" in exc_info.value.detail

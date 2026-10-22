@@ -101,17 +101,15 @@ async def test_connection(
     if not is_valid:
         raise HTTPException(status_code=400, detail=ssrf_err)
 
-    # 2. 凭据外送面保护：若未提供新密钥，禁止将已存密钥发送至非白名单/不同源的主机
+    # 2. 凭据外送面保护：只有显式提供 api_key 才允许自定义 base_url；否则 base_url 的 host 必须与已保存配置一致，不一致直接 400
     if not req_api_key:
         cfg_host = (urllib.parse.urlparse(cfg.base_url).hostname or "").lower()
         req_host = (urllib.parse.urlparse(req_base_url).hostname or "").lower()
         if cfg_host != req_host:
-            is_whitelisted, _ = validate_ssrf_and_host(req_base_url, is_saved_key=True)
-            if not is_whitelisted:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"UNTRUSTED_HOST: Cannot forward saved API key to different host '{req_host}'. Please provide an explicit API key.",
-                )
+            raise HTTPException(
+                status_code=400,
+                detail=f"UNTRUSTED_HOST: Custom base_url '{req_base_url}' requires explicit api_key. Cannot forward saved key to host '{req_host}'.",
+            )
         api_key = cfg.api_key
     else:
         api_key = req_api_key

@@ -18,7 +18,7 @@ SENSITIVE_PATTERNS = [
     re.compile(
         r"(?i)\b(api[_-]?key|apiKey|access[_-]?token|accessToken|client[_-]?secret|clientSecret|"
         r"secret[_-]?key|secretKey|auth[_-]?token|authToken|refresh[_-]?token|refreshToken|"
-        r"password|passwd|credentials|private[_-]?key|privateKey|id_rsa|id_ed25519)\b"
+        r"token|secret|auth|bearer|password|passwd|credentials|private[_-]?key|privateKey|id_rsa|id_ed25519)\b"
     ),
     re.compile(r"(\.env|\.jev_config\.json|/etc/shadow|/etc/passwd|/proc/|~?/\.ssh)"),
     re.compile(r"(?i)bearer\s+[a-zA-Z0-9_\-\.]{6,}"),
@@ -42,6 +42,8 @@ SENSITIVE_KEY_NAMES = frozenset(
     }
 )
 
+_TOKEN_SPLIT_RE = re.compile(r"""[\s,;"'()<>{}\[\]=:]+""")
+
 
 def shannon_entropy(data: str) -> float:
     """计算字符串的香农信息熵。"""
@@ -55,20 +57,36 @@ def shannon_entropy(data: str) -> float:
     return entropy
 
 
-def is_high_entropy_opaque_string(s: str) -> bool:
-    """检测是否为高熵不透明凭据（如随机 API Token、Hex Hash、Base64 密文）。"""
-    s = s.strip()
-    if not s or " " in s or "\n" in s or "\t" in s:
+def is_high_entropy_token(token: str) -> bool:
+    """检测单个 token 是否为高熵不透明凭据（如随机 API Token、Hex Hash、Base64 密文）。"""
+    token = token.strip()
+    if len(token) < 16:
         return False
-    if len(s) >= 16 and re.fullmatch(r"[\x21-\x7e]+", s):
-        ent = shannon_entropy(s)
-        # 32位以上 Hex/字符 且熵 >= 3.4
-        if len(s) >= 32 and ent >= 3.4:
-            return True
-        # 16位以上且熵 >= 3.5
-        if len(s) >= 16 and ent >= 3.5:
+    if not re.fullmatch(r"[\x21-\x7e]+", token):
+        return False
+    ent = shannon_entropy(token)
+    # 32位以上 Hex/字符 且熵 >= 3.4
+    if len(token) >= 32 and ent >= 3.4:
+        return True
+    # 16位以上且熵 >= 3.5
+    if len(token) >= 16 and ent >= 3.5:
+        return True
+    return False
+
+
+def contains_high_entropy_token(text: str) -> bool:
+    """逐个 token 扫描文本中的高熵不透明凭据，遇空格不放弃整段。"""
+    if not text:
+        return False
+    tokens = _TOKEN_SPLIT_RE.split(text)
+    for tok in tokens:
+        if is_high_entropy_token(tok):
             return True
     return False
+
+
+def is_high_entropy_opaque_string(s: str) -> bool:
+    return contains_high_entropy_token(s)
 
 
 def _check_text_sensitive(text: str) -> bool:
@@ -77,7 +95,7 @@ def _check_text_sensitive(text: str) -> bool:
     for pattern in SENSITIVE_PATTERNS:
         if pattern.search(text):
             return True
-    if is_high_entropy_opaque_string(text):
+    if contains_high_entropy_token(text):
         return True
     return False
 
@@ -98,19 +116,20 @@ def is_sensitive_value(val: Any) -> bool:
             except Exception:
                 pass
 
-        # 3. Base64 解码检查
-        cleaned_b64 = val.strip()
-        if len(cleaned_b64) >= 12 and re.fullmatch(r"[A-Za-z0-9+/=_\-]+", cleaned_b64):
-            try:
-                # 标准 base64 或 urlsafe base64 补齐
-                pad_len = (4 - len(cleaned_b64) % 4) % 4
-                padded = cleaned_b64 + ("=" * pad_len)
-                decoded_bytes = base64.b64decode(padded, validate=False)
-                decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
-                if len(decoded_str) >= 4 and _check_text_sensitive(decoded_str):
-                    return True
-            except Exception:
-                pass
+        # 3. Base64 解码检查（逐 token 扫描可能编码的 Base64 串）
+        tokens = _TOKEN_SPLIT_RE.split(val)
+        for tok in tokens:
+            cleaned_b64 = tok.strip()
+            if len(cleaned_b64) >= 12 and re.fullmatch(r"[A-Za-z0-9+/\-_]+", cleaned_b64):
+                try:
+                    pad_len = (4 - len(cleaned_b64) % 4) % 4
+                    padded = cleaned_b64 + ("=" * pad_len)
+                    decoded_bytes = base64.b64decode(padded, validate=False)
+                    decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
+                    if len(decoded_str) >= 4 and _check_text_sensitive(decoded_str):
+                        return True
+                except Exception:
+                    pass
 
         # 4. 内嵌 JSON 检查
         if (val.startswith("{") and val.endswith("}")) or (val.startswith("[") and val.endswith("]")):

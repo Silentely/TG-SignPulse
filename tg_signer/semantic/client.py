@@ -283,6 +283,23 @@ class JevClient:
             return decision
 
         try:
+            # 预算硬检查：在缓存与网络处理前首先核查 deadline
+            if time.monotonic() >= budget_deadline:
+                lease.record_failure()
+                self.metrics.failed_calls += 1
+                elapsed_ms = (time.monotonic() - start_t) * 1000.0
+                decision = Decision(
+                    status="budget_exceeded",
+                    reason_code="DEADLINE_EXCEEDED",
+                    elapsed_ms=elapsed_ms,
+                    attempts=0,
+                    breaker=self.breaker.get_state(),
+                    truncated=is_truncated,
+                    error_message="Total budget exceeded before request",
+                )
+                self._log_structured(decision)
+                return decision
+
             # 5. 缓存查询（含密钥/敏感路径或已截断请求不进缓存）
             is_sensitive = is_sensitive_request(sanitized_req)
             cache_key = compute_cache_key(
@@ -291,6 +308,23 @@ class JevClient:
             if not is_sensitive and not is_truncated:
                 cached = self.cache.get(cache_key)
                 if cached is not None:
+                    # 缓存成功出口：必须在预算检查之后（若已超预算绝不返回 ok）
+                    if time.monotonic() >= budget_deadline:
+                        lease.record_failure()
+                        self.metrics.failed_calls += 1
+                        elapsed_ms = (time.monotonic() - start_t) * 1000.0
+                        decision = Decision(
+                            status="budget_exceeded",
+                            reason_code="DEADLINE_EXCEEDED",
+                            elapsed_ms=elapsed_ms,
+                            attempts=0,
+                            breaker=self.breaker.get_state(),
+                            truncated=is_truncated,
+                            error_message="Total budget exceeded on cache hit",
+                        )
+                        self._log_structured(decision)
+                        return decision
+
                     # 缓存命中：属于有效业务成功
                     self.metrics.cache_hits += 1
                     self.metrics.success_calls += 1
@@ -301,7 +335,6 @@ class JevClient:
                         breaker=self.breaker.get_state(),
                         elapsed_ms=elapsed_ms,
                     )
-                    # 释放探测位（缓存命中不作为网络探活凭据，安全释放试水状态）
                     lease.release()
                     self._log_structured(decision)
                     return decision
@@ -340,143 +373,119 @@ class JevClient:
                 else self.base_url
             )
 
-            # 7. 带分类重试的执行循环（最多 2 次重试，总共最多 3 次尝试）
-            for attempt_idx in range(self.MAX_RETRIES + 1):
-                now = time.monotonic()
-                if now >= budget_deadline:
-                    lease.record_failure()
-                    self.metrics.failed_calls += 1
-                    elapsed_ms = (now - start_t) * 1000.0
-                    decision = Decision(
-                        status="budget_exceeded",
-                        reason_code="DEADLINE_EXCEEDED",
-                        elapsed_ms=elapsed_ms,
-                        attempts=max(1, attempt_idx),
-                        breaker=self.breaker.get_state(),
-                        truncated=is_truncated,
-                        error_message="Total budget exceeded before request",
-                    )
-                    self._log_structured(decision)
-                    return decision
+            # 7. 带分类重试的执行循环（最多 2 次重试，总共最多 3 次尝试），用 asyncio.wait_for 整体包住
+            last_attempt_idx = 0
 
-                remaining_budget = budget_deadline - now
-                if remaining_budget <= 0:
-                    lease.record_failure()
-                    self.metrics.failed_calls += 1
-                    elapsed_ms = (now - start_t) * 1000.0
-                    decision = Decision(
-                        status="budget_exceeded",
-                        reason_code="DEADLINE_EXCEEDED",
-                        elapsed_ms=elapsed_ms,
-                        attempts=max(1, attempt_idx),
-                        breaker=self.breaker.get_state(),
-                        truncated=is_truncated,
-                        error_message="Total budget exhausted",
-                    )
-                    self._log_structured(decision)
-                    return decision
+            async def _execute_with_retries() -> Decision:
+                nonlocal last_attempt_idx
+                for attempt_idx in range(self.MAX_RETRIES + 1):
+                    last_attempt_idx = attempt_idx
+                    now = time.monotonic()
+                    remaining_budget = budget_deadline - now
+                    if remaining_budget <= 0:
+                        raise asyncio.TimeoutError()
 
-                timeout_to_use = min(self.timeout, remaining_budget)
-                req_timeout = self._create_httpx_timeout(timeout_to_use)
+                    timeout_to_use = min(self.timeout, remaining_budget)
+                    req_timeout = self._create_httpx_timeout(timeout_to_use)
 
-                try:
-                    client = await self._get_client()
-                    resp = await client.post(
-                        target_url,
-                        json=payload,
-                        headers=headers,
-                        timeout=req_timeout,
-                    )
-                    post_end_t = time.monotonic()
-                    elapsed_ms = (post_end_t - start_t) * 1000.0
-
-                    # 墙钟硬上限：网络调用返回后必须再次校验 deadline
-                    if post_end_t >= budget_deadline:
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        decision = Decision(
-                            status="budget_exceeded",
-                            reason_code="DEADLINE_EXCEEDED",
-                            elapsed_ms=elapsed_ms,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message="Total budget exceeded after network call",
+                    try:
+                        client = await self._get_client()
+                        resp = await client.post(
+                            target_url,
+                            json=payload,
+                            headers=headers,
+                            timeout=req_timeout,
                         )
-                        self._log_structured(decision)
-                        return decision
+                        post_end_t = time.monotonic()
+                        elapsed_ms = (post_end_t - start_t) * 1000.0
 
-                    # 401 / 403: 凭据鉴权失败，绝不重试，直接判 DEAD
-                    if resp.status_code in (401, 403):
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        err_msg = self._extract_error_message(resp)
-                        decision = Decision(
-                            status="unavailable",
-                            reason_code="AUTH_FAILED",
-                            elapsed_ms=elapsed_ms,
-                            http_status=resp.status_code,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message=err_msg or "Authentication failed",
-                        )
-                        self._log_structured(decision)
-                        return decision
+                        # 墙钟硬上限：网络调用返回后必须再次校验 deadline
+                        if post_end_t >= budget_deadline:
+                            raise asyncio.TimeoutError()
 
-                    # 429: 限流，属于可重试错误；尊重 Retry-After
-                    if resp.status_code == 429:
-                        err_msg = self._extract_error_message(resp)
-                        if attempt_idx == self.MAX_RETRIES:
+                        # 401 / 403: 凭据鉴权失败，绝不重试，直接判 DEAD
+                        if resp.status_code in (401, 403):
                             lease.record_failure()
                             self.metrics.failed_calls += 1
+                            err_msg = self._extract_error_message(resp)
                             decision = Decision(
                                 status="unavailable",
-                                reason_code="RATE_LIMITED",
+                                reason_code="AUTH_FAILED",
                                 elapsed_ms=elapsed_ms,
-                                http_status=429,
+                                http_status=resp.status_code,
                                 attempts=attempt_idx + 1,
                                 breaker=self.breaker.get_state(),
                                 truncated=is_truncated,
-                                error_message=err_msg or "Rate limited",
+                                error_message=err_msg or "Authentication failed",
                             )
                             self._log_structured(decision)
                             return decision
 
-                        retry_after_hdr = resp.headers.get("Retry-After")
-                        backoff = None
-                        if retry_after_hdr:
-                            try:
-                                backoff = float(retry_after_hdr.strip())
-                                backoff = max(0.1, backoff + random.uniform(0.02, 0.1))
-                            except (ValueError, TypeError):
-                                backoff = None
-                        if backoff is None:
+                        # 429: 限流，属于可重试错误；尊重 Retry-After
+                        if resp.status_code == 429:
+                            err_msg = self._extract_error_message(resp)
+                            if attempt_idx == self.MAX_RETRIES:
+                                lease.record_failure()
+                                self.metrics.failed_calls += 1
+                                decision = Decision(
+                                    status="unavailable",
+                                    reason_code="RATE_LIMITED",
+                                    elapsed_ms=elapsed_ms,
+                                    http_status=429,
+                                    attempts=attempt_idx + 1,
+                                    breaker=self.breaker.get_state(),
+                                    truncated=is_truncated,
+                                    error_message=err_msg or "Rate limit exceeded (HTTP 429)",
+                                )
+                                self._log_structured(decision)
+                                return decision
+
+                            retry_after_sec: float | None = None
+                            raw_retry_after = resp.headers.get("Retry-After")
+                            if raw_retry_after:
+                                try:
+                                    retry_after_sec = float(raw_retry_after.strip())
+                                except (ValueError, TypeError):
+                                    retry_after_sec = None
+
                             backoff = self._calculate_backoff(attempt_idx)
+                            if retry_after_sec is not None and retry_after_sec > 0:
+                                backoff = max(backoff, retry_after_sec)
 
-                        if time.monotonic() + backoff >= budget_deadline:
+                            if time.monotonic() + backoff >= budget_deadline:
+                                raise asyncio.TimeoutError()
+                            await asyncio.sleep(backoff)
+                            continue
+
+                        # 5xx: 服务端错误，重试
+                        if 500 <= resp.status_code < 600:
+                            err_msg = self._extract_error_message(resp)
+                            if attempt_idx == self.MAX_RETRIES:
+                                lease.record_failure()
+                                self.metrics.failed_calls += 1
+                                decision = Decision(
+                                    status="invalid",
+                                    reason_code=f"HTTP_{resp.status_code}",
+                                    elapsed_ms=elapsed_ms,
+                                    http_status=resp.status_code,
+                                    attempts=attempt_idx + 1,
+                                    breaker=self.breaker.get_state(),
+                                    truncated=is_truncated,
+                                    error_message=err_msg or f"Server error: {resp.status_code}",
+                                )
+                                self._log_structured(decision)
+                                return decision
+
+                            backoff = self._calculate_backoff(attempt_idx)
+                            if time.monotonic() + backoff >= budget_deadline:
+                                raise asyncio.TimeoutError()
+                            await asyncio.sleep(backoff)
+                            continue
+
+                        if resp.status_code != 200:
                             lease.record_failure()
                             self.metrics.failed_calls += 1
-                            decision = Decision(
-                                status="budget_exceeded",
-                                reason_code="DEADLINE_EXCEEDED",
-                                elapsed_ms=elapsed_ms,
-                                attempts=attempt_idx + 1,
-                                breaker=self.breaker.get_state(),
-                                truncated=is_truncated,
-                                error_message="Total budget exceeded during retry backoff",
-                            )
-                            self._log_structured(decision)
-                            return decision
-                        await asyncio.sleep(backoff)
-                        continue
-
-                    # 5xx: 服务端故障，属于可重试错误
-                    if resp.status_code >= 500:
-                        err_msg = self._extract_error_message(resp)
-                        if attempt_idx == self.MAX_RETRIES:
-                            lease.record_failure()
-                            self.metrics.failed_calls += 1
+                            err_msg = self._extract_error_message(resp)
                             decision = Decision(
                                 status="invalid",
                                 reason_code=f"HTTP_{resp.status_code}",
@@ -485,224 +494,190 @@ class JevClient:
                                 attempts=attempt_idx + 1,
                                 breaker=self.breaker.get_state(),
                                 truncated=is_truncated,
-                                error_message=err_msg or f"HTTP {resp.status_code}",
+                                error_message=err_msg or f"Unexpected status: {resp.status_code}",
+                            )
+                            self._log_structured(decision)
+                            return decision
+
+                        # 200 OK 解析
+                        try:
+                            data = resp.json()
+                        except Exception as json_err:
+                            lease.record_failure()
+                            self.metrics.failed_calls += 1
+                            decision = Decision(
+                                status="invalid",
+                                reason_code="MALFORMED_JSON",
+                                elapsed_ms=elapsed_ms,
+                                http_status=200,
+                                attempts=attempt_idx + 1,
+                                breaker=self.breaker.get_state(),
+                                truncated=is_truncated,
+                                error_message=f"JSON decode error: {json_err}",
+                            )
+                            self._log_structured(decision)
+                            return decision
+
+                        raw_answers = data.get("answers")
+                        first_ans: dict[str, Any] | None = None
+                        if isinstance(raw_answers, dict):
+                            first_ans = raw_answers.get("decision") or next(
+                                iter(raw_answers.values()), None
+                            )
+                        elif isinstance(raw_answers, list) and raw_answers:
+                            first_ans = raw_answers[0]
+
+                        if not first_ans or not isinstance(first_ans, dict):
+                            lease.record_failure()
+                            self.metrics.failed_calls += 1
+                            decision = Decision(
+                                status="invalid",
+                                reason_code="NO_ANSWER",
+                                elapsed_ms=elapsed_ms,
+                                http_status=200,
+                                attempts=attempt_idx + 1,
+                                breaker=self.breaker.get_state(),
+                                truncated=is_truncated,
+                                error_message="No answer returned in response",
+                            )
+                            self._log_structured(decision)
+                            return decision
+
+                        selected_raw = str(
+                            first_ans.get("choice") or first_ans.get("selected") or ""
+                        ).strip()
+
+                        # 200 但空 choice 不算成功：不得重置熔断计数，按失败/降级处理
+                        if not selected_raw:
+                            lease.record_failure()
+                            self.metrics.failed_calls += 1
+                            decision = Decision(
+                                status="invalid",
+                                selected="unknown",
+                                reason_code="EMPTY_CHOICE",
+                                elapsed_ms=elapsed_ms,
+                                http_status=200,
+                                attempts=attempt_idx + 1,
+                                breaker=self.breaker.get_state(),
+                                truncated=is_truncated,
+                                error_message="Model returned empty choice",
+                            )
+                            self._log_structured(decision)
+                            return decision
+
+                        if sanitized_req.choices and selected_raw not in sanitized_req.choices:
+                            selected = "unknown"
+                        else:
+                            selected = selected_raw
+
+                        raw_probs = first_ans.get("probabilities")
+                        probs: dict[str, float] = {}
+                        if isinstance(raw_probs, dict):
+                            for k, v in raw_probs.items():
+                                try:
+                                    fv = float(v)
+                                    if 0.0 <= fv <= 1.0:
+                                        probs[str(k)] = fv
+                                except (ValueError, TypeError):
+                                    pass
+
+                        try:
+                            conf = float(first_ans.get("confidence", 0.0))
+                            conf = max(0.0, min(1.0, conf))
+                        except (ValueError, TypeError):
+                            conf = 0.0
+
+                        usage = data.get("usage", {})
+                        try:
+                            input_tokens = (
+                                int(usage.get("input_tokens", 0))
+                                if isinstance(usage, dict)
+                                else 0
+                            )
+                        except (ValueError, TypeError):
+                            input_tokens = 0
+
+                        # 末次 deadline 检查：解析完成到写缓存/判成功之间
+                        parse_end_t = time.monotonic()
+                        if parse_end_t >= budget_deadline:
+                            raise asyncio.TimeoutError()
+
+                        # 判定真正成功：只有当 selected 有效且非 unknown 时，才重置熔断器与入缓存
+                        if selected == "unknown":
+                            lease.record_failure()
+                            self.metrics.failed_calls += 1
+                        else:
+                            lease.record_success()
+                            self.metrics.success_calls += 1
+
+                        decision = Decision(
+                            status="ok",
+                            selected=selected,
+                            probabilities=probs,
+                            confidence=conf,
+                            model=data.get("model", self.model),
+                            elapsed_ms=elapsed_ms,
+                            input_tokens=input_tokens,
+                            http_status=200,
+                            attempts=attempt_idx + 1,
+                            breaker=self.breaker.get_state(),
+                            cache_hit=False,
+                            truncated=is_truncated,
+                        )
+                        if selected != "unknown" and not is_sensitive and not is_truncated:
+                            self.cache.set(cache_key, decision)
+
+                        self._log_structured(decision)
+                        return decision
+
+                    except (httpx.TimeoutException, httpx.TransportError) as exc:
+                        elapsed_ms = (time.monotonic() - start_t) * 1000.0
+                        clean_err = redact_sensitive_text(str(exc), self.api_key)
+                        is_timeout = isinstance(exc, httpx.TimeoutException)
+                        err_code = "TIMEOUT" if is_timeout else f"NETWORK_ERROR_{type(exc).__name__}"
+                        default_msg = "Request timed out" if is_timeout else clean_err
+
+                        if attempt_idx == self.MAX_RETRIES:
+                            lease.record_failure()
+                            self.metrics.failed_calls += 1
+                            decision = Decision(
+                                status="unavailable",
+                                reason_code=err_code,
+                                elapsed_ms=elapsed_ms,
+                                attempts=attempt_idx + 1,
+                                breaker=self.breaker.get_state(),
+                                truncated=is_truncated,
+                                error_message=default_msg,
                             )
                             self._log_structured(decision)
                             return decision
 
                         backoff = self._calculate_backoff(attempt_idx)
                         if time.monotonic() + backoff >= budget_deadline:
-                            lease.record_failure()
-                            self.metrics.failed_calls += 1
-                            decision = Decision(
-                                status="budget_exceeded",
-                                reason_code="DEADLINE_EXCEEDED",
-                                elapsed_ms=elapsed_ms,
-                                attempts=attempt_idx + 1,
-                                breaker=self.breaker.get_state(),
-                                truncated=is_truncated,
-                                error_message="Total budget exceeded during retry backoff",
-                            )
-                            self._log_structured(decision)
-                            return decision
+                            raise asyncio.TimeoutError()
                         await asyncio.sleep(backoff)
                         continue
 
-                    # 其他 4xx 客户端错误（400, 404, 422 等）：不可重试
-                    if resp.status_code >= 400:
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        err_msg = self._extract_error_message(resp)
-                        decision = Decision(
-                            status="invalid",
-                            reason_code=f"HTTP_{resp.status_code}",
-                            elapsed_ms=elapsed_ms,
-                            http_status=resp.status_code,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message=err_msg or f"HTTP {resp.status_code}",
-                        )
-                        self._log_structured(decision)
-                        return decision
+                raise asyncio.TimeoutError()
 
-                    # 200 OK 解析
-                    try:
-                        data = resp.json()
-                    except Exception as json_err:
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        decision = Decision(
-                            status="invalid",
-                            reason_code="MALFORMED_JSON",
-                            elapsed_ms=elapsed_ms,
-                            http_status=200,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message=f"JSON decode error: {json_err}",
-                        )
-                        self._log_structured(decision)
-                        return decision
-
-                    raw_answers = data.get("answers")
-                    first_ans: dict[str, Any] | None = None
-                    if isinstance(raw_answers, dict):
-                        first_ans = raw_answers.get("decision") or next(
-                            iter(raw_answers.values()), None
-                        )
-                    elif isinstance(raw_answers, list) and raw_answers:
-                        first_ans = raw_answers[0]
-
-                    if not first_ans or not isinstance(first_ans, dict):
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        decision = Decision(
-                            status="invalid",
-                            reason_code="NO_ANSWER",
-                            elapsed_ms=elapsed_ms,
-                            http_status=200,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message="No answer returned in response",
-                        )
-                        self._log_structured(decision)
-                        return decision
-
-                    selected_raw = str(
-                        first_ans.get("choice") or first_ans.get("selected") or ""
-                    ).strip()
-
-                    # 200 但空 choice 不算成功：不得重置熔断计数，按失败/降级处理
-                    if not selected_raw:
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        decision = Decision(
-                            status="invalid",
-                            selected="unknown",
-                            reason_code="EMPTY_CHOICE",
-                            elapsed_ms=elapsed_ms,
-                            http_status=200,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message="Model returned empty choice",
-                        )
-                        self._log_structured(decision)
-                        return decision
-
-                    if sanitized_req.choices and selected_raw not in sanitized_req.choices:
-                        selected = "unknown"
-                    else:
-                        selected = selected_raw
-
-                    raw_probs = first_ans.get("probabilities")
-                    probs: dict[str, float] = {}
-                    if isinstance(raw_probs, dict):
-                        for k, v in raw_probs.items():
-                            try:
-                                fv = float(v)
-                                if 0.0 <= fv <= 1.0:
-                                    probs[str(k)] = fv
-                            except (ValueError, TypeError):
-                                pass
-
-                    try:
-                        conf = float(first_ans.get("confidence", 0.0))
-                        conf = max(0.0, min(1.0, conf))
-                    except (ValueError, TypeError):
-                        conf = 0.0
-
-                    usage = data.get("usage", {})
-                    try:
-                        input_tokens = (
-                            int(usage.get("input_tokens", 0))
-                            if isinstance(usage, dict)
-                            else 0
-                        )
-                    except (ValueError, TypeError):
-                        input_tokens = 0
-
-                    # 判定真正成功：只有当 selected 有效且非 unknown 时，才重置熔断器与入缓存
-                    if selected == "unknown":
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                    else:
-                        lease.record_success()
-                        self.metrics.success_calls += 1
-
-                    decision = Decision(
-                        status="ok",
-                        selected=selected,
-                        probabilities=probs,
-                        confidence=conf,
-                        model=data.get("model", self.model),
-                        elapsed_ms=elapsed_ms,
-                        input_tokens=input_tokens,
-                        http_status=200,
-                        attempts=attempt_idx + 1,
-                        breaker=self.breaker.get_state(),
-                        cache_hit=False,
-                        truncated=is_truncated,
-                    )
-                    if selected != "unknown" and not is_sensitive and not is_truncated:
-                        self.cache.set(cache_key, decision)
-
-                    self._log_structured(decision)
-                    return decision
-
-                except (httpx.TimeoutException, httpx.TransportError) as exc:
-                    elapsed_ms = (time.monotonic() - start_t) * 1000.0
-                    clean_err = redact_sensitive_text(str(exc), self.api_key)
-                    is_timeout = isinstance(exc, httpx.TimeoutException)
-                    err_code = "TIMEOUT" if is_timeout else f"NETWORK_ERROR_{type(exc).__name__}"
-                    default_msg = "Request timed out" if is_timeout else clean_err
-
-                    if attempt_idx == self.MAX_RETRIES:
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        decision = Decision(
-                            status="unavailable",
-                            reason_code=err_code,
-                            elapsed_ms=elapsed_ms,
-                            http_status=None,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message=default_msg,
-                        )
-                        self._log_structured(decision)
-                        return decision
-
-                    backoff = self._calculate_backoff(attempt_idx)
-                    if time.monotonic() + backoff >= budget_deadline:
-                        lease.record_failure()
-                        self.metrics.failed_calls += 1
-                        decision = Decision(
-                            status="budget_exceeded",
-                            reason_code="DEADLINE_EXCEEDED",
-                            elapsed_ms=elapsed_ms,
-                            attempts=attempt_idx + 1,
-                            breaker=self.breaker.get_state(),
-                            truncated=is_truncated,
-                            error_message="Total budget exceeded during retry backoff",
-                        )
-                        self._log_structured(decision)
-                        return decision
-                    await asyncio.sleep(backoff)
-                    continue
-
-            lease.record_failure()
-            self.metrics.failed_calls += 1
-            return Decision(
-                status="unavailable",
-                reason_code="UNKNOWN_ERROR",
-                attempts=self.MAX_RETRIES + 1,
-                breaker=self.breaker.get_state(),
-                truncated=is_truncated,
-            )
-
+            remaining_overall = max(0.001, budget_deadline - time.monotonic())
+            try:
+                return await asyncio.wait_for(_execute_with_retries(), timeout=remaining_overall)
+            except (asyncio.TimeoutError, TimeoutError):
+                lease.record_failure()
+                self.metrics.failed_calls += 1
+                elapsed_ms = (time.monotonic() - start_t) * 1000.0
+                decision = Decision(
+                    status="budget_exceeded",
+                    reason_code="DEADLINE_EXCEEDED",
+                    elapsed_ms=elapsed_ms,
+                    attempts=max(1, last_attempt_idx + 1),
+                    breaker=self.breaker.get_state(),
+                    truncated=is_truncated,
+                    error_message="Total budget wall-clock limit exceeded",
+                )
+                self._log_structured(decision)
+                return decision
         finally:
             # 保证在任何情况下（成功、失败、CancelledError、早退）释放试水探测位
             lease.release()

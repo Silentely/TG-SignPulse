@@ -116,10 +116,13 @@ class CircuitBreaker:
         """记录调用成功。
 
         安全约束：
+        - 跨代旧请求的成功上报绝不可关闭熔断或清零计数；
         - 只有当前代次的探测成功才允许将 half_open 转为 closed 并重置计数；
-        - 若当前处于 open，旧请求成功绝不可关闭熔断或清零计数；
-        - 若代次不符（旧请求慢返回），忽略该成功记录。
+        - 若代次不符（旧请求慢返回），直接丢弃该成功记录。
         """
+        if request_generation is not None and request_generation != self.generation:
+            return
+
         if self.state == "open":
             if self.get_state(now) == "half_open":
                 self.state = "half_open"
@@ -129,17 +132,14 @@ class CircuitBreaker:
         curr_state = self.get_state(now)
         if curr_state == "half_open" or self.state == "half_open":
             # 仅当前代的试水请求（或直接兼容调用）才能恢复熔断器
-            if (is_probe or request_generation is None) and (
-                request_generation is None or request_generation == self.generation
-            ):
+            if is_probe or request_generation is None:
                 self.consecutive_failures = 0
                 self.state = "closed"
                 self._probe_in_flight = False
             return
 
         if curr_state == "closed":
-            if request_generation is None or request_generation == self.generation:
-                self.consecutive_failures = 0
+            self.consecutive_failures = 0
             self._probe_in_flight = False
 
     def record_failure(
@@ -148,21 +148,31 @@ class CircuitBreaker:
         is_probe: bool = False,
         now: float | None = None,
     ) -> None:
-        """记录调用失败。"""
+        """记录调用失败。
+
+        跨代旧请求的失败上报不得影响当前代状态（计数、时间、代次、探针标志位）。
+        """
+        if request_generation is not None and request_generation != self.generation:
+            return
+
         if now is None:
             now = time.monotonic()
 
         curr_state = self.get_state(now)
         self.consecutive_failures += 1
         self.last_failure_time = now
-        self._probe_in_flight = False
+        if is_probe or curr_state == "half_open":
+            self._probe_in_flight = False
 
         if curr_state == "half_open" or self.consecutive_failures >= self.failure_threshold:
             self.state = "open"
             self.generation += 1
+            self._probe_in_flight = False
 
     def release_probe(self, request_generation: int | None = None, is_probe: bool = False) -> None:
         """释放探测位（用于 CancelledError 或未显式完成时的安全回收）。"""
+        if request_generation is not None and request_generation != self.generation:
+            return
         if is_probe:
             self._probe_in_flight = False
 
