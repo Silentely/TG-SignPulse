@@ -1,9 +1,25 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import random
 import time
+from dataclasses import dataclass, replace
 from typing import Any
 
 import httpx
 
+from tg_signer.semantic.breaker import CircuitBreaker
+from tg_signer.semantic.cache import (
+    JevDecisionCache,
+    compute_cache_key,
+    is_sensitive_request,
+)
 from tg_signer.semantic.models import Decision, DecisionRequest
+from tg_signer.semantic.security import redact_sensitive_text, sanitize_request
+
+logger = logging.getLogger("tg_signer.semantic.client")
 
 
 def normalize_base_url(url: str | None) -> str:
@@ -22,24 +38,95 @@ def normalize_base_url(url: str | None) -> str:
     return cleaned
 
 
+@dataclass
+class JevMetrics:
+    total_calls: int = 0
+    success_calls: int = 0
+    failed_calls: int = 0
+    escalate_calls: int = 0  # 降级/走人工
+    cache_hits: int = 0
+    cache_misses: int = 0
+
+    def get_summary(self) -> dict[str, Any]:
+        total_cache = self.cache_hits + self.cache_misses
+        hit_rate = (self.cache_hits / total_cache) if total_cache > 0 else 0.0
+        return {
+            "total_calls": self.total_calls,
+            "success_calls": self.success_calls,
+            "failed_calls": self.failed_calls,
+            "escalate_calls": self.escalate_calls,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "cache_hit_rate": round(hit_rate, 4),
+        }
+
+
+def resolve_jev_env_defaults(
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+) -> tuple[str, str, str]:
+    """根据优先级解析配置：显式配置 > env > 默认"""
+    # 1. API KEY: 显式 > JEV_API_KEY env > ""
+    resolved_key = (api_key or "").strip()
+    if not resolved_key:
+        resolved_key = os.getenv("JEV_API_KEY", "").strip()
+
+    # 2. BASE URL: 显式（非默认） > JEV_BASE_URL env > 默认
+    resolved_base = (base_url or "").strip()
+    if not resolved_base or resolved_base == JevClient.DEFAULT_BASE_URL:
+        env_base = os.getenv("JEV_BASE_URL", "").strip()
+        if env_base:
+            resolved_base = env_base
+        elif not resolved_base:
+            resolved_base = JevClient.DEFAULT_BASE_URL
+
+    # 3. MODEL: 显式（非默认） > JEV_MODEL env > 默认
+    resolved_model = (model or "").strip()
+    if not resolved_model or resolved_model == JevClient.DEFAULT_MODEL:
+        env_model = os.getenv("JEV_MODEL", "").strip()
+        if env_model:
+            resolved_model = env_model
+        elif not resolved_model:
+            resolved_model = JevClient.DEFAULT_MODEL
+
+    return resolved_key, normalize_base_url(resolved_base), resolved_model
+
+
 class JevClient:
     DEFAULT_BASE_URL: str = "https://api.typesafe.ai/v1"
     DEFAULT_MODEL: str = "jev-1.13.0"
     DEFAULT_TIMEOUT: float = 8.0
     DEFAULT_CONNECT_TIMEOUT: float = 3.0
+    DEFAULT_TOTAL_BUDGET: float = 20.0
+    MAX_RETRIES: int = 2
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
         *,
         base_url: str = DEFAULT_BASE_URL,
         model: str = DEFAULT_MODEL,
         timeout: float = DEFAULT_TIMEOUT,
+        total_budget: float = DEFAULT_TOTAL_BUDGET,
+        breaker: CircuitBreaker | None = None,
+        cache: JevDecisionCache | None = None,
     ):
-        self.api_key = api_key
-        self.base_url = normalize_base_url(base_url)
-        self.model = model
+        resolved_key, resolved_base, resolved_model = resolve_jev_env_defaults(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+        self.api_key = resolved_key
+        self.base_url = resolved_base
+        self.model = resolved_model
         self.timeout = timeout
+        self.total_budget = total_budget
+
+        self.breaker = breaker or CircuitBreaker()
+        self.cache = cache or JevDecisionCache()
+        self.metrics = JevMetrics()
+
         self._client: httpx.AsyncClient | None = None
 
     def _create_httpx_timeout(self, total_timeout: float) -> httpx.Timeout:
@@ -64,23 +151,64 @@ class JevClient:
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
 
-    @staticmethod
-    def _extract_error_message(resp: httpx.Response) -> str:
+    def _extract_error_message(self, resp: httpx.Response) -> str:
+        msg = ""
         try:
             data = resp.json()
             if isinstance(data, dict):
                 err = data.get("error")
                 if isinstance(err, dict):
-                    return str(err.get("message") or err.get("type") or err)
-                if err:
-                    return str(err)
-                if data.get("detail"):
-                    return str(data["detail"])
-                if data.get("message"):
-                    return str(data["message"])
+                    msg = str(err.get("message") or err.get("type") or err)
+                elif err:
+                    msg = str(err)
+                elif data.get("detail"):
+                    msg = str(data["detail"])
+                elif data.get("message"):
+                    msg = str(data["message"])
         except Exception:
-            pass
-        return resp.text[:200].strip()
+            msg = resp.text[:200].strip()
+        if not msg:
+            msg = resp.text[:200].strip()
+        return redact_sensitive_text(msg, self.api_key)
+
+    @staticmethod
+    def _calculate_backoff(attempt_idx: int) -> float:
+        """指数退避 + 抖动 (200~600ms)"""
+        base = 0.2 * (2**attempt_idx)
+        jitter = random.uniform(0.0, 0.2)
+        return min(0.6, max(0.2, base + jitter))
+
+    def _log_structured(self, decision: Decision) -> None:
+        logger.info(
+            "jev_query_completed: decision=%s confidence=%.2f latency_ms=%.1f "
+            "http_status=%s attempts=%d breaker=%s cache_hit=%s truncated=%s",
+            decision.selected,
+            decision.confidence,
+            decision.elapsed_ms,
+            decision.http_status,
+            decision.attempts,
+            decision.breaker,
+            decision.cache_hit,
+            decision.truncated,
+            extra={
+                "decision": decision.selected,
+                "confidence": decision.confidence,
+                "latency_ms": decision.elapsed_ms,
+                "http_status": decision.http_status,
+                "attempts": decision.attempts,
+                "breaker": decision.breaker,
+                "cache_hit": decision.cache_hit,
+                "truncated": decision.truncated,
+            },
+        )
+
+    def get_stats(self) -> dict[str, Any]:
+        self.metrics.cache_hits = self.cache.hits
+        self.metrics.cache_misses = self.cache.misses
+        stats = self.metrics.get_summary()
+        stats["breaker"] = self.breaker.snapshot()
+        stats["cache"] = self.cache.stats()
+        return stats
 
     async def query_choice(
         self,
@@ -88,39 +216,78 @@ class JevClient:
         *,
         deadline: float | None = None,
     ) -> Decision:
+        start_t = time.monotonic()
+        budget_deadline = start_t + self.total_budget
+        if deadline is not None:
+            budget_deadline = min(budget_deadline, deadline)
+
+        # 1. 凭据校验
         if not self.api_key:
-            return Decision(
+            decision = Decision(
                 status="disabled",
                 reason_code="NO_API_KEY",
                 error_message="API key not configured",
+                attempts=0,
+                breaker=self.breaker.get_state(),
             )
+            self._log_structured(decision)
+            return decision
 
-        now = time.monotonic()
-        if deadline is not None and now >= deadline:
-            return Decision(
-                status="budget_exceeded",
-                reason_code="DEADLINE_EXCEEDED",
-                error_message="Deadline exceeded",
+        # 2. 超长截断与安全净化（截断标记保留在 request.truncated）
+        sanitized_req = sanitize_request(request)
+        is_truncated = bool(sanitized_req.truncated)
+
+        # 3. 熔断判定（永不静默放行）
+        breaker_state = self.breaker.get_state()
+        if not self.breaker.allow_request():
+            self.metrics.total_calls += 1
+            self.metrics.failed_calls += 1
+            self.metrics.escalate_calls += 1
+            elapsed_ms = (time.monotonic() - start_t) * 1000.0
+            decision = Decision(
+                status="escalate",
+                selected="unknown",
+                reason_code="CIRCUIT_BREAKER_OPEN",
+                breaker=breaker_state,
+                elapsed_ms=elapsed_ms,
+                attempts=0,
+                truncated=is_truncated,
+                error_message="Circuit breaker is OPEN (consecutive failures threshold reached); escalating to manual review",
             )
+            self._log_structured(decision)
+            return decision
 
-        timeout_to_use = self.timeout
-        if deadline is not None:
-            remaining = deadline - now
-            timeout_to_use = min(self.timeout, max(0.1, remaining))
+        # 4. 缓存查询（含密钥/敏感路径或已截断请求不进缓存）
+        is_sensitive = is_sensitive_request(sanitized_req)
+        cache_key = compute_cache_key(sanitized_req)
+        if not is_sensitive and not is_truncated:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                self.metrics.total_calls += 1
+                self.metrics.cache_hits += 1
+                self.metrics.success_calls += 1
+                elapsed_ms = (time.monotonic() - start_t) * 1000.0
+                decision = replace(
+                    cached,
+                    cache_hit=True,
+                    breaker=self.breaker.get_state(),
+                    elapsed_ms=elapsed_ms,
+                )
+                self._log_structured(decision)
+                return decision
+            self.metrics.cache_misses += 1
 
-        req_timeout = self._create_httpx_timeout(timeout_to_use)
-
-        # 构造 criteria 字典以对齐 Jev 官方 SystemOne 契约
-        if isinstance(request.choices, dict):
-            criteria = dict(request.choices)
-        elif isinstance(request.choices, list):
-            criteria = {c: str(c) for c in request.choices}
+        # 5. 构造请求 Payload
+        if isinstance(sanitized_req.choices, dict):
+            criteria = dict(sanitized_req.choices)
+        elif isinstance(sanitized_req.choices, list):
+            criteria = {c: str(c) for c in sanitized_req.choices}
         else:
             criteria = {"default": "default"}
 
         payload: dict[str, Any] = {
             "model": self.model,
-            "state": request.state,
+            "state": sanitized_req.state,
             "questions": {
                 "decision": {
                     "type": "choice",
@@ -143,126 +310,345 @@ class JevClient:
             else self.base_url
         )
 
-        start_t = time.monotonic()
-        try:
-            client = await self._get_client()
-            resp = await client.post(
-                target_url,
-                json=payload,
-                headers=headers,
-                timeout=req_timeout,
-            )
-            elapsed_ms = (time.monotonic() - start_t) * 1000.0
+        last_decision: Decision | None = None
 
-            if resp.status_code == 429:
-                err_msg = self._extract_error_message(resp)
-                return Decision(
-                    status="unavailable",
-                    reason_code="RATE_LIMITED",
+        # 6. 带分类重试的执行循环（最多 2 次重试，总共最多 3 次尝试）
+        for attempt_idx in range(self.MAX_RETRIES + 1):
+            now = time.monotonic()
+            if now >= budget_deadline:
+                self.breaker.record_failure()
+                self.metrics.total_calls += 1
+                self.metrics.failed_calls += 1
+                elapsed_ms = (now - start_t) * 1000.0
+                decision = Decision(
+                    status="budget_exceeded",
+                    reason_code="DEADLINE_EXCEEDED",
                     elapsed_ms=elapsed_ms,
-                    http_status=429,
-                    error_message=err_msg or "Rate limited",
+                    attempts=max(1, attempt_idx),
+                    breaker=self.breaker.get_state(),
+                    truncated=is_truncated,
+                    error_message="Total budget exceeded",
                 )
-            if resp.status_code in (401, 403):
-                err_msg = self._extract_error_message(resp)
-                return Decision(
-                    status="unavailable",
-                    reason_code="AUTH_FAILED",
-                    elapsed_ms=elapsed_ms,
-                    http_status=resp.status_code,
-                    error_message=err_msg or "Authentication failed",
-                )
-            if resp.status_code >= 400:
-                err_msg = self._extract_error_message(resp)
-                return Decision(
-                    status="invalid",
-                    reason_code=f"HTTP_{resp.status_code}",
-                    elapsed_ms=elapsed_ms,
-                    http_status=resp.status_code,
-                    error_message=err_msg or f"HTTP {resp.status_code}",
-                )
+                self._log_structured(decision)
+                return decision
 
-            data = resp.json()
-            raw_answers = data.get("answers")
-            first_ans: dict[str, Any] | None = None
-            if isinstance(raw_answers, dict):
-                first_ans = raw_answers.get("decision") or next(
-                    iter(raw_answers.values()), None
-                )
-            elif isinstance(raw_answers, list) and raw_answers:
-                first_ans = raw_answers[0]
+            remaining_budget = budget_deadline - now
+            timeout_to_use = min(self.timeout, max(0.1, remaining_budget))
+            req_timeout = self._create_httpx_timeout(timeout_to_use)
 
-            if not first_ans or not isinstance(first_ans, dict):
-                return Decision(
-                    status="invalid",
-                    reason_code="NO_ANSWER",
+            try:
+                client = await self._get_client()
+                resp = await client.post(
+                    target_url,
+                    json=payload,
+                    headers=headers,
+                    timeout=req_timeout,
+                )
+                elapsed_ms = (time.monotonic() - start_t) * 1000.0
+
+                # 401 / 403: 凭据鉴权失败，绝不重试，直接判 DEAD
+                if resp.status_code in (401, 403):
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    err_msg = self._extract_error_message(resp)
+                    decision = Decision(
+                        status="unavailable",
+                        reason_code="AUTH_FAILED",
+                        elapsed_ms=elapsed_ms,
+                        http_status=resp.status_code,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message=err_msg or "Authentication failed",
+                    )
+                    self._log_structured(decision)
+                    return decision
+
+                # 429: 限流，属于可重试错误
+                if resp.status_code == 429:
+                    err_msg = self._extract_error_message(resp)
+                    if attempt_idx == self.MAX_RETRIES:
+                        self.breaker.record_failure()
+                        self.metrics.total_calls += 1
+                        self.metrics.failed_calls += 1
+                        decision = Decision(
+                            status="unavailable",
+                            reason_code="RATE_LIMITED",
+                            elapsed_ms=elapsed_ms,
+                            http_status=429,
+                            attempts=attempt_idx + 1,
+                            breaker=self.breaker.get_state(),
+                            truncated=is_truncated,
+                            error_message=err_msg or "Rate limited",
+                        )
+                        self._log_structured(decision)
+                        return decision
+                    # 重试退避
+                    backoff = self._calculate_backoff(attempt_idx)
+                    if time.monotonic() + backoff >= budget_deadline:
+                        self.breaker.record_failure()
+                        self.metrics.total_calls += 1
+                        self.metrics.failed_calls += 1
+                        decision = Decision(
+                            status="budget_exceeded",
+                            reason_code="DEADLINE_EXCEEDED",
+                            elapsed_ms=elapsed_ms,
+                            attempts=attempt_idx + 1,
+                            breaker=self.breaker.get_state(),
+                            truncated=is_truncated,
+                            error_message="Total budget exceeded during retry backoff",
+                        )
+                        self._log_structured(decision)
+                        return decision
+                    await asyncio.sleep(backoff)
+                    continue
+
+                # 5xx: 服务端故障，属于可重试错误
+                if resp.status_code >= 500:
+                    err_msg = self._extract_error_message(resp)
+                    if attempt_idx == self.MAX_RETRIES:
+                        self.breaker.record_failure()
+                        self.metrics.total_calls += 1
+                        self.metrics.failed_calls += 1
+                        decision = Decision(
+                            status="invalid",
+                            reason_code=f"HTTP_{resp.status_code}",
+                            elapsed_ms=elapsed_ms,
+                            http_status=resp.status_code,
+                            attempts=attempt_idx + 1,
+                            breaker=self.breaker.get_state(),
+                            truncated=is_truncated,
+                            error_message=err_msg or f"HTTP {resp.status_code}",
+                        )
+                        self._log_structured(decision)
+                        return decision
+                    backoff = self._calculate_backoff(attempt_idx)
+                    if time.monotonic() + backoff >= budget_deadline:
+                        self.breaker.record_failure()
+                        self.metrics.total_calls += 1
+                        self.metrics.failed_calls += 1
+                        decision = Decision(
+                            status="budget_exceeded",
+                            reason_code="DEADLINE_EXCEEDED",
+                            elapsed_ms=elapsed_ms,
+                            attempts=attempt_idx + 1,
+                            breaker=self.breaker.get_state(),
+                            truncated=is_truncated,
+                            error_message="Total budget exceeded during retry backoff",
+                        )
+                        self._log_structured(decision)
+                        return decision
+                    await asyncio.sleep(backoff)
+                    continue
+
+                # 其他 4xx 客户端错误（400, 404, 422 等）：不可重试
+                if resp.status_code >= 400:
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    err_msg = self._extract_error_message(resp)
+                    decision = Decision(
+                        status="invalid",
+                        reason_code=f"HTTP_{resp.status_code}",
+                        elapsed_ms=elapsed_ms,
+                        http_status=resp.status_code,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message=err_msg or f"HTTP {resp.status_code}",
+                    )
+                    self._log_structured(decision)
+                    return decision
+
+                # 200 OK 解析
+                try:
+                    data = resp.json()
+                except Exception as json_err:
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    decision = Decision(
+                        status="invalid",
+                        reason_code="MALFORMED_JSON",
+                        elapsed_ms=elapsed_ms,
+                        http_status=200,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message=f"JSON decode error: {json_err}",
+                    )
+                    self._log_structured(decision)
+                    return decision
+
+                raw_answers = data.get("answers")
+                first_ans: dict[str, Any] | None = None
+                if isinstance(raw_answers, dict):
+                    first_ans = raw_answers.get("decision") or next(
+                        iter(raw_answers.values()), None
+                    )
+                elif isinstance(raw_answers, list) and raw_answers:
+                    first_ans = raw_answers[0]
+
+                if not first_ans or not isinstance(first_ans, dict):
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    decision = Decision(
+                        status="invalid",
+                        reason_code="NO_ANSWER",
+                        elapsed_ms=elapsed_ms,
+                        http_status=200,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message="No answer returned in response",
+                    )
+                    self._log_structured(decision)
+                    return decision
+
+                selected_raw = str(
+                    first_ans.get("choice") or first_ans.get("selected") or "unknown"
+                )
+                if (
+                    sanitized_req.choices
+                    and selected_raw not in sanitized_req.choices
+                    and selected_raw != "unknown"
+                ):
+                    selected = "unknown"
+                else:
+                    selected = selected_raw
+
+                raw_probs = first_ans.get("probabilities")
+                probs: dict[str, float] = {}
+                if isinstance(raw_probs, dict):
+                    for k, v in raw_probs.items():
+                        try:
+                            fv = float(v)
+                            if 0.0 <= fv <= 1.0:
+                                probs[str(k)] = fv
+                        except (ValueError, TypeError):
+                            pass
+
+                try:
+                    conf = float(first_ans.get("confidence", 0.0))
+                    conf = max(0.0, min(1.0, conf))
+                except (ValueError, TypeError):
+                    conf = 0.0
+
+                usage = data.get("usage", {})
+                try:
+                    input_tokens = (
+                        int(usage.get("input_tokens", 0))
+                        if isinstance(usage, dict)
+                        else 0
+                    )
+                except (ValueError, TypeError):
+                    input_tokens = 0
+
+                # 判定成功：记录熔断器成功并缓存
+                self.breaker.record_success()
+                self.metrics.total_calls += 1
+                self.metrics.success_calls += 1
+                decision = Decision(
+                    status="ok",
+                    selected=selected,
+                    probabilities=probs,
+                    confidence=conf,
+                    model=data.get("model", self.model),
                     elapsed_ms=elapsed_ms,
+                    input_tokens=input_tokens,
                     http_status=200,
-                    error_message="No answer returned in response",
+                    attempts=attempt_idx + 1,
+                    breaker=self.breaker.get_state(),
+                    cache_hit=False,
+                    truncated=is_truncated,
                 )
+                if not is_sensitive and not is_truncated:
+                    self.cache.set(cache_key, decision)
 
-            selected_raw = str(
-                first_ans.get("choice") or first_ans.get("selected") or "unknown"
-            )
-            if (
-                request.choices
-                and selected_raw not in request.choices
-                and selected_raw != "unknown"
-            ):
-                selected = "unknown"
-            else:
-                selected = selected_raw
+                self._log_structured(decision)
+                return decision
 
-            raw_probs = first_ans.get("probabilities")
-            probs: dict[str, float] = {}
-            if isinstance(raw_probs, dict):
-                for k, v in raw_probs.items():
-                    try:
-                        fv = float(v)
-                        if 0.0 <= fv <= 1.0:
-                            probs[str(k)] = fv
-                    except (ValueError, TypeError):
-                        pass
+            except httpx.TimeoutException:
+                elapsed_ms = (time.monotonic() - start_t) * 1000.0
+                if attempt_idx == self.MAX_RETRIES:
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    decision = Decision(
+                        status="unavailable",
+                        reason_code="TIMEOUT",
+                        elapsed_ms=elapsed_ms,
+                        http_status=None,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message="Request timed out",
+                    )
+                    self._log_structured(decision)
+                    return decision
+                backoff = self._calculate_backoff(attempt_idx)
+                if time.monotonic() + backoff >= budget_deadline:
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    decision = Decision(
+                        status="budget_exceeded",
+                        reason_code="DEADLINE_EXCEEDED",
+                        elapsed_ms=elapsed_ms,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message="Total budget exceeded during retry backoff",
+                    )
+                    self._log_structured(decision)
+                    return decision
+                await asyncio.sleep(backoff)
+                continue
 
-            try:
-                conf = float(first_ans.get("confidence", 0.0))
-                conf = max(0.0, min(1.0, conf))
-            except (ValueError, TypeError):
-                conf = 0.0
+            except Exception as exc:
+                elapsed_ms = (time.monotonic() - start_t) * 1000.0
+                clean_err = redact_sensitive_text(str(exc), self.api_key)
+                if attempt_idx == self.MAX_RETRIES:
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    decision = Decision(
+                        status="unavailable",
+                        reason_code=f"NETWORK_ERROR_{type(exc).__name__}",
+                        elapsed_ms=elapsed_ms,
+                        http_status=None,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message=clean_err,
+                    )
+                    self._log_structured(decision)
+                    return decision
+                backoff = self._calculate_backoff(attempt_idx)
+                if time.monotonic() + backoff >= budget_deadline:
+                    self.breaker.record_failure()
+                    self.metrics.total_calls += 1
+                    self.metrics.failed_calls += 1
+                    decision = Decision(
+                        status="budget_exceeded",
+                        reason_code="DEADLINE_EXCEEDED",
+                        elapsed_ms=elapsed_ms,
+                        attempts=attempt_idx + 1,
+                        breaker=self.breaker.get_state(),
+                        truncated=is_truncated,
+                        error_message="Total budget exceeded during retry backoff",
+                    )
+                    self._log_structured(decision)
+                    return decision
+                await asyncio.sleep(backoff)
+                continue
 
-            usage = data.get("usage", {})
-            try:
-                input_tokens = (
-                    int(usage.get("input_tokens", 0)) if isinstance(usage, dict) else 0
-                )
-            except (ValueError, TypeError):
-                input_tokens = 0
-
-            return Decision(
-                status="ok",
-                selected=selected,
-                probabilities=probs,
-                confidence=conf,
-                model=data.get("model", self.model),
-                elapsed_ms=elapsed_ms,
-                input_tokens=input_tokens,
-                http_status=200,
-            )
-        except httpx.TimeoutException:
-            elapsed_ms = (time.monotonic() - start_t) * 1000.0
-            return Decision(
-                status="unavailable",
-                reason_code="TIMEOUT",
-                elapsed_ms=elapsed_ms,
-                http_status=None,
-                error_message="Request timed out",
-            )
-        except Exception as exc:
-            elapsed_ms = (time.monotonic() - start_t) * 1000.0
-            return Decision(
-                status="unavailable",
-                reason_code=f"NETWORK_ERROR_{type(exc).__name__}",
-                elapsed_ms=elapsed_ms,
-                http_status=None,
-                error_message=str(exc),
-            )
+        return last_decision or Decision(
+            status="unavailable",
+            reason_code="UNKNOWN_ERROR",
+            attempts=self.MAX_RETRIES + 1,
+            breaker=self.breaker.get_state(),
+            truncated=is_truncated,
+        )

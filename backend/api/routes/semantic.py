@@ -31,7 +31,34 @@ def get_config(
 ):
     sanitized = store.get_sanitized_config()
     sanitized["monitor_keys_usage"] = sem_store.get_capacity_stats()
+    from backend.services.semantic.runtime import get_active_semantic_runtime
+
+    runtime = get_active_semantic_runtime()
+    if runtime:
+        sanitized["stats"] = runtime.get_stats()
     return sanitized
+
+
+@router.get("/stats")
+def get_stats(
+    _: Any = Depends(get_current_user),
+):
+    from backend.services.semantic.runtime import get_active_semantic_runtime
+
+    runtime = get_active_semantic_runtime()
+    if runtime:
+        return runtime.get_stats()
+    return {
+        "total_calls": 0,
+        "success_calls": 0,
+        "failed_calls": 0,
+        "escalate_calls": 0,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "cache_hit_rate": 0.0,
+        "breaker": {"state": "closed", "consecutive_failures": 0},
+        "cache": {"size": 0, "hits": 0, "misses": 0, "hit_rate": 0.0},
+    }
 
 
 @router.patch("/config")
@@ -45,6 +72,11 @@ def update_config(
         store.save_patch(patch)
         sanitized = store.get_sanitized_config()
         sanitized["monitor_keys_usage"] = sem_store.get_capacity_stats()
+        from backend.services.semantic.runtime import get_active_semantic_runtime
+
+        runtime = get_active_semantic_runtime()
+        if runtime:
+            sanitized["stats"] = runtime.get_stats()
         return sanitized
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +20,11 @@ class JevConfigStore:
     def load(self) -> JevServiceConfig:
         with path_write_lock(self.config_path):
             if not self.config_path.exists():
-                return JevServiceConfig()
-            data = read_json_safe(self.config_path, default={})
-            if not isinstance(data, dict):
-                return JevServiceConfig()
+                data: dict[str, Any] = {}
+            else:
+                data = read_json_safe(self.config_path, default={})
+                if not isinstance(data, dict):
+                    data = {}
 
             # 解密 api_key
             raw_key = data.get("api_key", "")
@@ -34,7 +36,26 @@ class JevConfigStore:
                     plain_key = ""
 
             config_dict = dict(data)
-            config_dict["api_key"] = plain_key
+            # 环境变量兜底（优先级：显式配置 > env > 默认）
+            if plain_key:
+                config_dict["api_key"] = plain_key
+            else:
+                env_key = os.getenv("JEV_API_KEY", "").strip()
+                if env_key:
+                    config_dict["api_key"] = env_key
+
+            saved_base = config_dict.get("base_url")
+            if not saved_base or str(saved_base).rstrip("/") == "https://api.typesafe.ai/v1":
+                env_base = os.getenv("JEV_BASE_URL", "").strip()
+                if env_base:
+                    config_dict["base_url"] = env_base
+
+            saved_model = config_dict.get("model")
+            if not saved_model or saved_model == "jev-1.13.0":
+                env_model = os.getenv("JEV_MODEL", "").strip()
+                if env_model:
+                    config_dict["model"] = env_model
+
             try:
                 return JevServiceConfig(**config_dict)
             except Exception:

@@ -12,6 +12,8 @@ def accept_decision(
     min_margin: float,
     abstain: FrozenSet[str] = frozenset({"unknown", "none"}),
 ) -> bool:
+    if getattr(decision, "truncated", False):
+        return False
     if decision.status != "ok":
         return False
     if decision.selected in abstain:

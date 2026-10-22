@@ -3,9 +3,12 @@ import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from backend.services.semantic.config import JevConfigStore
 from backend.services.semantic.store import SemanticStore
+from tg_signer.semantic.breaker import CircuitBreaker
+from tg_signer.semantic.cache import JevDecisionCache
 from tg_signer.semantic.client import JevClient
 from tg_signer.semantic.models import Decision, DecisionRequest, config_revision
 from tg_signer.semantic.runtime_port import register_semantic_runtime_provider
@@ -26,6 +29,8 @@ class SemanticRuntime:
         self.workdir = Path(workdir)
         self.config_store = JevConfigStore(self.workdir)
         self.semantic_store = SemanticStore(self.workdir)
+        self._breaker = CircuitBreaker()
+        self._cache = JevDecisionCache()
         self._service: SemanticService | None = None
         self._generation: int = -1
         self._queue: asyncio.Queue[tuple[DecisionRequest, str, str, float]] = (
@@ -56,6 +61,8 @@ class SemanticRuntime:
                 base_url=cfg.base_url,
                 model=cfg.model,
                 timeout=cfg.timeout_seconds,
+                breaker=self._breaker,
+                cache=self._cache,
             )
             self._service = SemanticService(
                 client,
@@ -69,6 +76,21 @@ class SemanticRuntime:
     @property
     def service(self) -> SemanticService | None:
         return self._ensure_service()
+
+    def get_stats(self) -> dict[str, Any]:
+        if self._service is not None and getattr(self._service, "client", None) is not None:
+            return self._service.client.get_stats()
+        return {
+            "total_calls": 0,
+            "success_calls": 0,
+            "failed_calls": 0,
+            "escalate_calls": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "cache_hit_rate": 0.0,
+            "breaker": self._breaker.snapshot(),
+            "cache": self._cache.stats(),
+        }
 
     def record_observation(
         self,
@@ -220,6 +242,10 @@ def get_semantic_runtime(workdir: Path | None = None) -> SemanticRuntime:
 
             workdir = Path(WORKDIR)
         _GLOBAL_RUNTIME = SemanticRuntime(workdir)
+    return _GLOBAL_RUNTIME
+
+
+def get_active_semantic_runtime() -> SemanticRuntime | None:
     return _GLOBAL_RUNTIME
 
 

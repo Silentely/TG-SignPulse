@@ -15,6 +15,7 @@ class DecisionRequest:
     instructions: str
     request_key: str
     config_revision: str
+    truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,14 @@ class Decision:
     reason_code: str = ""
     http_status: int | None = None
     error_message: str = ""
+    attempts: int = 1
+    breaker: str = "closed"
+    cache_hit: bool = False
+    truncated: bool = False
+
+    @property
+    def latency_ms(self) -> float:
+        return self.elapsed_ms
 
 
 @dataclass(frozen=True)
