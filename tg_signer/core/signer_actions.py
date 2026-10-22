@@ -262,7 +262,10 @@ class SignerActionsMixin:
                                 else:
                                     err_reason = (
                                         f"，原因: {decision.error_message or decision.reason_code}"
-                                        if (decision.error_message or decision.reason_code)
+                                        if (
+                                            decision.error_message
+                                            or decision.reason_code
+                                        )
                                         else ""
                                     )
                                     self.log(

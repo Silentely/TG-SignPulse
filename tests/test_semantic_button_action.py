@@ -40,7 +40,9 @@ def test_semantic_button_selection_logic():
 
 
 def test_semantic_button_rejection_logic():
-    policy = SemanticButtonPolicy(mode="assist", goal="领取每日签到奖励", min_probability=0.98)
+    policy = SemanticButtonPolicy(
+        mode="assist", goal="领取每日签到奖励", min_probability=0.98
+    )
     decision = Decision(
         status="ok",
         selected="none",

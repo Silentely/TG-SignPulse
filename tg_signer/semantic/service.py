@@ -3,11 +3,11 @@ import logging
 import time
 from typing import Any, Callable
 
-logger = logging.getLogger("tg_signer.semantic.service")
-
-from tg_signer.semantic.client import JevClient
 from tg_signer.log_utils import safe_text_preview
+from tg_signer.semantic.client import JevClient
 from tg_signer.semantic.models import Decision, DecisionRequest
+
+logger = logging.getLogger("tg_signer.semantic.service")
 
 
 class SemanticService:

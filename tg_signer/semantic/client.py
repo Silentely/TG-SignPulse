@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from tg_signer.log_utils import safe_text_preview
 from tg_signer.semantic.breaker import CircuitBreaker
 from tg_signer.semantic.cache import (
     JevDecisionCache,
@@ -17,7 +18,6 @@ from tg_signer.semantic.cache import (
     is_sensitive_request,
 )
 from tg_signer.semantic.models import Decision, DecisionRequest
-from tg_signer.log_utils import safe_text_preview
 from tg_signer.semantic.security import (
     redact_sensitive_text,
     sanitize_request,

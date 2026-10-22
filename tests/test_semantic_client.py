@@ -698,6 +698,7 @@ def test_oversized_state_truncation():
 def test_log_structured_levels_and_fields(caplog):
     """验证 _log_structured 根据 status 输出不同级别日志且包含 status, reason, error 字段"""
     import logging
+
     client = JevClient(api_key="sk-test", base_url="https://api.typesafe.ai/v1")
 
     # 1. ok -> INFO
@@ -705,18 +706,44 @@ def test_log_structured_levels_and_fields(caplog):
         caplog.clear()
         d_ok = Decision(status="ok", selected="foo", confidence=0.99, elapsed_ms=12.3)
         client._log_structured(d_ok, scope="acc1:task1")
-        assert any(r.levelno == logging.INFO and "status=ok" in r.message and "scope=acc1:task1" in r.message for r in caplog.records)
+        assert any(
+            r.levelno == logging.INFO
+            and "status=ok" in r.message
+            and "scope=acc1:task1" in r.message
+            for r in caplog.records
+        )
 
     # 2. escalate / budget_exceeded -> WARNING
     with caplog.at_level(logging.DEBUG):
         caplog.clear()
-        d_esc = Decision(status="escalate", reason_code="CIRCUIT_BREAKER_OPEN", error_message="breaker open")
+        d_esc = Decision(
+            status="escalate",
+            reason_code="CIRCUIT_BREAKER_OPEN",
+            error_message="breaker open",
+        )
         client._log_structured(d_esc, scope="acc1:task1")
-        assert any(r.levelno == logging.WARNING and "status=escalate" in r.message and "reason=CIRCUIT_BREAKER_OPEN" in r.message and "breaker open" in r.message for r in caplog.records)
+        assert any(
+            r.levelno == logging.WARNING
+            and "status=escalate" in r.message
+            and "reason=CIRCUIT_BREAKER_OPEN" in r.message
+            and "breaker open" in r.message
+            for r in caplog.records
+        )
 
     # 3. unavailable / invalid -> ERROR
     with caplog.at_level(logging.DEBUG):
         caplog.clear()
-        d_err = Decision(status="unavailable", reason_code="AUTH_FAILED", error_message="Invalid key", http_status=401)
+        d_err = Decision(
+            status="unavailable",
+            reason_code="AUTH_FAILED",
+            error_message="Invalid key",
+            http_status=401,
+        )
         client._log_structured(d_err, scope="acc1:task1")
-        assert any(r.levelno == logging.ERROR and "status=unavailable" in r.message and "reason=AUTH_FAILED" in r.message and "Invalid key" in r.message for r in caplog.records)
+        assert any(
+            r.levelno == logging.ERROR
+            and "status=unavailable" in r.message
+            and "reason=AUTH_FAILED" in r.message
+            and "Invalid key" in r.message
+            for r in caplog.records
+        )
