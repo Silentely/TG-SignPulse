@@ -23,7 +23,7 @@ TG-SignPulse 由四个核心层组成：
 开发模式默认运行在：
 
 ```text
-http://127.0.0.1:3000
+http://localhost:5173
 ```
 
 ## 后端 API

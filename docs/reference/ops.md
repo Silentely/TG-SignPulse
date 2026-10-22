@@ -10,8 +10,8 @@
 | `GET /api/ops/backup/status` | 数据目录备份状态与关键路径体积（含 `backup_target`、WebDAV 就绪状态） |
 | `POST /api/ops/backup/export` | 完整备份：根据设置的备份目标策略（`backup_target`：`auto` / `webdav`）上传 WebDAV；未配置或参数 target=download 时回退浏览器下载流 |
 | `POST /api/ops/backup/webdav/test` | 测试全局设置中的 WebDAV 连通性 |
-| `GET /api/ops/backup/webdav/files` | 列出远端目录 `.tar.gz` 备份（PROPFIND） |
-| `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.tar.gz`（安全文件名） |
+| `GET /api/ops/backup/webdav/files` | 列出远端目录 `.spbak` / `.tar.gz` 备份（PROPFIND） |
+| `GET /api/ops/backup/webdav/download?name=` | 流式下载指定远端 `.spbak` / `.tar.gz`（安全文件名） |
 | `GET /api/ops/memory` | 进程内存监控统计（若已启动） |
 | `GET /api/ops/version` | 本地版本、Git SHA/分支、构建时间、Python 版本 |
 | `POST /api/ops/version/check?force=false` | 远程更新检查（GitHub Releases；可关；失败 soft-fail） |
@@ -145,7 +145,7 @@ docker logs -f tg-signpulse
 | 能力 | 内容 | 可否面板导入 | 用途 |
 |------|------|--------------|------|
 | **配置 JSON** | 任务 / 监控 / 全局与 AI·TG 设置（AI 密钥脱敏） | ✅ 可导入 | 流程迁移、模板拷贝 |
-| **完整备份 tar.gz** | `db.sqlite`、`sessions`、`.signer`、配置文件等 | ❌ 仅导出 | 换机 / 灾难恢复 |
+| **完整备份 .spbak / .tar.gz** | `db.sqlite`、`sessions`、`.signer`、配置文件等 | 支持上传归档 | 换机 / 灾难恢复 |
 
 ### 配置 JSON 注意
 
@@ -158,6 +158,8 @@ docker logs -f tg-signpulse
 面板 **完整备份**（WebDAV / 归档下载）的逐步说明见 [备份与恢复](/guide/backup-webdav)。
 
 面板上传/导出备份包会打包推荐路径（**不含** `.admin_bootstrap_password`）。
+
+`POST /api/ops/backup/export` 默认导出使用当前实例密钥加密的 `.spbak`；可通过 `format=tar.gz` 选择未加密归档，或通过表单字段 `password` 设置备份密码。`POST /api/ops/backup/import` 接收归档文件与可选密码，并替换数据目录。换机前须单独保存原 `APP_SECRET_KEY` 或 `.app_secret_key`，以解密归档及其中的敏感配置；面板归档不包含 `.app_secret_key`。
 
 宿主机整目录备份示例：
 
@@ -172,7 +174,7 @@ tar -czf "tg-signpulse-backup-$(date +%F).tar.gz" -C "$(pwd)" data
 - `.signer/`（任务配置 + 历史）
 - `.global_settings.json` / `.openai_config.json` / `.telegram_api.json`
 
-### 从 tar.gz 恢复（面板无上传恢复，手动操作）
+### 停机手动恢复 tar.gz
 
 1. **停止** 面板服务（避免写冲突）  
 2. 将备份解压到 `APP_DATA_DIR`（默认 `/data` 或 `./data`），覆盖同名路径  
@@ -180,12 +182,14 @@ tar -czf "tg-signpulse-backup-$(date +%F).tar.gz" -C "$(pwd)" data
 4. **启动** 服务，用原账号登录验证  
 
 ```bash
-# 示例：备份文件在当前目录，数据目录为 ./data
+# 示例：面板导出的未加密 tar.gz 在当前目录，数据目录为 ./data
 systemctl stop tg-signpulse   # 按你的部署方式停止
 tar -xzf tg-signpulse-backup-YYYYMMDD-HHMMSS.tar.gz -C ./data
 # 若 tar 内路径已是 db.sqlite、sessions 等，应直接落在 data 根下
 systemctl start tg-signpulse
 ```
+
+上面的宿主机整目录备份含 `data/` 顶层目录，应解压到其父目录（如 `tar -xzf tg-signpulse-backup-YYYY-MM-DD.tar.gz -C .`），避免生成 `data/data/`。`.spbak` 不能直接使用这些 `tar` 命令。
 
 > PostgreSQL 部署时：`db.sqlite` 备份意义不大，请自行 `pg_dump`；sessions 与 `.signer` 仍须备份。
 

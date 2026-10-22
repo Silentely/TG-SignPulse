@@ -12,7 +12,7 @@
 | 组件 | 说明 |
 |------|------|
 | 方案 | JWT Bearer（HS256） |
-| 登录 | `POST /api/auth/login`（OAuth2 Password 风格） |
+| 登录 | `POST /api/auth/login`（JSON 请求体，见下方示例） |
 | Token 用法 | `Authorization: Bearer <access_token>` |
 | 可选二步验证 | 用户启用 TOTP 时，登录需附带 `totp_code` |
 | 发现元数据 | 见 `/.well-known/oauth-protected-resource` 与 `/.well-known/oauth-authorization-server` |
@@ -21,7 +21,7 @@
 
 面板采用 **本地管理员账号**，默认在首次启动时由环境变量创建：
 
-1. 部署实例（Docker / 源码），设置 `ADMIN_PASSWORD`（或使用启动日志中的随机密码）。
+1. 部署实例（Docker / 源码），设置 `ADMIN_PASSWORD`（或读取数据目录中的 `.admin_bootstrap_password`）。
 2. 使用管理员账号登录 Web 面板或调用登录 API。
 3. 在「用户设置」中可修改用户名、密码，并启用 TOTP。
 4. Agent 侧：使用同一账号密码换取 JWT，再调用受保护 API。
@@ -74,14 +74,14 @@ Authorization: Bearer <jwt>
 
 - Protected Resource Metadata: `/.well-known/oauth-protected-resource`
 - Authorization Server Metadata: `/.well-known/oauth-authorization-server`
-- OpenAPI（自托管实例）: `{panel-origin}/openapi.json`
+- OpenAPI（自托管实例）: `{panel-origin}/openapi.json`（需设置 `ENABLE_API_DOCS=true`）
 - 服务文档: https://tg.cosr.eu.org/reference/configuration
 
 ## Agent 接入建议
 
-1. 先读取本页与 OAuth 元数据，确认 `issuer` 与 `token_endpoint`。
-2. 使用管理员提供的账号调用 `token_endpoint` / 登录接口换 token。
-3. 将 token 放入 `Authorization: Bearer` 访问 `{resource}` 下的 API。
+1. 向管理员确认自托管面板的实际地址 `{panel-origin}`。文档站 OAuth 元数据中的链接指向说明页面，不是可用于换取 token 的认证服务。
+2. 使用管理员提供的账号，向 `{panel-origin}/api/auth/login` 发送 JSON 请求换取 token。
+3. 将 token 放入 `Authorization: Bearer`，访问 `{panel-origin}/api/` 下的 API。
 4. Token 过期后重新登录；不要在公共仓库提交密码或 JWT。
 5. 文档站内容可用 `Accept: text/markdown` 获取 Markdown 正文。
 

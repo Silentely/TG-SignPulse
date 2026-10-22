@@ -177,7 +177,7 @@ Full docs: **[https://tg.cosr.eu.org](https://tg.cosr.eu.org/)**
 | `APP_DATABASE_URL` | Optional; empty = SQLite, or Postgres URL | empty |
 | `TZ` | Timezone | `Asia/Shanghai` |
 | `TG_SESSION_MODE` | Session mode `file`/`string` | `file` |
-| `TG_GLOBAL_CONCURRENCY` | Global concurrency limit | `1` |
+| `TG_GLOBAL_CONCURRENCY` | Global Telegram concurrency limit | CPU count, capped at 5 |
 | `TG_PROXY` | Global Telegram proxy | None |
 | `ENABLE_API_DOCS` | Enable Swagger UI & OpenAPI schema docs (disabled by default for security) | `false` |
 

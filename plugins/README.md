@@ -53,7 +53,7 @@ TG-SignPulse 随包提供了丰富的开箱即用官方插件，用户可在前�
 - **[`regex_reply`](./regex_reply/main.py)**：
   通用正则表达式匹配提取与模板回复插件。支持通过正则捕获组提取验证码、动态口令，并配合模板安全秒回。
   - **模式**：`reactive`
-  - **参数**：`pattern`（匹配正则），`template`（回复模板，如 `code:{1}`），`timeout`（匹配等待超时）。
+  - **参数**：`pattern`（匹配正则），`template`（回复模板，如 `code:{1}`），`reply_to`（是否引用原消息回复，默认 `true`）。
 
 - **[`keyword_reactor`](./keyword_reactor/main.py)**：
   关键词监听、自动表态反应（Reaction）与快捷回复插件。当 Bot 发送包含特定关键词（如“已签到”、“任务完成”）的消息时，自动为其点赞/点爱心并可选回复。

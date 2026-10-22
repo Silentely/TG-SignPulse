@@ -67,6 +67,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
     stop_grace_period: 30s
     logging:
       driver: "json-file"
@@ -139,7 +144,7 @@ Docker 内置健康检查已配置，间隔 30s，超时 10s。
 └── .signer/                     # 签到引擎数据
 ```
 
-> ⚠️ 如果 `/data` 不可写，程序会降级到 `/tmp/tg-signpulse`（非持久化），仅适合临时测试。
+> ⚠️ 容器入口在 `/data` 不存在、无法修复属主，或以非 root 身份启动但目录不可写时会报错退出。请先修正挂载卷权限。
 
 > ⚠️ **防呆说明（单实例 / 单 Worker 约束）**：
 > 系统采用本地文件化配置与进程内互斥锁（`path_write_lock`）。生产部署时**请保持单副本（Single Replica）与单 Worker（默认 Uvicorn 启动项）运行**：
@@ -151,9 +156,9 @@ Docker 内置健康检查已配置，间隔 30s，超时 10s。
 
 容器入口脚本会自动：
 
-1. 检测 `/data` 挂载目录的属主 UID/GID
-2. 以该 UID/GID 身份运行应用
-3. 修复 `/data` 下文件的权限（确保可写）
+1. 以 root 启动时，将 `/data` 属主修正为 `APP_UID:APP_GID`（默认 `10001:10001`）并补充属主读写权限
+2. 通过 `gosu` 降权至该 UID/GID 运行应用；属主修复失败则退出
+3. 显式以非 root 身份启动时，仅检查 `/data` 是否可写，不自动修复权限
 
 如果不需要自动修复权限：
 
@@ -205,11 +210,11 @@ panel.example.com {
 
 镜像构建建议分层缓存：
 
-- 前端：先复制 `frontend/package*.json` 并运行 `npm install`，再复制源码构建。
+- 前端：先复制 `frontend/package*.json` 并运行 `npm ci`，再复制源码构建。
 - 后端：优先缓存 Python wheel / pip 下载目录，依赖文件变化时再失效。
 - Docker Buildx：启用 registry cache 或 GitHub Actions cache，减少多平台构建耗时。
 
 预发流程建议：
 
-1. 每次主分支构建推送 `test-<short-sha>`。
+1. 使用 `dev` 分支构建生成的 `dev-<sha>` 标签。
 2. 预发环境显式部署该 sha 标签并验证。

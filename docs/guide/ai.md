@@ -191,10 +191,15 @@ gpt-5-nano
 ### 核心能力
 1. **语义结果复核 (Result Assist)**：在显式文本/正则规则未匹配时，由大模型根据任务目标进行置信度判别，协助确认签到奖励是否已到账。
 2. **安全候选按钮选择 (Button Candidate Selection)**：单目标精确文本未命中时，在过滤支付、提现、充值等敏感操作后提取安全候选按钮，基于 SHA-256 消息指纹进行防篡改点击。
-3. **硬异常保护与智能分流 (Triage Disposition)**：网络断开、认证失败等硬异常坚决不调用模型；对非预期回复进行智能分流（区分可重试、终止或需人工复核），阻止无效重试与无界降级。
-4. **规则变化发现与无害补丁建议 (Drift & Suggestions)**：跨批次累积未匹配证据，自动生成字面追加/替换建议，支持单写事务下的版本冲突拦截 (HTTP 409) 与一键原子更新。
+3. **异常分流策略 (Triage Disposition)**：已提供异常分类请求与处置判定函数，硬异常保持原处置；当前尚未接入生产执行调用链，不能依靠 `semantic_triage` 自动分流异常。
+4. **规则建议审阅 (Suggestions)**：支持审阅、忽略和应用已存储的字面规则补丁，应用时检查任务配置版本，冲突返回 HTTP 409。当前规则变化候选聚合与补丁构建函数尚未接入生产调用链，开启 `drift_enabled` 不会自动生成建议。
 
 ### 配置说明
-- **配置文件**：独立保存于工作目录下的 `.jev_config.json`，与传统 OpenAI 配置完全解耦。
-- **配置项**：支持 `enabled`、`drift_enabled`、`timeout_seconds`、`max_concurrency`、`max_calls_per_run` 与 `max_calls_per_minute` 等资源保护预算。
+- **配置入口**：进入 **系统设置** → **JEV / 语义接口**，选择官方或自定义接口，填写密钥后保存；**测试连接** 会先保存当前表单。
+- **配置文件**：独立保存于签到引擎工作目录下的 `.jev_config.json`（默认 `/data/.signer/.jev_config.json`；可通过 `APP_SIGNER_WORKDIR` 更改工作目录），与传统 OpenAI 配置完全解耦。
+- **接口配置**：官方接口默认 `base_url=https://api.typesafe.ai/v1`、`model=jev-1.13.0`；自定义接口需支持 Jev System One 协议。更换接口主机时请重新填写密钥，否则已保存的密钥会被清空。
+- **资源预算**：`enabled` 默认 `false`；`timeout_seconds` 默认 `8`（1–30 秒），`max_concurrency` 默认 `2`（1–5），`max_calls_per_run` 默认 `6`（0–30），`max_calls_per_minute` 默认 `60`（0–600）。两种调用次数预算设为 `0` 表示不限制对应次数。
+- **任务策略**：全局启用后，仍需在任务配置中启用对应的 `semantic_result` 或 `semantic_button` 策略，设为 `mode=assist` 才参与执行。结果复核还支持 `mode=observe`，仅记录观测而不改变执行结果；默认模式为 `off`。
 - **安全保障**：所有敏感密钥采用 Fernet（基于 AES-128-CBC 与 HMAC-SHA256 的认证对称加密）本地加密落盘，前端脱敏展示；多 Worker 环境自动触发单写进程安全告警。
+
+待处理建议会显示在任务日志弹窗的规则建议页签；**日志** 页的详情弹窗仅在存在建议时显示建议面板。应用建议遇到 HTTP 409 时，需基于最新任务配置重新审阅。

@@ -1,6 +1,6 @@
 # TG-SignPulse 文档
 
-> v2.3.0 · Telegram 多账号自动化、任务编排、关键词监听和 AI 验证处理控制台。
+> Telegram 多账号自动化、任务编排、关键词监听和 AI 验证处理控制台。
 
 ## 产品简介
 
@@ -85,7 +85,6 @@ TG-SignPulse/
 │   ├── api/            #   API 路由层
 │   ├── core/           #   配置、认证、数据库
 │   ├── models/         #   SQLAlchemy 数据模型
-│   ├── plugins/        #   自定义 Action 插件管理与沙箱 IPC
 │   ├── services/       #   业务逻辑层（签到、监听、Telegram）
 │   ├── scheduler/      #   APScheduler 调度器
 │   └── utils/          #   工具函数

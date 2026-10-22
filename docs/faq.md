@@ -40,16 +40,16 @@ data/.admin_bootstrap_password
 
 ## 设置里「导出 JSON」和「完整备份」有什么区别？
 
-| | 配置 JSON | 完整备份 tar.gz |
+| | 配置 JSON | 完整备份 .spbak / .tar.gz |
 |--|-----------|-----------------|
 | 含任务配置 | ✅ | ✅（在 `.signer`） |
 | 含登录会话 | ❌ | ✅ |
 | 含数据库 | ❌ | ✅（SQLite） |
-| 面板可导入 | ✅ | ❌（需手动解压恢复） |
+| 面板可导入 | ✅ | 支持上传归档；整机迁移建议停机恢复 |
 | AI 密钥 | 导出脱敏，导入不覆盖已有密钥 | 随配置文件原样打包 |
 
 - 只想迁移任务流程与参数 → 用 **JSON**  
-- 换服务器整机恢复 / 容灾 → 用 **完整备份**（支持 WebDAV 远端备份与本地归档下载），停止服务后解压到 data 目录再启动（见 [备份与恢复](guide/backup-webdav.md)、[运维手册](reference/ops.md)，面板内「灾难恢复指引」弹窗提供标准化复制命令）。
+- 换服务器整机恢复 / 容灾 → 用 **完整备份**（支持 WebDAV 远端备份与本地归档下载）。手动停机解压仅适用于未加密的 `.tar.gz`；默认加密的 `.spbak` 不能直接用 `tar` 解压，恢复前需保留原实例密钥（见 [备份与恢复](guide/backup-webdav.md)、[运维手册](reference/ops.md)）。
 
 ## 如何配置 WebDAV 自动备份？
 
@@ -66,7 +66,7 @@ data/.admin_bootstrap_password
 
 ## 为什么重启后数据丢了
 
-通常是因为没有挂载 `/data`，或者 `/data` 不可写导致程序降级到了 `/tmp/tg-signpulse`。
+Docker 部署时先检查是否挂载了 `/data`；挂载目录权限错误会使容器启动失败。本地直接运行时，若默认 `/data` 不可写，程序可能降级到非持久化的 `/tmp/tg-signpulse`。
 
 ## 为什么 AI 动作没有反应
 
@@ -127,12 +127,13 @@ gpt-5-nano
 通过命令行运行项目内置的安全重置工具：
 
 - **Docker Compose 容器环境**：
+  在宿主机仓库根目录执行；Compose 服务名为 `app`，官方镜像未包含 `scripts/`，因此通过标准输入传入脚本：
   ```bash
-  docker compose exec backend python -m scripts.reset_user_totp <用户名>
+  docker compose exec -T app python - <用户名> < scripts/reset_user_totp.py
   ```
   例如重置 admin 用户的 2FA：
   ```bash
-  docker compose exec backend python -m scripts.reset_user_totp admin
+  docker compose exec -T app python - admin < scripts/reset_user_totp.py
   ```
 - **纯 Python / 本地运行环境**：
   ```bash

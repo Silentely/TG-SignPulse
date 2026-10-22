@@ -13,7 +13,7 @@
 | `PORT` | `8080` | | Docker 容器内实际监听端口 |
 | `TZ` | `Asia/Hong_Kong` (本地) / `Asia/Shanghai` (容器) | | 时区，影响任务调度 |
 | `LOG_LEVEL` / `APP_LOG_LEVEL` | `INFO` | | 后端日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL` |
-| `DISABLE_ACCESS_LOG` | 未设置 | | 设为 `1`、`true` 或 `yes` 时禁用 Uvicorn 访问日志；默认保留访问日志，健康检查路径仍会过滤 |
+| `DISABLE_ACCESS_LOG` | 未设置 | | 本地直接运行时，设为 `1`、`true` 或 `yes` 禁用 Uvicorn 访问日志；Docker 入口仅在 `LOG_LEVEL=DEBUG` 时启用访问日志 |
 | `APP_DATABASE_URL` / `DATABASE_URL` | （空=本地 SQLite） | | SQLAlchemy URL，可切换 Postgres 等 |
 | `APP_SCHEDULER_LOCK` | `1` | | 多实例调度文件锁；`0` 关闭 |
 | `APP_LEGACY_TASKS_READONLY` | `1` | | 历史变量；旧 `/api/tasks` 路由已删除，无效果 |
@@ -149,6 +149,18 @@ environment:
 >
 > 针对 OpenAI GPT-5 与 o 系列（o1/o3/o4）等新架构模型：系统自动适配 `max_completion_tokens` 代替废弃的 `max_tokens`，并自动省略不支持的 `temperature` 参数；当遭遇不同网关/代理对 token 参数或 `temperature` 的互斥报错时，系统会自动进行双向参数名互换及 `temperature` 剔除重试，并包含单次请求防振荡死循环熔断保护。
 
+## Jev 语义接口配置
+
+配置文件默认位于 `/data/.signer/.jev_config.json`，可在 **系统设置** → **JEV / 语义接口** 中保存接口地址、模型、密钥与超时。使用方式与任务策略见 [Jev 语义自动化策略](../guide/ai.md#jev-语义自动化策略)。
+
+| 环境变量 | 默认值 | 生效条件 |
+|------|--------|------|
+| `JEV_API_KEY` | 空 | 未保存可解密的非空密钥时兜底使用 |
+| `JEV_BASE_URL` | `https://api.typesafe.ai/v1` | 未保存接口地址，或保存值仍为官方默认地址时使用 |
+| `JEV_MODEL` | `jev-1.13.0` | 未保存模型，或保存值仍为默认模型时使用 |
+
+这些变量不会自动启用语义功能；`enabled` 默认 `false`。通过面板保存的非默认接口地址和模型优先于环境变量。
+
 ## 容器相关
 
 | 变量 | 默认值 | 说明 |
@@ -168,6 +180,7 @@ environment:
 | `.global_settings.json` | 全局设置（面板「系统设置」保存） |
 | `.openai_config.json` | AI 配置（面板「AI 设置」保存） |
 | `.telegram_api.json` | Telegram API 配置 |
+| `.signer/.jev_config.json` | Jev 语义接口配置（位于签到引擎工作目录） |
 
 ## 全局设置文件
 
@@ -200,7 +213,7 @@ environment:
 }
 ```
 
-> ⚠️ `api_key` 字段存储的是 Fernet 加密后的密文（以 `gAAAAA` 开头），由面板自动加密/解密。从旧版本升级后首次保存会自动将明文转换为加密格式。
+> ⚠️ `api_key` 字段存储的是 Fernet 加密后的密文（以 `fernet:` 开头），由面板自动加密/解密。从旧版本升级后首次保存会自动将明文转换为加密格式。
 
 支持任何 OpenAI 兼容接口（如 Azure OpenAI、本地 LLM 等）。
 
@@ -279,7 +292,7 @@ environment:
 - `APP_SECRET_KEY` 未设置时，自动生成并持久化到 `.app_secret_key`
 - `TG_SESSION_MODE=string` 时，session string 存入 `sessions/accounts.json`
 - 任务日志默认保留 3 天，由每日凌晨 3 点的维护任务自动清理
-- 默认会记录 uvicorn access log，但仍会过滤健康检查端点以减少噪音；如需关闭可设置 `DISABLE_ACCESS_LOG=1`
+- 本地直接运行默认记录 Uvicorn access log，并过滤健康检查端点；可设置 `DISABLE_ACCESS_LOG=1` 关闭。Docker 入口默认关闭，仅在 `LOG_LEVEL=DEBUG` 时启用
 - TOTP 验证具有重放保护：同一验证码在 2 分钟窗口内不可重复使用
 - `TG_GLOBAL_CONCURRENCY` 未设置时，自动根据 CPU 核心数计算（上限为 5）
 
