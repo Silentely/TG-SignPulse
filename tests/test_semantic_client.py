@@ -44,17 +44,12 @@ def test_normalize_base_url():
     - 去除多余尾部斜杠
     - 若误填完整路径包含 /systemone，剥离避免重复拼接
     """
+    assert normalize_base_url("https://api.example.com") == "https://api.example.com/v1"
     assert (
-        normalize_base_url("https://api.example.com")
-        == "https://api.example.com/v1"
+        normalize_base_url("https://api.example.com/") == "https://api.example.com/v1"
     )
     assert (
-        normalize_base_url("https://api.example.com/")
-        == "https://api.example.com/v1"
-    )
-    assert (
-        normalize_base_url("https://api.example.com/v1")
-        == "https://api.example.com/v1"
+        normalize_base_url("https://api.example.com/v1") == "https://api.example.com/v1"
     )
     assert (
         normalize_base_url("https://api.example.com/v1/")
@@ -72,14 +67,8 @@ def test_normalize_base_url():
         normalize_base_url("  https://api.example.com/v1/  ")
         == "https://api.example.com/v1"
     )
-    assert (
-        normalize_base_url("")
-        == "https://api.typesafe.ai/v1"
-    )
-    assert (
-        normalize_base_url(None)
-        == "https://api.typesafe.ai/v1"
-    )
+    assert normalize_base_url("") == "https://api.typesafe.ai/v1"
+    assert normalize_base_url(None) == "https://api.typesafe.ai/v1"
 
 
 @pytest.mark.asyncio
@@ -121,7 +110,10 @@ async def test_jev_client_request_url_normalization(monkeypatch):
         ("https://api.example.com", "https://api.example.com/v1/systemone"),
         ("https://api.example.com/v1", "https://api.example.com/v1/systemone"),
         ("https://api.example.com/v1/", "https://api.example.com/v1/systemone"),
-        ("https://api.example.com/v1/systemone", "https://api.example.com/v1/systemone"),
+        (
+            "https://api.example.com/v1/systemone",
+            "https://api.example.com/v1/systemone",
+        ),
         ("https://api.example.com/systemone", "https://api.example.com/v1/systemone"),
     ]
 

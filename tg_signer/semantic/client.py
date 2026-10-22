@@ -16,7 +16,7 @@ def normalize_base_url(url: str | None) -> str:
         return "https://api.typesafe.ai/v1"
     cleaned = url.strip().rstrip("/")
     if cleaned.endswith("/systemone"):
-        cleaned = cleaned[:-len("/systemone")].rstrip("/")
+        cleaned = cleaned[: -len("/systemone")].rstrip("/")
     if not cleaned.endswith("/v1"):
         cleaned = f"{cleaned}/v1"
     return cleaned
