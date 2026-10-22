@@ -90,21 +90,21 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-3 p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 text-sm">
-    <div class="flex items-center justify-between pb-2 border-b border-zinc-800/80">
-      <div class="flex items-center gap-2 font-medium text-zinc-200">
-        <Sparkles class="w-4 h-4 text-amber-400" />
+  <div class="ui-card p-3 mb-3 text-sm border-amber-500/20 dark:border-amber-500/30 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] space-y-2.5">
+    <div class="flex items-center justify-between pb-2 border-b border-[var(--sp-border)]">
+      <div class="flex items-center gap-2 font-medium text-[var(--sp-text)]">
+        <Sparkles class="w-4 h-4 text-amber-500 dark:text-amber-400" />
         <span>{{ t('ruleSuggestions.title') }}</span>
         <span
           v-if="suggestions.length > 0"
-          class="px-1.5 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-300 font-mono"
+          class="px-1.5 py-0.5 text-xs rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono font-medium"
         >
           {{ suggestions.length }}
         </span>
       </div>
       <button
         type="button"
-        class="text-zinc-400 hover:text-zinc-200 p-1 rounded transition-colors"
+        class="ui-icon-btn !w-6 !h-6 text-[var(--sp-text-muted)] hover:text-[var(--sp-text)]"
         :disabled="loading"
         :title="t('ruleSuggestions.refresh')"
         @click="fetchSuggestions"
@@ -116,65 +116,66 @@ onMounted(() => {
     <!-- 错误或冲突提示 -->
     <div
       v-if="errorMsg"
-      class="flex items-start gap-2 p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs"
+      class="flex items-start gap-2 p-2.5 rounded bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 text-xs"
     >
-      <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+      <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
       <span class="flex-1">{{ errorMsg }}</span>
     </div>
 
     <!-- 空状态 -->
     <div
       v-if="!loading && suggestions.length === 0"
-      class="py-4 text-center text-xs text-zinc-500"
+      class="py-2.5 text-center text-xs text-[var(--sp-text-muted)] flex items-center justify-center gap-1.5"
     >
-      {{ t('ruleSuggestions.empty') }}
+      <Check class="w-3.5 h-3.5 text-emerald-500 opacity-70" />
+      <span>{{ t('ruleSuggestions.empty') }}</span>
     </div>
 
     <!-- 建议列表 -->
-    <div v-else class="space-y-2">
+    <div v-else-if="suggestions.length > 0" class="space-y-2">
       <div
         v-for="s in suggestions"
         :key="s.id"
-        class="p-2.5 rounded-lg bg-zinc-800/40 border border-zinc-700/60 flex flex-col gap-2"
+        class="p-2.5 rounded bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface)] border border-[var(--sp-border)] flex flex-col gap-2"
       >
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
-            <span class="text-xs px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300 font-mono">
+            <span class="text-xs px-1.5 py-0.5 rounded bg-[var(--sp-surface-muted)] text-[var(--sp-text)] font-mono border border-[var(--sp-border)]">
               {{ s.kind }}
             </span>
-            <span class="text-xs text-zinc-400 font-mono truncate max-w-[200px]" :title="s.patch.path">
+            <span class="text-xs text-[var(--sp-text-secondary)] font-mono truncate max-w-[200px]" :title="s.patch.path">
               {{ s.patch.path }}
             </span>
           </div>
           <span
             v-if="s.confidence"
-            class="text-[11px] text-zinc-400"
+            class="text-[11px] text-[var(--sp-text-muted)] font-medium"
           >
             {{ t('ruleSuggestions.confidence') }} {{ (s.confidence * 100).toFixed(0) }}%
           </span>
         </div>
 
         <!-- 差异对比 -->
-        <div class="grid grid-cols-2 gap-2 text-xs font-mono bg-zinc-950/60 p-2 rounded border border-zinc-800">
+        <div class="grid grid-cols-2 gap-2 text-xs font-mono bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] p-2 rounded border border-[var(--sp-border)]">
           <div class="overflow-hidden">
-            <div class="text-[10px] text-zinc-500 mb-0.5">{{ t('ruleSuggestions.currentConfig') }}</div>
-            <div class="text-rose-400/90 truncate" :title="String(s.patch.old)">
+            <div class="text-[10px] text-[var(--sp-text-muted)] mb-0.5 uppercase tracking-wider">{{ t('ruleSuggestions.currentConfig') }}</div>
+            <div class="text-rose-600 dark:text-rose-400 truncate" :title="String(s.patch.old)">
               {{ s.patch.old !== undefined ? JSON.stringify(s.patch.old) : '-' }}
             </div>
           </div>
           <div class="overflow-hidden">
-            <div class="text-[10px] text-zinc-500 mb-0.5">{{ t('ruleSuggestions.suggestedValue') }}</div>
-            <div class="text-emerald-400 truncate" :title="String(s.patch.value)">
+            <div class="text-[10px] text-[var(--sp-text-muted)] mb-0.5 uppercase tracking-wider">{{ t('ruleSuggestions.suggestedValue') }}</div>
+            <div class="text-emerald-600 dark:text-emerald-400 truncate" :title="String(s.patch.value)">
               {{ JSON.stringify(s.patch.value) }}
             </div>
           </div>
         </div>
 
         <!-- 操作按钮 -->
-        <div class="flex items-center justify-end gap-2 pt-1">
+        <div class="flex items-center justify-end gap-2 pt-0.5">
           <button
             type="button"
-            class="px-2.5 py-1 text-xs rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors flex items-center gap-1"
+            class="ui-btn-secondary !py-1 !px-2.5 !text-xs inline-flex items-center gap-1"
             :disabled="actionLoading[s.id]"
             @click="handleDismiss(s)"
           >
@@ -183,7 +184,7 @@ onMounted(() => {
           </button>
           <button
             type="button"
-            class="px-2.5 py-1 text-xs rounded bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 transition-colors flex items-center gap-1 font-medium"
+            class="ui-btn-primary !py-1 !px-2.5 !text-xs !bg-emerald-600 hover:!bg-emerald-500 text-white inline-flex items-center gap-1 font-medium shadow-none"
             :disabled="actionLoading[s.id]"
             @click="handleApply(s)"
           >

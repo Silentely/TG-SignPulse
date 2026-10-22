@@ -1,4 +1,4 @@
-import { request } from './core'
+import { getAuthToken, request } from './core'
 
 export interface SemanticConfig {
   enabled: boolean
@@ -71,22 +71,22 @@ export interface SemanticTestResult {
   error_message: string
 }
 
-export const getSemanticConfig = (token?: string) =>
+export const getSemanticConfig = (token: string = getAuthToken()) =>
   request<SemanticConfig>('/semantic/config', {}, token)
 
-export const updateSemanticConfig = (patch: Partial<SemanticConfig> & { api_key?: string; clear_api_key?: boolean }, token?: string) =>
+export const updateSemanticConfig = (patch: Partial<SemanticConfig> & { api_key?: string; clear_api_key?: boolean }, token: string = getAuthToken()) =>
   request<SemanticConfig>('/semantic/config', {
     method: 'PATCH',
     body: JSON.stringify(patch),
   }, token)
 
-export const testSemanticConnection = (body?: { api_key?: string; base_url?: string; model?: string; timeout_seconds?: number }, token?: string) =>
+export const testSemanticConnection = (body?: { api_key?: string; base_url?: string; model?: string; timeout_seconds?: number }, token: string = getAuthToken()) =>
   request<SemanticTestResult>('/semantic/test', {
     method: 'POST',
     body: JSON.stringify(body || {}),
   }, token)
 
-export const listSemanticObservations = (params: { account_name?: string; task_name?: string; limit?: number }, token?: string) => {
+export const listSemanticObservations = (params: { account_name?: string; task_name?: string; limit?: number }, token: string = getAuthToken()) => {
   const query = new URLSearchParams()
   if (params.account_name) query.set('account_name', params.account_name)
   if (params.task_name) query.set('task_name', params.task_name)
@@ -97,14 +97,14 @@ export const listSemanticObservations = (params: { account_name?: string; task_n
 export const labelSemanticObservation = (
   id: string,
   body: { account_name: string; task_name: string; label: string; reviewer_intent?: string },
-  token?: string,
+  token: string = getAuthToken(),
 ) =>
   request<{ id: string; label: string }>(`/semantic/observations/${encodeURIComponent(id)}/label`, {
     method: 'PUT',
     body: JSON.stringify(body),
   }, token)
 
-export const listRuleSuggestions = (params: { account_name?: string; task_name?: string; status?: string }, token?: string) => {
+export const listRuleSuggestions = (params: { account_name?: string; task_name?: string; status?: string }, token: string = getAuthToken()) => {
   const query = new URLSearchParams()
   if (params.account_name) query.set('account_name', params.account_name)
   if (params.task_name) query.set('task_name', params.task_name)
@@ -112,13 +112,13 @@ export const listRuleSuggestions = (params: { account_name?: string; task_name?:
   return request<RuleSuggestion[]>(`/semantic/suggestions?${query.toString()}`, {}, token)
 }
 
-export const applyRuleSuggestion = (id: string, body?: { account_name?: string; task_name?: string }, token?: string) =>
+export const applyRuleSuggestion = (id: string, body?: { account_name?: string; task_name?: string }, token: string = getAuthToken()) =>
   request<{ status: string; suggestion_id: string; task: any }>(`/semantic/suggestions/${encodeURIComponent(id)}/apply`, {
     method: 'POST',
     body: JSON.stringify(body || {}),
   }, token)
 
-export const dismissRuleSuggestion = (id: string, body?: { account_name?: string; task_name?: string }, token?: string) =>
+export const dismissRuleSuggestion = (id: string, body?: { account_name?: string; task_name?: string }, token: string = getAuthToken()) =>
   request<{ status: string; id: string }>(`/semantic/suggestions/${encodeURIComponent(id)}/dismiss`, {
     method: 'POST',
     body: JSON.stringify(body || {}),
