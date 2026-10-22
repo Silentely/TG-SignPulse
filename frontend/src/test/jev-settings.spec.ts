@@ -141,4 +141,44 @@ describe('JevSettings 组件测试', () => {
     expect(statusEl.text()).toContain('401')
     expect(statusEl.text()).toContain('Invalid api key')
   })
+  it('支持切换启用状态开关并在保存时提交 enabled', async () => {
+    const updateSpy = vi.spyOn(semanticApi, 'updateSemanticConfig').mockResolvedValue({
+      enabled: false,
+      drift_enabled: false,
+      mode: 'official',
+      base_url: 'https://api.typesafe.ai/v1',
+      model: 'jev-1.13.0',
+      has_api_key: true,
+      api_key_masked: 'ah-****',
+      timeout_seconds: 8.0,
+      max_concurrency: 2,
+      max_calls_per_run: 6,
+      max_calls_per_minute: 60,
+      retain_evidence: false,
+      generation: 2,
+      monitor_keys_usage: { count: 0, capacity: 10000, is_full: false },
+    })
+
+    const wrapper = mount(JevSettings, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    const switchBtn = wrapper.find('[data-testid="jev-enable-switch"]')
+    expect(switchBtn.exists()).toBe(true)
+    expect(switchBtn.classes()).toContain('ui-switch-on')
+
+    // 点击切换为关闭
+    await switchBtn.trigger('click')
+    expect(switchBtn.classes()).not.toContain('ui-switch-on')
+
+    // 保存
+    const saveBtn = wrapper.find('button.ui-btn-primary')
+    await saveBtn.trigger('click')
+    await flushPromises()
+
+    expect(updateSpy).toHaveBeenCalled()
+    const patchArg = updateSpy.mock.calls[0][0]
+    expect(patchArg.enabled).toBe(false)
+  })
 })

@@ -635,6 +635,8 @@
     "model": "Model (empty for default gpt-5-nano)",
     "apiKey": "API Key (empty to keep unchanged)",
     "saveAiConfig": "Save AI Config",
+    "jevEnable": "Enable JEV Semantic Interface",
+    "jevEnableDesc": "Use JEV decision engine for semantic button selection and captcha solving in sign tasks",
     "jevConfig": "JEV / Semantic Interface",
     "jevDesc": "JEV SystemOne native interface for captcha triage, semantic decisions, and button recognition.",
     "jevMode": "Interface Mode",

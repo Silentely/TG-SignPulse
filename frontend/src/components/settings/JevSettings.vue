@@ -84,7 +84,7 @@ const loadConfig = async () => {
   loading.value = true
   try {
     const data: SemanticConfig = await getSemanticConfig(token)
-    form.value.enabled = data.enabled ?? true
+    form.value.enabled = Boolean(data.enabled)
     form.value.mode = data.mode || (data.base_url && data.base_url !== 'https://api.typesafe.ai/v1' ? 'custom' : 'official')
     form.value.base_url = data.base_url || 'https://api.typesafe.ai/v1'
     form.value.model = data.model || (form.value.mode === 'official' ? 'jev-1.13.0' : 'jev')
@@ -156,6 +156,10 @@ const handleTest = async () => {
         type: 'success',
         text: `✅ ${t('settings.jevConnected')} · ${seconds}s`,
       }
+      if (!form.value.enabled) {
+        form.value.enabled = true
+        await handleSave(false)
+      }
     } else {
       const parts: string[] = [`❌ ${t('settings.jevConnectFailed')}`]
       if (res.http_status) {
@@ -209,6 +213,26 @@ onMounted(() => {
 
     <!-- 表单区 -->
     <div class="space-y-5">
+      <!-- 0. 启用总开关 -->
+      <div class="p-3.5 bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] rounded-[var(--sp-radius-sm)] flex items-center justify-between gap-3">
+        <div>
+          <label class="text-xs font-medium text-[var(--sp-text)] block">{{ t('settings.jevEnable') }}</label>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-0.5">{{ t('settings.jevEnableDesc') }}</p>
+        </div>
+        <button
+          type="button"
+          class="ui-switch"
+          role="switch"
+          data-testid="jev-enable-switch"
+          :aria-label="t('settings.jevEnable')"
+          :aria-checked="form.enabled"
+          :class="form.enabled ? 'ui-switch-on' : ''"
+          @click="form.enabled = !form.enabled"
+        >
+          <span class="ui-switch-knob" />
+        </button>
+      </div>
+
       <!-- 1. 模式单选：官方接口（默认） / 自定义接口 -->
       <div class="space-y-1.5">
         <label class="ui-label">{{ t('settings.jevMode') }}</label>

@@ -635,6 +635,8 @@
     "model": "Model（留空使用默认 gpt-5-nano）",
     "apiKey": "API Key（留空表示不修改）",
     "saveAiConfig": "保存 AI 配置",
+    "jevEnable": "启用 JEV 语义接口",
+    "jevEnableDesc": "启用后将在签到任务中通过 JEV 决策引擎执行语义按钮选择与验证码识别",
     "jevConfig": "JEV / 语义接口",
     "jevDesc": "用于验证码判定、语义决策与按钮识别的 JEV SystemOne 原生接口。",
     "jevMode": "接口模式",
