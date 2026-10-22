@@ -234,9 +234,11 @@ const jobStatusLabel = (status: string) => {
           :class="
             !jevStatus.enabled
               ? 'border-[var(--sp-border)] text-[var(--sp-text-muted)] bg-[var(--sp-surface)]'
-              : jevStatus.breakerState === 'closed'
-                ? 'border-emerald-200 text-emerald-800 bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:bg-emerald-950/40'
-                : 'border-rose-200 text-rose-800 bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:bg-rose-950/40 animate-pulse'
+              : jevStatus.breakerState === 'open' || jevStatus.breakerState === 'half_open'
+                ? 'border-rose-200 text-rose-800 bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:bg-rose-950/40 animate-pulse'
+                : jevStatus.breakerState === 'closed' && jevStatus.runtimeAvailable
+                  ? 'border-emerald-200 text-emerald-800 bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:bg-emerald-950/40'
+                  : 'border-[var(--sp-border)] text-[var(--sp-text-muted)] bg-[var(--sp-surface)]'
           "
           :title="t('dashboard.jevStatusTooltip')"
           @click="router.push({ name: 'settings' })"
@@ -246,18 +248,22 @@ const jobStatusLabel = (status: string) => {
             :class="
               !jevStatus.enabled
                 ? 'bg-zinc-400'
-                : jevStatus.breakerState === 'closed'
-                  ? 'bg-emerald-500'
-                  : 'bg-rose-500'
+                : jevStatus.breakerState === 'open' || jevStatus.breakerState === 'half_open'
+                  ? 'bg-rose-500'
+                  : jevStatus.breakerState === 'closed' && jevStatus.runtimeAvailable
+                    ? 'bg-emerald-500'
+                    : 'bg-zinc-400'
             "
           />
           <span>
             {{
               !jevStatus.enabled
                 ? t('dashboard.jevStatusDisabled')
-                : jevStatus.breakerState === 'closed'
-                  ? t('dashboard.jevStatusHealthy', { rate: Math.round(jevStatus.cacheHitRate * 100) })
-                  : t('dashboard.jevStatusTripped')
+                : jevStatus.breakerState === 'open' || jevStatus.breakerState === 'half_open'
+                  ? t('dashboard.jevStatusTripped')
+                  : jevStatus.breakerState === 'closed' && jevStatus.runtimeAvailable
+                    ? t('dashboard.jevStatusHealthy', { rate: Math.round(jevStatus.cacheHitRate * 100) })
+                    : t('dashboard.jevStatusUnknown')
             }}
           </span>
         </button>

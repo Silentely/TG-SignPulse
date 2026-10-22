@@ -61,10 +61,13 @@ export function useDashboardData() {
   const failureBreakdown = ref<Array<{ category: string; count: number }>>([])
   const recentHits = ref<KeywordHitRecord[]>([])
   const statusJobs = ref<AccountStatusJob[]>([])
+  let loadSeq = 0
   const jevStatus = ref<JevDashboardStatus>({
     enabled: false,
     hasApiKey: false,
-    breakerState: 'closed',
+    runtimeAvailable: false,
+    stale: false,
+    breakerState: 'unknown',
     consecutiveFailures: 0,
     totalCalls: 0,
     cacheHitRate: 0,
@@ -167,6 +170,7 @@ export function useDashboardData() {
   const loadDashboardData = async () => {
     const token = getAuthToken()
     if (!token) return
+    const currentSeq = ++loadSeq
 
     // 非首屏（轮询/手动刷新）时置刷新态，供模板做轻量加载反馈
     if (!pageLoading.value) refreshing.value = true
@@ -200,6 +204,7 @@ export function useDashboardData() {
       getSemanticConfig(token),
     ])
     const [accResult, tasksResult, logsResult, jobsResult, runsResult, hitsResult, statusJobsResult, semanticResult] = results
+    if (disposed || currentSeq !== loadSeq) return
 
     if (accResult.status === 'fulfilled') {
       accRes = { accounts: accountsStore.accounts, total: accountsStore.total }
@@ -245,13 +250,24 @@ export function useDashboardData() {
       const cfg = semanticResult.value
       const st = cfg?.stats
       const br = st?.breaker
+      const hasStats = Boolean(st && br)
       jevStatus.value = {
         enabled: Boolean(cfg?.enabled && cfg?.has_api_key),
         hasApiKey: Boolean(cfg?.has_api_key),
-        breakerState: (br?.state as 'closed' | 'open' | 'half_open') || 'closed',
+        runtimeAvailable: hasStats,
+        stale: false,
+        breakerState: hasStats ? ((br?.state as any) || 'closed') : 'unknown',
         consecutiveFailures: Number(br?.consecutive_failures || 0),
         totalCalls: Number(st?.total_calls || 0),
         cacheHitRate: Number(st?.cache_hit_rate || 0),
+      }
+    } else {
+      hasLoadFailure = true
+      devLog.error('Failed to load semantic config', semanticResult.reason)
+      jevStatus.value = {
+        ...jevStatus.value,
+        stale: true,
+        breakerState: 'unknown',
       }
     }
     if (statusJobsResult.status === 'fulfilled') {

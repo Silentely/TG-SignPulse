@@ -137,7 +137,8 @@
     "jevStatusTooltip": "点击前往系统设置查看或配置 JEV 语义接口",
     "jevStatusDisabled": "JEV 语义: 未启用",
     "jevStatusHealthy": "JEV 语义: 运行正常 · 命中率 {rate}%",
-    "jevStatusTripped": "JEV 语义: 熔断中"
+    "jevStatusTripped": "JEV 语义: 熔断中",
+    "jevStatusUnknown": "JEV 语义: 状态未知"
   },
   "accounts": {
     "noRemark": "暂无备注",

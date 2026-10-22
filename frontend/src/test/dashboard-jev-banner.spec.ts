@@ -21,7 +21,9 @@ vi.mock('../composables/useI18n', () => ({
 const mockJevStatus = ref({
   enabled: true,
   hasApiKey: true,
-  breakerState: 'closed' as 'closed' | 'open' | 'half_open',
+  runtimeAvailable: true,
+  stale: false,
+  breakerState: 'closed' as 'closed' | 'open' | 'half_open' | 'unknown',
   consecutiveFailures: 0,
   totalCalls: 10,
   cacheHitRate: 0.5,
@@ -56,6 +58,8 @@ describe('Dashboard JEV Status and Circuit Breaker Alert', () => {
     mockJevStatus.value = {
       enabled: true,
       hasApiKey: true,
+      runtimeAvailable: true,
+      stale: false,
       breakerState: 'closed',
       consecutiveFailures: 0,
       totalCalls: 10,
@@ -75,6 +79,8 @@ describe('Dashboard JEV Status and Circuit Breaker Alert', () => {
     mockJevStatus.value = {
       enabled: true,
       hasApiKey: true,
+      runtimeAvailable: true,
+      stale: false,
       breakerState: 'open',
       consecutiveFailures: 5,
       totalCalls: 15,
@@ -96,6 +102,8 @@ describe('Dashboard JEV Status and Circuit Breaker Alert', () => {
     mockJevStatus.value = {
       enabled: false,
       hasApiKey: false,
+      runtimeAvailable: false,
+      stale: false,
       breakerState: 'closed',
       consecutiveFailures: 0,
       totalCalls: 0,
@@ -106,5 +114,21 @@ describe('Dashboard JEV Status and Circuit Breaker Alert', () => {
     const badge = wrapper.find('[data-testid="jev-status-badge"]')
     expect(badge.exists()).toBe(true)
     expect(badge.text()).toContain('dashboard.jevStatusDisabled')
+  })
+
+  it('displays unknown status when runtimeAvailable is false', () => {
+    mockJevStatus.value = {
+      enabled: true,
+      hasApiKey: true,
+      runtimeAvailable: false,
+      stale: false,
+      breakerState: 'unknown',
+      consecutiveFailures: 0,
+      totalCalls: 0,
+      cacheHitRate: 0,
+    }
+    const wrapper = mount(Dashboard)
+    const badge = wrapper.find('[data-testid="jev-status-badge"]')
+    expect(badge.text()).toContain('dashboard.jevStatusUnknown')
   })
 })

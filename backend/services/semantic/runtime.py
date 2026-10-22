@@ -56,8 +56,9 @@ class SemanticRuntime:
         if self._service is None or self._generation != cfg.generation:
             if self._service is not None:
                 self._track_close_service(self._service)
-            # 配置代际切换时新建缓存命名空间，隔离旧缓存
+            # 配置代际切换时新建缓存命名空间与熔断器，隔离旧错误与旧缓存
             self._cache = JevDecisionCache(namespace=f"gen_{cfg.generation}")
+            self._breaker = CircuitBreaker()
             client = JevClient(
                 api_key=cfg.api_key,
                 base_url=cfg.base_url,

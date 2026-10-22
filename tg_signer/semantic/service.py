@@ -6,6 +6,7 @@ from typing import Any, Callable
 logger = logging.getLogger("tg_signer.semantic.service")
 
 from tg_signer.semantic.client import JevClient
+from tg_signer.log_utils import safe_text_preview
 from tg_signer.semantic.models import Decision, DecisionRequest
 
 
@@ -46,6 +47,9 @@ class SemanticService:
 
     def _consume_call(self, run_id: str) -> None:
         if self.max_calls_per_run > 0:
+            if len(self._run_call_counts) > 2000:
+                keep = list(self._run_call_counts.keys())[-1000:]
+                self._run_call_counts = {k: self._run_call_counts[k] for k in keep}
             self._run_call_counts[run_id] = self._run_call_counts.get(run_id, 0) + 1
         if self.max_calls_per_minute > 0:
             self._minute_window.append(time.monotonic())
@@ -57,13 +61,14 @@ class SemanticService:
         deadline: float,
         run_id: str,
     ) -> Decision:
-        req_scope = getattr(request, "scope", "")
+        req_scope = safe_text_preview(getattr(request, "scope", ""), max_chars=160)
+        safe_run_id = safe_text_preview(run_id, max_chars=120)
         budget_err = self._check_rate_limits(run_id)
         if budget_err:
             logger.warning(
                 "jev_service_rate_limit: reason=%s run_id=%s scope=%s",
                 budget_err,
-                run_id,
+                safe_run_id,
                 req_scope,
             )
             decision = Decision(status="budget_exceeded", reason_code=budget_err)
@@ -78,7 +83,7 @@ class SemanticService:
         if now >= deadline:
             logger.warning(
                 "jev_service_rate_limit: reason=DEADLINE_EXCEEDED run_id=%s scope=%s",
-                run_id,
+                safe_run_id,
                 req_scope,
             )
             decision = Decision(
@@ -112,4 +117,6 @@ class SemanticService:
         return decision
 
     async def close(self) -> None:
+        self._run_call_counts.clear()
+        self._minute_window.clear()
         await self.client.close()

@@ -137,7 +137,8 @@
     "jevStatusTooltip": "Click to manage JEV interface settings",
     "jevStatusDisabled": "JEV: Disabled",
     "jevStatusHealthy": "JEV: Healthy · Hit {rate}%",
-    "jevStatusTripped": "JEV: Circuit Open"
+    "jevStatusTripped": "JEV: Circuit Open",
+    "jevStatusUnknown": "JEV: Status Unknown"
   },
   "accounts": {
     "noRemark": "No remark",

@@ -22,7 +22,9 @@ export interface JevStats {
 export interface JevDashboardStatus {
   enabled: boolean
   hasApiKey: boolean
-  breakerState: 'closed' | 'open' | 'half_open'
+  runtimeAvailable: boolean
+  stale: boolean
+  breakerState: 'closed' | 'open' | 'half_open' | 'unknown'
   consecutiveFailures: number
   totalCalls: number
   cacheHitRate: number

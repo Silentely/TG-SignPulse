@@ -17,6 +17,7 @@ from tg_signer.semantic.cache import (
     is_sensitive_request,
 )
 from tg_signer.semantic.models import Decision, DecisionRequest
+from tg_signer.log_utils import safe_text_preview
 from tg_signer.semantic.security import (
     redact_sensitive_text,
     sanitize_request,
@@ -190,6 +191,8 @@ class JevClient:
         ):
             level = logging.WARNING
 
+        safe_scope = safe_text_preview(scope, max_chars=160) if scope else "none"
+        safe_err = safe_text_preview(decision.error_message or "none", max_chars=300)
         logger.log(
             level,
             "jev_query_completed: status=%s reason=%s decision=%s confidence=%.2f latency_ms=%.1f "
@@ -204,8 +207,8 @@ class JevClient:
             decision.breaker,
             decision.cache_hit,
             decision.truncated,
-            scope or "none",
-            decision.error_message or "none",
+            safe_scope,
+            safe_err,
             extra={
                 "status": decision.status,
                 "reason_code": decision.reason_code,
@@ -217,8 +220,8 @@ class JevClient:
                 "breaker": decision.breaker,
                 "cache_hit": decision.cache_hit,
                 "truncated": decision.truncated,
-                "scope": scope,
-                "error": decision.error_message,
+                "scope": safe_scope,
+                "error": safe_err,
             },
         )
 
@@ -475,7 +478,7 @@ class JevClient:
                                 attempt_idx + 1,
                                 self.MAX_RETRIES,
                                 backoff,
-                                req_scope,
+                                safe_text_preview(req_scope, max_chars=160),
                             )
                             if time.monotonic() + backoff >= budget_deadline:
                                 raise asyncio.TimeoutError()
@@ -509,7 +512,7 @@ class JevClient:
                                 self.MAX_RETRIES,
                                 backoff,
                                 resp.status_code,
-                                req_scope,
+                                safe_text_preview(req_scope, max_chars=160),
                             )
                             if time.monotonic() + backoff >= budget_deadline:
                                 raise asyncio.TimeoutError()

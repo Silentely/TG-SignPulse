@@ -1127,6 +1127,8 @@ class PulseFlowEngine:
                     # 若配置了 assist 模式，执行语义辅助结果判定
                     sem_res = getattr(node, "semantic_result", None)
                     if isinstance(sem_res, dict) and sem_res.get("mode") == "assist":
+                        disp = "wait"
+                        decision = None
                         try:
                             from tg_signer.semantic.models import (
                                 DecisionRequest,
@@ -1212,7 +1214,7 @@ class PulseFlowEngine:
                                     updates_last_output=True,
                                     details=details,
                                 )
-                            else:
+                            elif decision is not None:
                                 err_reason = (
                                     f"，原因: {decision.error_message or decision.reason_code}"
                                     if (decision.error_message or decision.reason_code)
@@ -1221,6 +1223,11 @@ class PulseFlowEngine:
                                 _log_msg(
                                     f"步骤 [{node.id}] 语义辅助未能确认结果 (disp={disp}, selected={decision.selected}, conf={decision.confidence:.2f}{err_reason})",
                                     level="INFO",
+                                )
+                            else:
+                                _log_msg(
+                                    f"步骤 [{node.id}] JEV 语义服务未启用或未就绪，跳过语义辅助判断",
+                                    level="DEBUG",
                                 )
                         except Exception as sem_err:
                             _log_msg(f"语义辅助判断异常: {sem_err}", level="WARNING")

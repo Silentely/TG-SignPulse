@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 import * as semanticApi from '../lib/api/semantic'
-import * as api from '../lib/api'
-import * as coreApi from '../lib/api/core'
 import { useDashboardData } from '../composables/useDashboardData'
 
 vi.mock('../lib/api/core', () => ({
@@ -75,9 +72,21 @@ describe('useDashboardData JEV status', () => {
     await reload()
 
     expect(jevStatus.value.enabled).toBe(true)
+    expect(jevStatus.value.runtimeAvailable).toBe(true)
+    expect(jevStatus.value.stale).toBe(false)
     expect(jevStatus.value.breakerState).toBe('open')
     expect(jevStatus.value.consecutiveFailures).toBe(5)
     expect(jevStatus.value.totalCalls).toBe(42)
     expect(jevStatus.value.cacheHitRate).toBe(0.357)
+  })
+
+  it('marks jevStatus as unknown and stale when getSemanticConfig fails', async () => {
+    vi.spyOn(semanticApi, 'getSemanticConfig').mockRejectedValue(new Error('Network error'))
+
+    const { jevStatus, reload } = useDashboardData()
+    await reload()
+
+    expect(jevStatus.value.breakerState).toBe('unknown')
+    expect(jevStatus.value.stale).toBe(true)
   })
 })
