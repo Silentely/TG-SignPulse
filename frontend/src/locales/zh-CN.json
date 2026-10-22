@@ -109,7 +109,10 @@
       "network_proxy": "网络/代理",
       "timeout": "超时",
       "strong_failure": "业务失败",
-      "unknown": "未知失败"
+      "unknown": "未知失败",
+      "semantic_review_required": "语义人工审查",
+      "semantic_stop_requested": "语义终止请求",
+      "circuit_breaker_open": "JEV 熔断阻断"
     },
     "activeRuns": "活跃运行",
     "noActiveRuns": "当前无运行中任务",
@@ -127,7 +130,14 @@
       "done": "完成"
     },
     "modeRange": "随机时段",
-    "modeRangeHint": "随机时间段任务（在 {start} ~ {end} 之间随机触发）"
+    "modeRangeHint": "随机时间段任务（在 {start} ~ {end} 之间随机触发）",
+    "jevBreakerTitle": "JEV 语义接口已触发熔断保护",
+    "jevBreakerDesc": "连续失败 {count} 次，语义理解已降级为人工审查或规则兜底",
+    "jevCheckSettings": "排查设置",
+    "jevStatusTooltip": "点击前往系统设置查看或配置 JEV 语义接口",
+    "jevStatusDisabled": "JEV 语义: 未启用",
+    "jevStatusHealthy": "JEV 语义: 运行正常 · 命中率 {rate}%",
+    "jevStatusTripped": "JEV 语义: 熔断中"
   },
   "accounts": {
     "noRemark": "暂无备注",

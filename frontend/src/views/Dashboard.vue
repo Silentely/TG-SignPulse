@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Users, Zap, Terminal, Settings, RefreshCw } from 'lucide-vue-next'
+import { Users, Zap, Terminal, Settings, RefreshCw, ShieldAlert } from 'lucide-vue-next'
 import type {
   ActiveRunSummary,
   KeywordHitRecord,
@@ -44,6 +44,7 @@ const {
   failureBreakdown,
   recentHits,
   statusJobs,
+  jevStatus,
   formatTime,
   reload: reloadData,
 } = useDashboardData()
@@ -164,6 +165,32 @@ const jobStatusLabel = (status: string) => {
     </div>
 
     <template v-else>
+    <!-- JEV 熔断警报横幅（仅在 open / half_open 时显式警示） -->
+    <div
+      v-if="jevStatus.enabled && (jevStatus.breakerState === 'open' || jevStatus.breakerState === 'half_open')"
+      data-testid="jev-breaker-alert"
+      class="rounded-[var(--sp-radius-md)] border border-rose-300 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-950/30 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-rose-900 dark:text-rose-200"
+    >
+      <div class="flex items-center gap-2.5">
+        <span class="p-1.5 rounded-full bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300 shrink-0">
+          <ShieldAlert class="w-4 h-4" />
+        </span>
+        <div class="text-xs sm:text-sm">
+          <span class="font-medium">{{ t('dashboard.jevBreakerTitle') }}</span>
+          <span class="opacity-90 ml-1.5">
+            {{ t('dashboard.jevBreakerDesc', { count: jevStatus.consecutiveFailures }) }}
+          </span>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="text-xs font-medium px-3 py-1.5 rounded-[var(--sp-radius-sm)] bg-rose-600 hover:bg-rose-700 text-white transition-colors cursor-pointer shrink-0"
+        @click="router.push({ name: 'settings' })"
+      >
+        {{ t('dashboard.jevCheckSettings') }}
+      </button>
+    </div>
+
     <!-- Stats（可点击跳转） -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
       <button
@@ -198,7 +225,43 @@ const jobStatusLabel = (status: string) => {
 
     <!-- 快捷入口 -->
     <div>
-      <div class="ui-section-label mb-3">{{ t('dashboard.quickActions') }}</div>
+      <div class="flex items-center justify-between mb-3">
+        <div class="ui-section-label">{{ t('dashboard.quickActions') }}</div>
+        <button
+          type="button"
+          data-testid="jev-status-badge"
+          class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded-[var(--sp-radius-sm)] border cursor-pointer transition-opacity hover:opacity-80"
+          :class="
+            !jevStatus.enabled
+              ? 'border-[var(--sp-border)] text-[var(--sp-text-muted)] bg-[var(--sp-surface)]'
+              : jevStatus.breakerState === 'closed'
+                ? 'border-emerald-200 text-emerald-800 bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:bg-emerald-950/40'
+                : 'border-rose-200 text-rose-800 bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:bg-rose-950/40 animate-pulse'
+          "
+          :title="t('dashboard.jevStatusTooltip')"
+          @click="router.push({ name: 'settings' })"
+        >
+          <span
+            class="w-1.5 h-1.5 rounded-full"
+            :class="
+              !jevStatus.enabled
+                ? 'bg-zinc-400'
+                : jevStatus.breakerState === 'closed'
+                  ? 'bg-emerald-500'
+                  : 'bg-rose-500'
+            "
+          />
+          <span>
+            {{
+              !jevStatus.enabled
+                ? t('dashboard.jevStatusDisabled')
+                : jevStatus.breakerState === 'closed'
+                  ? t('dashboard.jevStatusHealthy', { rate: Math.round(jevStatus.cacheHitRate * 100) })
+                  : t('dashboard.jevStatusTripped')
+            }}
+          </span>
+        </button>
+      </div>
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <button
           v-for="link in quickLinks"

@@ -109,7 +109,10 @@
       "network_proxy": "Network/proxy",
       "timeout": "Timeout",
       "strong_failure": "Business failure",
-      "unknown": "Unknown failure"
+      "unknown": "Unknown failure",
+      "semantic_review_required": "Semantic Review Required",
+      "semantic_stop_requested": "Semantic Stop Requested",
+      "circuit_breaker_open": "JEV Circuit Breaker Open"
     },
     "activeRuns": "Active runs",
     "noActiveRuns": "No tasks running",
@@ -127,7 +130,14 @@
       "done": "Done"
     },
     "modeRange": "Random Window",
-    "modeRangeHint": "Random time window task (runs randomly between {start} and {end})"
+    "modeRangeHint": "Random time window task (runs randomly between {start} and {end})",
+    "jevBreakerTitle": "JEV Semantic Circuit Breaker Tripped",
+    "jevBreakerDesc": "Tripped after {count} consecutive failures; semantic decisions fallback to manual review or rules",
+    "jevCheckSettings": "Check Settings",
+    "jevStatusTooltip": "Click to manage JEV interface settings",
+    "jevStatusDisabled": "JEV: Disabled",
+    "jevStatusHealthy": "JEV: Healthy · Hit {rate}%",
+    "jevStatusTripped": "JEV: Circuit Open"
   },
   "accounts": {
     "noRemark": "No remark",
