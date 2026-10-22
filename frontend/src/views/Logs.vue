@@ -9,6 +9,7 @@ import FlowLogViewer from '../components/FlowLogViewer.vue'
 import FilterChip from '../components/FilterChip.vue'
 import FilterEmptyState from '../components/FilterEmptyState.vue'
 import PageRetry from '../components/PageRetry.vue'
+import TaskRuleSuggestionsPanel from '../components/tasks/TaskRuleSuggestionsPanel.vue'
 
 const { t } = useI18n()
 
@@ -331,6 +332,15 @@ const {
             <div class="text-[var(--sp-text)]">{{ selectedLog.task }}</div>
           </div>
         </div>
+
+        <!-- Jev 智能规则维护建议（仅当存在待处理建议时自动显现） -->
+        <TaskRuleSuggestionsPanel
+          v-if="selectedLog.task"
+          :account-name="selectedLog.account"
+          :task-name="selectedLog.task"
+          :hide-when-empty="true"
+          :show-navigate-to-tasks="true"
+        />
 
         <div class="pt-2 border-t border-[var(--sp-border)]">
           <div v-if="detailLoading" class="flex items-center gap-2 text-xs text-[var(--sp-text-muted)] py-6 justify-center">

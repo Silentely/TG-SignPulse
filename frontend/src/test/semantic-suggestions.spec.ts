@@ -4,6 +4,13 @@ import i18n from '../i18n'
 import TaskRuleSuggestionsPanel from '../components/tasks/TaskRuleSuggestionsPanel.vue'
 import * as semanticApi from '../lib/api/semantic'
 
+const pushMock = vi.fn()
+vi.mock('vue-router', () => ({
+  useRouter: () => ({
+    push: pushMock,
+  }),
+}))
+
 describe('TaskRuleSuggestionsPanel', () => {
   const dummySuggestions: semanticApi.RuleSuggestion[] = [
     {
@@ -80,5 +87,65 @@ describe('TaskRuleSuggestionsPanel', () => {
 
     await new Promise((r) => setTimeout(r, 20))
     expect(wrapper.text()).toContain('任务配置在外部被修改，该规则建议已失效')
+  })
+
+  it('hides completely when hideWhenEmpty is true and no suggestions exist', async () => {
+    vi.spyOn(semanticApi, 'listRuleSuggestions').mockResolvedValue([])
+
+    const wrapper = mount(TaskRuleSuggestionsPanel, {
+      props: {
+        accountName: 'acc1',
+        taskName: 'daily',
+        hideWhenEmpty: true,
+      },
+      global: { plugins: [i18n] },
+    })
+
+    await new Promise((r) => setTimeout(r, 20))
+    expect(wrapper.find('.ui-card').exists()).toBe(false)
+  })
+
+  it('shows panel when hideWhenEmpty is true and suggestions exist', async () => {
+    vi.spyOn(semanticApi, 'listRuleSuggestions').mockResolvedValue(dummySuggestions)
+
+    const wrapper = mount(TaskRuleSuggestionsPanel, {
+      props: {
+        accountName: 'acc1',
+        taskName: 'daily',
+        hideWhenEmpty: true,
+      },
+      global: { plugins: [i18n] },
+    })
+
+    await new Promise((r) => setTimeout(r, 20))
+    expect(wrapper.find('.ui-card').exists()).toBe(true)
+    expect(wrapper.text()).toContain('button_label')
+  })
+
+  it('renders navigate to tasks button when showNavigateToTasks is true', async () => {
+    vi.spyOn(semanticApi, 'listRuleSuggestions').mockResolvedValue(dummySuggestions)
+
+    const wrapper = mount(TaskRuleSuggestionsPanel, {
+      props: {
+        accountName: 'acc1',
+        taskName: 'daily',
+        showNavigateToTasks: true,
+      },
+      global: { plugins: [i18n] },
+    })
+
+    await new Promise((r) => setTimeout(r, 20))
+    const navBtn = wrapper.findAll('button').find((b) => b.text().includes('前往任务编排') || b.text().includes('Go to Tasks'))
+    expect(navBtn).toBeDefined()
+    await navBtn!.trigger('click')
+
+    expect(pushMock).toHaveBeenCalledWith({
+      name: 'tasks',
+      query: {
+        account: 'acc1',
+        task: 'daily',
+        tab: 'logs',
+      },
+    })
   })
 })

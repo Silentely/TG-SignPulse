@@ -296,32 +296,36 @@ const applyRouteQueryFilters = () => {
   }
 }
 
-/** 深链 ?tab=hits&task=xxx 时自动打开日志命中 Tab */
+/** 深链 ?tab=hits|logs|suggestions&task=xxx 时自动打开任务日志弹窗 */
 const applyLogsDeepLink = () => {
   const tab = String(route.query.tab || '').trim()
   const taskQ = (route.query.task as string | undefined)?.trim()
-  if (tab !== 'hits' || !taskQ || !tasks.value.length) return
+  if (!taskQ || !tasks.value.length) return
+  if (tab !== 'hits' && tab !== 'logs' && tab !== 'suggestions') return
   const found = tasks.value.find((t) => t.name === taskQ)
-  if (!found || !found.isListenMode) return
-  // 已对同一任务打开命中 Tab 时不重复打断
+  if (!found) return
+  if (tab === 'hits' && !found.isListenMode) return
+  const targetTab = tab === 'hits' ? 'hits' : 'history'
+  // 已对同一任务打开时不大断
   if (
     showLogsModal.value
     && logsTask.value?.name === taskQ
-    && logsInitialTab.value === 'hits'
+    && logsInitialTab.value === targetTab
   ) {
     return
   }
   logsRunAccount.value = ''
   logsTask.value = found
-  logsInitialTab.value = 'hits'
+  logsInitialTab.value = targetTab
   showLogsModal.value = true
 }
 
-/** 关闭日志弹窗时去掉 tab=hits，避免列表刷新/轮询再次自动弹窗 */
+/** 关闭日志弹窗时去掉 tab 路由参数，避免列表刷新/轮询再次自动弹窗 */
 const closeLogsModal = () => {
   showLogsModal.value = false
   logsInitialTab.value = null
-  if (String(route.query.tab || '').trim() === 'hits') {
+  const tab = String(route.query.tab || '').trim()
+  if (tab === 'hits' || tab === 'logs' || tab === 'suggestions') {
     const nextQuery = { ...route.query }
     delete nextQuery.tab
     router.replace({ name: 'tasks', query: nextQuery })

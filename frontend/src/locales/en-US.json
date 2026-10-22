@@ -1482,6 +1482,7 @@
     "currentConfig": "Current Config (Old)",
     "suggestedValue": "Suggested Value (New)",
     "dismiss": "Dismiss",
-    "apply": "Accept & Update"
+    "apply": "Accept & Update",
+    "goToTasks": "Go to Tasks"
   }
 }

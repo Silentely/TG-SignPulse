@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { Check, X, AlertTriangle, Sparkles, RefreshCw } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { Check, X, AlertTriangle, Sparkles, RefreshCw, ExternalLink } from 'lucide-vue-next'
 import {
   listRuleSuggestions,
   applyRuleSuggestion,
@@ -9,16 +10,44 @@ import {
 } from '../../lib/api/semantic'
 import { useI18n } from '../../composables/useI18n'
 
-const props = defineProps<{
-  accountName: string
-  taskName: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    accountName: string
+    taskName: string
+    hideWhenEmpty?: boolean
+    showNavigateToTasks?: boolean
+  }>(),
+  {
+    hideWhenEmpty: false,
+    showNavigateToTasks: false,
+  }
+)
 
 const emit = defineEmits<{
   (e: 'applied', suggestion: RuleSuggestion): void
 }>()
 
 const { t } = useI18n()
+
+let router: any = null
+try {
+  router = useRouter()
+} catch {
+  // router not injected in some test environments
+}
+
+const handleNavigateToTasks = () => {
+  if (router?.push) {
+    void router.push({
+      name: 'tasks',
+      query: {
+        account: props.accountName || undefined,
+        task: props.taskName,
+        tab: 'logs',
+      },
+    })
+  }
+}
 
 const suggestions = ref<RuleSuggestion[]>([])
 const loading = ref(false)
@@ -90,7 +119,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="ui-card p-3 mb-3 text-sm border-amber-500/20 dark:border-amber-500/30 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] space-y-2.5">
+  <div
+    v-if="!hideWhenEmpty || suggestions.length > 0"
+    class="ui-card p-3 mb-3 text-sm border-amber-500/20 dark:border-amber-500/30 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] space-y-2.5"
+  >
     <div class="flex items-center justify-between pb-2 border-b border-[var(--sp-border)]">
       <div class="flex items-center gap-2 font-medium text-[var(--sp-text)]">
         <Sparkles class="w-4 h-4 text-amber-500 dark:text-amber-400" />
@@ -102,15 +134,27 @@ onMounted(() => {
           {{ suggestions.length }}
         </span>
       </div>
-      <button
-        type="button"
-        class="ui-icon-btn !w-6 !h-6 text-[var(--sp-text-muted)] hover:text-[var(--sp-text)]"
-        :disabled="loading"
-        :title="t('ruleSuggestions.refresh')"
-        @click="fetchSuggestions"
-      >
-        <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button
+          v-if="showNavigateToTasks"
+          type="button"
+          class="text-xs text-sky-600 dark:text-sky-400 hover:text-sky-500 dark:hover:text-sky-300 hover:underline inline-flex items-center gap-1 cursor-pointer mr-1"
+          :title="t('ruleSuggestions.goToTasks')"
+          @click="handleNavigateToTasks"
+        >
+          <ExternalLink class="w-3.5 h-3.5" />
+          <span>{{ t('ruleSuggestions.goToTasks') }}</span>
+        </button>
+        <button
+          type="button"
+          class="ui-icon-btn !w-6 !h-6 text-[var(--sp-text-muted)] hover:text-[var(--sp-text)]"
+          :disabled="loading"
+          :title="t('ruleSuggestions.refresh')"
+          @click="fetchSuggestions"
+        >
+          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
+        </button>
+      </div>
     </div>
 
     <!-- 错误或冲突提示 -->

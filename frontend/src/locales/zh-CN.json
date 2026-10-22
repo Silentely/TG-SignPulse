@@ -1482,6 +1482,7 @@
     "currentConfig": "当前配置 (Old)",
     "suggestedValue": "建议值 (New)",
     "dismiss": "忽略",
-    "apply": "采纳并更新"
+    "apply": "采纳并更新",
+    "goToTasks": "前往任务编排"
   }
 }
