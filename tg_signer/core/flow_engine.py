@@ -1212,6 +1212,16 @@ class PulseFlowEngine:
                                     updates_last_output=True,
                                     details=details,
                                 )
+                            else:
+                                err_reason = (
+                                    f"，原因: {decision.error_message or decision.reason_code}"
+                                    if (decision.error_message or decision.reason_code)
+                                    else ""
+                                )
+                                _log_msg(
+                                    f"步骤 [{node.id}] 语义辅助未能确认结果 (disp={disp}, selected={decision.selected}, conf={decision.confidence:.2f}{err_reason})",
+                                    level="INFO",
+                                )
                         except Exception as sem_err:
                             _log_msg(f"语义辅助判断异常: {sem_err}", level="WARNING")
                     preview = " ".join(text.strip().split())[:100]

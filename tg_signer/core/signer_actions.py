@@ -259,6 +259,21 @@ class SignerActionsMixin:
                                             "[AI 语义选择按钮] 按钮快照二次校验未通过，放弃点击",
                                             level="WARNING",
                                         )
+                                else:
+                                    err_reason = (
+                                        f"，原因: {decision.error_message or decision.reason_code}"
+                                        if (decision.error_message or decision.reason_code)
+                                        else ""
+                                    )
+                                    self.log(
+                                        f"[AI 语义选择按钮] 决策未采纳 (status={decision.status}, selected={decision.selected}, conf={decision.confidence:.2f}, 阈值>={min_prob:.2f}{err_reason})",
+                                        level="INFO",
+                                    )
+                            else:
+                                self.log(
+                                    "[AI 语义选择按钮] JEV 语义服务未启用或未就绪，跳过语义匹配",
+                                    level="DEBUG",
+                                )
                     except Exception as e:
                         self.log(f"AI 语义选择按钮失败: {e}", level="WARNING")
                 if log_not_found:
