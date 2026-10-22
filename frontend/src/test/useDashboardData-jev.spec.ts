@@ -89,4 +89,32 @@ describe('useDashboardData JEV status', () => {
     expect(jevStatus.value.breakerState).toBe('unknown')
     expect(jevStatus.value.stale).toBe(true)
   })
+  it('initializes breakerState as closed and runtimeAvailable as true when newly enabled without calls', async () => {
+    vi.spyOn(semanticApi, 'getSemanticConfig').mockResolvedValue({
+      enabled: true,
+      has_api_key: true,
+      api_key_masked: 'sk-***',
+      stats: {
+        total_calls: 0,
+        success_calls: 0,
+        failed_calls: 0,
+        escalate_calls: 0,
+        cache_hits: 0,
+        cache_misses: 0,
+        cache_hit_rate: 0.0,
+        breaker: {
+          state: 'closed',
+          consecutive_failures: 0,
+        },
+      },
+    } as any)
+
+    const { jevStatus, reload } = useDashboardData()
+    await reload()
+
+    expect(jevStatus.value.enabled).toBe(true)
+    expect(jevStatus.value.runtimeAvailable).toBe(true)
+    expect(jevStatus.value.breakerState).toBe('closed')
+    expect(jevStatus.value.totalCalls).toBe(0)
+  })
 })

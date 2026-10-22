@@ -33,9 +33,15 @@ def get_config(
 ):
     sanitized = store.get_sanitized_config()
     sanitized["monitor_keys_usage"] = sem_store.get_capacity_stats()
-    from backend.services.semantic.runtime import get_active_semantic_runtime
+    from backend.services.semantic.runtime import (
+        get_active_semantic_runtime,
+        get_semantic_runtime,
+    )
 
-    runtime = get_active_semantic_runtime()
+    if sanitized.get("enabled") and sanitized.get("has_api_key"):
+        runtime = get_semantic_runtime(store.root)
+    else:
+        runtime = get_active_semantic_runtime()
     if runtime:
         sanitized["stats"] = runtime.get_stats()
     return sanitized
@@ -74,9 +80,15 @@ def update_config(
         store.save_patch(patch)
         sanitized = store.get_sanitized_config()
         sanitized["monitor_keys_usage"] = sem_store.get_capacity_stats()
-        from backend.services.semantic.runtime import get_active_semantic_runtime
+        from backend.services.semantic.runtime import (
+            get_active_semantic_runtime,
+            get_semantic_runtime,
+        )
 
-        runtime = get_active_semantic_runtime()
+        if sanitized.get("enabled") and sanitized.get("has_api_key"):
+            runtime = get_semantic_runtime(store.root)
+        else:
+            runtime = get_active_semantic_runtime()
         if runtime:
             sanitized["stats"] = runtime.get_stats()
         return sanitized

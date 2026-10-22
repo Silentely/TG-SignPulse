@@ -262,7 +262,9 @@ const jobStatusLabel = (status: string) => {
                 : jevStatus.breakerState === 'open' || jevStatus.breakerState === 'half_open'
                   ? t('dashboard.jevStatusTripped')
                   : jevStatus.breakerState === 'closed' && jevStatus.runtimeAvailable
-                    ? t('dashboard.jevStatusHealthy', { rate: Math.round(jevStatus.cacheHitRate * 100) })
+                    ? (jevStatus.totalCalls > 0
+                        ? t('dashboard.jevStatusHealthy', { rate: Math.round(jevStatus.cacheHitRate * 100) })
+                        : t('dashboard.jevStatusReady'))
                     : t('dashboard.jevStatusUnknown')
             }}
           </span>

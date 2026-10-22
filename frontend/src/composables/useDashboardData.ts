@@ -250,13 +250,14 @@ export function useDashboardData() {
       const cfg = semanticResult.value
       const st = cfg?.stats
       const br = st?.breaker
+      const isEnabled = Boolean(cfg?.enabled && cfg?.has_api_key)
       const hasStats = Boolean(st && br)
       jevStatus.value = {
-        enabled: Boolean(cfg?.enabled && cfg?.has_api_key),
+        enabled: isEnabled,
         hasApiKey: Boolean(cfg?.has_api_key),
-        runtimeAvailable: hasStats,
+        runtimeAvailable: hasStats || isEnabled,
         stale: false,
-        breakerState: hasStats ? ((br?.state as any) || 'closed') : 'unknown',
+        breakerState: hasStats ? ((br?.state as any) || 'closed') : (isEnabled ? 'closed' : 'unknown'),
         consecutiveFailures: Number(br?.consecutive_failures || 0),
         totalCalls: Number(st?.total_calls || 0),
         cacheHitRate: Number(st?.cache_hit_rate || 0),

@@ -136,6 +136,7 @@
     "jevCheckSettings": "Check Settings",
     "jevStatusTooltip": "Click to manage JEV interface settings",
     "jevStatusDisabled": "JEV: Disabled",
+    "jevStatusReady": "JEV: Ready",
     "jevStatusHealthy": "JEV: Healthy · Hit {rate}%",
     "jevStatusTripped": "JEV: Circuit Open",
     "jevStatusUnknown": "JEV: Status Unknown"
