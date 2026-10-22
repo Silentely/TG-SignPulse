@@ -131,7 +131,9 @@ def is_sensitive_value(val: Any) -> bool:
         tokens = _TOKEN_SPLIT_RE.split(val)
         for tok in tokens:
             cleaned_b64 = tok.strip()
-            if len(cleaned_b64) >= 12 and re.fullmatch(r"[A-Za-z0-9+/\-_]+", cleaned_b64):
+            if len(cleaned_b64) >= 12 and re.fullmatch(
+                r"[A-Za-z0-9+/\-_]+", cleaned_b64
+            ):
                 try:
                     pad_len = (4 - len(cleaned_b64) % 4) % 4
                     padded = cleaned_b64 + ("=" * pad_len)
@@ -144,7 +146,9 @@ def is_sensitive_value(val: Any) -> bool:
                     pass
 
         # 4. 内嵌 JSON 检查
-        if (val.startswith("{") and val.endswith("}")) or (val.startswith("[") and val.endswith("]")):
+        if (val.startswith("{") and val.endswith("}")) or (
+            val.startswith("[") and val.endswith("]")
+        ):
             try:
                 parsed = json.loads(val)
                 if is_sensitive_value(parsed):
@@ -228,7 +232,9 @@ class JevDecisionCache:
     - 支持命名空间隔离（配置代际切换时建立全新命名空间）
     """
 
-    def __init__(self, maxsize: int = 500, ttl: float = 60.0, namespace: str = "") -> None:
+    def __init__(
+        self, maxsize: int = 500, ttl: float = 60.0, namespace: str = ""
+    ) -> None:
         self.maxsize = max(1, maxsize)
         self.ttl = max(0.1, ttl)
         self.namespace = namespace

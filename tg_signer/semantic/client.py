@@ -427,7 +427,8 @@ class JevClient:
                                     attempts=attempt_idx + 1,
                                     breaker=self.breaker.get_state(),
                                     truncated=is_truncated,
-                                    error_message=err_msg or "Rate limit exceeded (HTTP 429)",
+                                    error_message=err_msg
+                                    or "Rate limit exceeded (HTTP 429)",
                                 )
                                 self._log_structured(decision)
                                 return decision
@@ -463,7 +464,8 @@ class JevClient:
                                     attempts=attempt_idx + 1,
                                     breaker=self.breaker.get_state(),
                                     truncated=is_truncated,
-                                    error_message=err_msg or f"Server error: {resp.status_code}",
+                                    error_message=err_msg
+                                    or f"Server error: {resp.status_code}",
                                 )
                                 self._log_structured(decision)
                                 return decision
@@ -486,7 +488,8 @@ class JevClient:
                                 attempts=attempt_idx + 1,
                                 breaker=self.breaker.get_state(),
                                 truncated=is_truncated,
-                                error_message=err_msg or f"Unexpected status: {resp.status_code}",
+                                error_message=err_msg
+                                or f"Unexpected status: {resp.status_code}",
                             )
                             self._log_structured(decision)
                             return decision
@@ -573,7 +576,10 @@ class JevClient:
                             self._log_structured(decision)
                             return decision
 
-                        if sanitized_req.choices and selected_raw not in sanitized_req.choices:
+                        if (
+                            sanitized_req.choices
+                            and selected_raw not in sanitized_req.choices
+                        ):
                             selected = "unknown"
                         else:
                             selected = selected_raw
@@ -633,7 +639,11 @@ class JevClient:
                         )
 
                         # 写缓存（仅在未截断且非敏感且 selected 有效时）
-                        if not is_sensitive and not is_truncated and selected != "unknown":
+                        if (
+                            not is_sensitive
+                            and not is_truncated
+                            and selected != "unknown"
+                        ):
                             self.cache.set(cache_key, decision)
 
                         self._log_structured(decision)
@@ -643,7 +653,11 @@ class JevClient:
                         elapsed_ms = (time.monotonic() - start_t) * 1000.0
                         clean_err = redact_sensitive_text(str(exc), self.api_key)
                         is_timeout = isinstance(exc, httpx.TimeoutException)
-                        err_code = "TIMEOUT" if is_timeout else f"NETWORK_ERROR_{type(exc).__name__}"
+                        err_code = (
+                            "TIMEOUT"
+                            if is_timeout
+                            else f"NETWORK_ERROR_{type(exc).__name__}"
+                        )
                         default_msg = "Request timed out" if is_timeout else clean_err
 
                         if attempt_idx == self.MAX_RETRIES:
@@ -671,7 +685,9 @@ class JevClient:
 
             remaining_overall = max(0.001, budget_deadline - time.monotonic())
             try:
-                return await asyncio.wait_for(_execute_with_retries(), timeout=remaining_overall)
+                return await asyncio.wait_for(
+                    _execute_with_retries(), timeout=remaining_overall
+                )
             except (asyncio.TimeoutError, TimeoutError):
                 # 本地预算超限不记上游失败、不推进 generation
                 self.metrics.failed_calls += 1
@@ -701,7 +717,9 @@ class JevClient:
                 attempts=0,
                 breaker=self.breaker.get_state(),
                 truncated=is_truncated,
-                error_message=redact_sensitive_text(f"{type(exc).__name__}: {exc}", self.api_key),
+                error_message=redact_sensitive_text(
+                    f"{type(exc).__name__}: {exc}", self.api_key
+                ),
             )
             self._log_structured(decision)
             return decision

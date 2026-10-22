@@ -70,6 +70,25 @@ def _ensure_event_loop():
         asyncio.set_event_loop(loop)
 
 
+@pytest.fixture(autouse=True)
+def _reset_global_test_state():
+    """保证每个测试前后全局单例和配置缓存彻底重置，避免多进程/多测试之间全局代理等状态污染。"""
+    from backend.core import config as config_module
+    from backend.services import config as service_config_module
+    from backend.utils.proxy import clear_proxy_probe_cache
+    from backend.utils.tg_session import _account_store_cache
+
+    config_module.get_settings.cache_clear()
+    service_config_module._config_service = None
+    clear_proxy_probe_cache()
+    _account_store_cache.clear()
+    yield
+    config_module.get_settings.cache_clear()
+    service_config_module._config_service = None
+    clear_proxy_probe_cache()
+    _account_store_cache.clear()
+
+
 # ============================================================================
 # 环境隔离 Fixtures
 # ============================================================================
@@ -92,12 +111,21 @@ def isolated_env(
 
     设置所有必要的环境变量指向临时目录，确保测试不读写真实配置。
     """
+    from backend.core import config as config_module
+    from backend.services import config as service_config_module
+
+    config_module.get_settings.cache_clear()
+    service_config_module._config_service = None
     monkeypatch.setenv("APP_DATA_DIR", str(temp_data_dir))
     monkeypatch.setenv("APP_DB_PATH", str(temp_data_dir / "test.sqlite"))
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret-key-0123456789abcdef")
     monkeypatch.setenv("TG_API_ID", "12345")
     monkeypatch.setenv("TG_API_HASH", "test-api-hash")
-    yield temp_data_dir
+    try:
+        yield temp_data_dir
+    finally:
+        config_module.get_settings.cache_clear()
+        service_config_module._config_service = None
 
 
 @pytest.fixture(autouse=True)
@@ -115,25 +143,6 @@ def no_external_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEMORY_THRESHOLD_MB", "8192")
     os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
     os.environ.setdefault("APP_SECRET_KEY", "test-secret-key-0123456789abcdef")
-
-
-@pytest.fixture(autouse=True)
-def ensure_event_loop() -> Iterator[None]:
-    """
-    保证同步测试始终有可用的事件循环。
-
-    pytest-asyncio 在 async 用例结束后会关闭 loop，随后同步创建
-    Pyrogram Client / asyncio.Lock 会触发
-    “There is no current event loop in thread 'MainThread'”。
-    """
-    try:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError("event loop is closed")
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    yield
 
 
 # ============================================================================

@@ -150,7 +150,10 @@ class TestTDataConversionAndCleanup:
             created_temp_dirs.append(Path(d))
             return d
 
-        with patch("tempfile.mkdtemp", side_effect=tracked_mkdtemp):
+        with (
+            patch.dict(sys.modules, {"opentele": None, "opentele.td": None}),
+            patch("tempfile.mkdtemp", side_effect=tracked_mkdtemp),
+        ):
             # Failure case (e.g. missing opentele dependency)
             with pytest.raises(RuntimeError, match="TDATA_CONVERTER_UNAVAILABLE"):
                 await import_tdata_session(
@@ -213,12 +216,13 @@ class TestTDataApiEndpoints:
         headers = _auth(_login(api_client))
         zip_bytes = _create_sample_tdata_zip(nested=True)
 
-        resp = api_client.post(
-            "/api/accounts/import-session",
-            headers=headers,
-            files={"file": ("tdata.zip", zip_bytes, "application/zip")},
-            data={"account_name": "tdata_test"},
-        )
+        with patch.dict(sys.modules, {"opentele": None, "opentele.td": None}):
+            resp = api_client.post(
+                "/api/accounts/import-session",
+                headers=headers,
+                files={"file": ("tdata.zip", zip_bytes, "application/zip")},
+                data={"account_name": "tdata_test"},
+            )
         assert resp.status_code == 400
         assert "TDATA_CONVERTER_UNAVAILABLE" in resp.text
 
@@ -244,15 +248,16 @@ class TestTDataApiEndpoints:
         zip_bytes = _create_sample_tdata_zip(nested=True)
         b64_zip = base64.b64encode(zip_bytes).decode("ascii")
 
-        resp = api_client.post(
-            "/api/accounts/import-session",
-            headers=headers,
-            json={
-                "account_name": "tdata_json_test",
-                "session_type": "file",
-                "session_content": b64_zip,
-            },
-        )
+        with patch.dict(sys.modules, {"opentele": None, "opentele.td": None}):
+            resp = api_client.post(
+                "/api/accounts/import-session",
+                headers=headers,
+                json={
+                    "account_name": "tdata_json_test",
+                    "session_type": "file",
+                    "session_content": b64_zip,
+                },
+            )
         assert resp.status_code == 400
         assert "TDATA_CONVERTER_UNAVAILABLE" in resp.text
 

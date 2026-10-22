@@ -14,7 +14,9 @@ from tg_signer.semantic.models import DecisionRequest
 MAX_STATE_CHARS: int = 4096
 MAX_FIELD_CHARS: int = 2048
 
-OFFICIAL_WHITELIST_HOSTS = frozenset({"api.typesafe.ai", "api.example.com", "example.com"})
+OFFICIAL_WHITELIST_HOSTS = frozenset(
+    {"api.typesafe.ai", "api.example.com", "example.com"}
+)
 
 
 def is_ip_private_or_restricted(ip_str: str) -> bool:
@@ -56,22 +58,36 @@ def validate_ssrf_and_host(
         return False, f"SSRF_BLOCKED: Malformed URL: {e}"
 
     if parsed.scheme.lower() not in ("http", "https"):
-        return False, f"SSRF_BLOCKED: Unsupported scheme '{parsed.scheme}'; only http and https are allowed"
+        return (
+            False,
+            f"SSRF_BLOCKED: Unsupported scheme '{parsed.scheme}'; only http and https are allowed",
+        )
 
     hostname = (parsed.hostname or "").strip().lower()
     if not hostname:
         return False, "SSRF_BLOCKED: Missing host in URL"
 
     # 检测常见回环与元数据主机名
-    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or hostname.endswith(".localhost"):
-        return False, f"SSRF_BLOCKED: Requests to localhost or loopback '{hostname}' are forbidden"
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or hostname.endswith(
+        ".localhost"
+    ):
+        return (
+            False,
+            f"SSRF_BLOCKED: Requests to localhost or loopback '{hostname}' are forbidden",
+        )
 
     if hostname in ("metadata.google.internal", "instance-data", "169.254.169.254"):
-        return False, f"SSRF_BLOCKED: Requests to cloud metadata endpoint '{hostname}' are forbidden"
+        return (
+            False,
+            f"SSRF_BLOCKED: Requests to cloud metadata endpoint '{hostname}' are forbidden",
+        )
 
     # 如果 host 是 IP 地址，检查是否为私有/受限地址
     if is_ip_private_or_restricted(hostname):
-        return False, f"SSRF_BLOCKED: Target IP address '{hostname}' is in a private or restricted network range"
+        return (
+            False,
+            f"SSRF_BLOCKED: Target IP address '{hostname}' is in a private or restricted network range",
+        )
 
     # 凭据外送面管控：已保存的 key 只允许送往白名单 host
     if is_saved_key:
@@ -80,7 +96,9 @@ def validate_ssrf_and_host(
             whitelist.update(h.lower() for h in custom_allowed_hosts)
         env_allowed = os.getenv("JEV_ALLOWED_HOSTS", "").strip()
         if env_allowed:
-            whitelist.update(h.strip().lower() for h in env_allowed.split(",") if h.strip())
+            whitelist.update(
+                h.strip().lower() for h in env_allowed.split(",") if h.strip()
+            )
 
         if hostname not in whitelist:
             return (
@@ -146,7 +164,7 @@ def redact_sensitive_text(text: str, key: str | None = None) -> str:
     # 赋值结构脱敏（支持 = 与 :，支持无引号值如 password: hunter2 或 secret=opaque）
     result = re.sub(
         r'(?i)(\b(?:api[_-]?key|apiKey|password|passwd|token|secret|access[_-]?token|accessToken|client[_-]?secret|clientSecret)\s*[:=]\s*)([^\s"\'\\,;{}]+)',
-        r'\1[REDACTED]',
+        r"\1[REDACTED]",
         result,
     )
     return result

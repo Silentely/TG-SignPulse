@@ -81,7 +81,10 @@ class SemanticRuntime:
         return self._ensure_service()
 
     def get_stats(self) -> dict[str, Any]:
-        if self._service is not None and getattr(self._service, "client", None) is not None:
+        if (
+            self._service is not None
+            and getattr(self._service, "client", None) is not None
+        ):
             return self._service.client.get_stats()
         return {
             "total_calls": 0,

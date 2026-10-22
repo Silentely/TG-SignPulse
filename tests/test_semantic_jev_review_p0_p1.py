@@ -38,7 +38,9 @@ def _make_req(
 # P0-1 & P1-10: 总预算墙钟硬上限与测试重写
 # -------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_p0_1_wall_clock_hard_limit_rejects_late_200_and_prevents_cache(monkeypatch):
+async def test_p0_1_wall_clock_hard_limit_rejects_late_200_and_prevents_cache(
+    monkeypatch,
+):
     """P0-1 & P1-10: HTTP 调用耗时超出总预算墙钟，即使返回 200 OK 也必须判失败、不得返回 ok、不得写缓存"""
     cache = JevDecisionCache(maxsize=10, ttl=60.0)
     client = JevClient(
@@ -185,12 +187,16 @@ def test_p0_4_ssrf_and_credential_whitelisting():
     assert err == ""
 
     # 3. 自定义公网 host，禁止使用已存密钥（防止攻击者修改 base_url 窃取已有凭据）
-    valid, err = validate_ssrf_and_host("https://custom-gateway.io/v1", is_saved_key=True)
+    valid, err = validate_ssrf_and_host(
+        "https://custom-gateway.io/v1", is_saved_key=True
+    )
     assert valid is False
     assert "UNTRUSTED_HOST" in err
 
     # 4. 自定义公网 host，若是用户当前显式输入的临时密钥（非已保存密钥），则允许
-    valid, err = validate_ssrf_and_host("https://custom-gateway.io/v1", is_saved_key=False)
+    valid, err = validate_ssrf_and_host(
+        "https://custom-gateway.io/v1", is_saved_key=False
+    )
     assert valid is True
     assert err == ""
 
@@ -203,15 +209,23 @@ def test_p1_5_cache_keys_multidimensional_and_namespace_isolation():
     req_base = _make_req(scope="scope_a", config_revision="rev_1")
 
     # 维度不同，键必须不同
-    k1 = compute_cache_key(req_base, model="model_1", base_url="https://api.typesafe.ai/v1")
-    k2 = compute_cache_key(req_base, model="model_2", base_url="https://api.typesafe.ai/v1")
+    k1 = compute_cache_key(
+        req_base, model="model_1", base_url="https://api.typesafe.ai/v1"
+    )
+    k2 = compute_cache_key(
+        req_base, model="model_2", base_url="https://api.typesafe.ai/v1"
+    )
     k3 = compute_cache_key(req_base, model="model_1", base_url="https://custom.org/v1")
 
     req_rev2 = _make_req(scope="scope_a", config_revision="rev_2")
-    k4 = compute_cache_key(req_rev2, model="model_1", base_url="https://api.typesafe.ai/v1")
+    k4 = compute_cache_key(
+        req_rev2, model="model_1", base_url="https://api.typesafe.ai/v1"
+    )
 
     req_scope_b = _make_req(scope="scope_b", config_revision="rev_1")
-    k5 = compute_cache_key(req_scope_b, model="model_1", base_url="https://api.typesafe.ai/v1")
+    k5 = compute_cache_key(
+        req_scope_b, model="model_1", base_url="https://api.typesafe.ai/v1"
+    )
 
     keys = {k1, k2, k3, k4, k5}
     assert len(keys) == 5  # 五个维度的键必须互不碰撞
@@ -220,6 +234,7 @@ def test_p1_5_cache_keys_multidimensional_and_namespace_isolation():
     cache = JevDecisionCache(maxsize=10, ttl=60.0)
     ns1 = cache.with_namespace("gen_1")
     from tg_signer.semantic.models import Decision
+
     dummy_dec = Decision(status="ok", selected="pong")
     ns1.set(k1, dummy_dec)
     assert ns1.get(k1).selected == "pong"
@@ -252,7 +267,9 @@ def test_p1_6_sensitive_bypass_detection():
     assert is_sensitive_request(req_entropy) is True
 
     # 正常文本不误报
-    req_clean = _make_req(state={"item": "apple", "status": "active"}, instructions="confirm payment?")
+    req_clean = _make_req(
+        state={"item": "apple", "status": "active"}, instructions="confirm payment?"
+    )
     assert is_sensitive_request(req_clean) is False
 
 
@@ -264,8 +281,8 @@ def test_p1_7_redaction_completeness():
     raw_texts = [
         ('{"password": "my_secret_pass"}', "my_secret_pass"),
         ('{"api_key": "sk-topsecret123"}', "sk-topsecret123"),
-        ('secret=opaque_token_val_12345', "opaque_token_val_12345"),
-        ('Bearer token_secret_abcdef', "token_secret_abcdef"),
+        ("secret=opaque_token_val_12345", "opaque_token_val_12345"),
+        ("Bearer token_secret_abcdef", "token_secret_abcdef"),
     ]
     for raw, secret_value in raw_texts:
         sanitized = redact_sensitive_text(raw)
@@ -397,6 +414,7 @@ async def test_p1_11_retry_after_respected_and_exceptions_narrowed(monkeypatch):
     assert len(sleep_durations) == 1
     assert sleep_durations[0] >= 2.0  # 尊重 Retry-After: 2
 
+
 # -------------------------------------------------------------------------
 # P0-3 升级：真实进入 half_open，挂起探针，经 client 路径验证代次隔离
 # -------------------------------------------------------------------------
@@ -449,6 +467,7 @@ async def test_p0_3_half_open_client_probe_isolation(monkeypatch):
 
     # 4. 旧代次（代次 0）的慢请求此时返回成功
     from tg_signer.semantic.breaker import ProbeLease
+
     old_lease = ProbeLease(cb, allowed=True, generation=0, is_probe=True)
     old_lease.record_success()
 
@@ -669,6 +688,7 @@ async def test_budget_branch_cache_hit_exceeds_budget():
     req = _make_req()
     k = compute_cache_key(req, model=client.model, base_url=client.base_url)
     from tg_signer.semantic.models import Decision
+
     cache.set(k, Decision(status="ok", selected="pong"))
 
     # 传入已超期的 deadline
@@ -687,7 +707,9 @@ async def test_budget_branch_cache_hit_exceeds_budget():
 # Grok P1-2: 200 但 choice 为空或非法算失败，不重置熔断，不写缓存
 # -------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_200_empty_choice_treated_as_failure_no_cache_no_breaker_reset(monkeypatch):
+async def test_200_empty_choice_treated_as_failure_no_cache_no_breaker_reset(
+    monkeypatch,
+):
     """200 但 choice 为空串必须判失败，不重置熔断计数，不写缓存"""
     cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
     cb.consecutive_failures = 2
@@ -721,7 +743,9 @@ async def test_200_empty_choice_treated_as_failure_no_cache_no_breaker_reset(mon
 
 
 @pytest.mark.asyncio
-async def test_200_out_of_bounds_choice_treated_as_failure_no_cache_no_breaker_reset(monkeypatch):
+async def test_200_out_of_bounds_choice_treated_as_failure_no_cache_no_breaker_reset(
+    monkeypatch,
+):
     """200 但 choice 超出候选列表必须判失败，不重置熔断计数，不写缓存"""
     cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
     cb.consecutive_failures = 2
@@ -734,10 +758,14 @@ async def test_200_out_of_bounds_choice_treated_as_failure_no_cache_no_breaker_r
         cache=cache,
     )
 
-    async def fake_invalid_choice_post(self, url, json=None, headers=None, timeout=None):
+    async def fake_invalid_choice_post(
+        self, url, json=None, headers=None, timeout=None
+    ):
         return httpx.Response(
             status_code=200,
-            json={"answers": {"decision": {"choice": "invalid_option", "confidence": 0.8}}},
+            json={
+                "answers": {"decision": {"choice": "invalid_option", "confidence": 0.8}}
+            },
             request=httpx.Request("POST", str(url)),
         )
 
@@ -757,7 +785,9 @@ async def test_200_out_of_bounds_choice_treated_as_failure_no_cache_no_breaker_r
 # Grok P0-1: /test 端点凭据外送保护：未显式传 key 拒绝自定义 base_url
 # -------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_route_test_connection_rejects_custom_base_url_without_explicit_key(tmp_path):
+async def test_route_test_connection_rejects_custom_base_url_without_explicit_key(
+    tmp_path,
+):
     """Grok P0-1: /test 只有显式传 api_key 才允许自定义 base_url；缺省 key 时发往不同 host 直接 400"""
     from fastapi import HTTPException
 
@@ -765,7 +795,9 @@ async def test_route_test_connection_rejects_custom_base_url_without_explicit_ke
     from backend.services.semantic.config import JevConfigStore
 
     store = JevConfigStore(tmp_path)
-    store.save_patch({"base_url": "https://api.typesafe.ai/v1", "api_key": "saved_secret_key"})
+    store.save_patch(
+        {"base_url": "https://api.typesafe.ai/v1", "api_key": "saved_secret_key"}
+    )
 
     # 1. 尝试将已保存密钥发送至未授权的自定义 host，不显式提供 api_key -> 必须 400 UNTRUSTED_HOST
     with pytest.raises(HTTPException) as exc_info:
@@ -791,7 +823,9 @@ async def test_route_test_connection_rejects_whitespace_key_as_untrusted_host(tm
     from backend.services.semantic.config import JevConfigStore
 
     store = JevConfigStore(tmp_path)
-    store.save_patch({"base_url": "https://api.typesafe.ai/v1", "api_key": "saved_secret_key"})
+    store.save_patch(
+        {"base_url": "https://api.typesafe.ai/v1", "api_key": "saved_secret_key"}
+    )
 
     # 空白 api_key + 自定义 base_url -> 必须 400 UNTRUSTED_HOST
     with pytest.raises(HTTPException) as exc_info:
@@ -815,7 +849,9 @@ async def test_route_test_connection_rejects_whitespace_key_as_untrusted_host(tm
 
 
 @pytest.mark.asyncio
-async def test_budget_timeout_does_not_record_upstream_failure_or_advance_generation(monkeypatch):
+async def test_budget_timeout_does_not_record_upstream_failure_or_advance_generation(
+    monkeypatch,
+):
     """P1-2: 本地预算超限不记上游失败、不推进 generation"""
     cb = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
     cb.state = "half_open"
@@ -875,7 +911,9 @@ async def test_budget_precheck_before_acquire_preserves_half_open_probe():
 
 
 @pytest.mark.asyncio
-async def test_cache_bidirectional_secret_santa_cacheable_and_token_assignment_bypassed(monkeypatch):
+async def test_cache_bidirectional_secret_santa_cacheable_and_token_assignment_bypassed(
+    monkeypatch,
+):
     """P1-4: 双向用例：secret santa/token economy/auth service is down 必须可缓存；token=abc 必须旁路"""
     cache = JevDecisionCache(maxsize=10, ttl=60.0)
     client = JevClient(
@@ -933,11 +971,11 @@ def test_security_redaction_escaped_quotes_and_colon_assignments_and_urlsafe_b64
     from tg_signer.semantic.cache import is_sensitive_value
 
     # 1. JSON 转义引号脱敏
-    s_escaped = r'{\"password\": \"hunter2\", \"api_key\": \"secret_123\"}'
+    s_escaped = r"{\"password\": \"hunter2\", \"api_key\": \"secret_123\"}"
     redacted = redact_sensitive_text(s_escaped)
     assert "hunter2" not in redacted
     assert "secret_123" not in redacted
-    assert r'{\"password\": \"[REDACTED]\", \"api_key\": \"[REDACTED]\"}' == redacted
+    assert r"{\"password\": \"[REDACTED]\", \"api_key\": \"[REDACTED]\"}" == redacted
 
     # 2. 冒号赋值结构脱敏（无引号）
     s_colon = "Error occurred at step 2, password: hunter2 and api_key: secret_abc"
@@ -955,7 +993,9 @@ def test_security_redaction_escaped_quotes_and_colon_assignments_and_urlsafe_b64
 
 
 @pytest.mark.asyncio
-async def test_metrics_no_holes_on_malformed_json_and_external_cancellation(monkeypatch):
+async def test_metrics_no_holes_on_malformed_json_and_external_cancellation(
+    monkeypatch,
+):
     """P1-6: 指标无洞验证：JSON 返回 [] 与协程取消均正确计入结果桶"""
     client = JevClient(api_key="test_key", base_url="https://api.typesafe.ai/v1")
 
@@ -975,7 +1015,9 @@ async def test_metrics_no_holes_on_malformed_json_and_external_cancellation(monk
     assert client.metrics.total_calls == 1
     assert client.metrics.failed_calls == 1
     assert client.metrics.total_calls == (
-        client.metrics.success_calls + client.metrics.failed_calls + client.metrics.escalate_calls
+        client.metrics.success_calls
+        + client.metrics.failed_calls
+        + client.metrics.escalate_calls
     )
 
     # 2. 外部协程取消
@@ -998,7 +1040,9 @@ async def test_metrics_no_holes_on_malformed_json_and_external_cancellation(monk
     assert client.metrics.total_calls == 2
     assert client.metrics.failed_calls == 2
     assert client.metrics.total_calls == (
-        client.metrics.success_calls + client.metrics.failed_calls + client.metrics.escalate_calls
+        client.metrics.success_calls
+        + client.metrics.failed_calls
+        + client.metrics.escalate_calls
     )
     await client.close()
 

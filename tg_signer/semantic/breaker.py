@@ -34,7 +34,9 @@ class ProbeLease:
     def record_failure(self, now: float | None = None) -> None:
         if not self.finished:
             self.finished = True
-            self.breaker.record_failure(self.generation, is_probe=self.is_probe, now=now)
+            self.breaker.record_failure(
+                self.generation, is_probe=self.is_probe, now=now
+            )
 
     def release(self) -> None:
         """兜底释放：如果请求未显式记录成功/失败（例如协程取消 CancelledError 或早退），确保释放试水探测位。"""
@@ -83,14 +85,22 @@ class CircuitBreaker:
             now = time.monotonic()
         curr_state = self.get_state(now)
         if curr_state == "closed":
-            return ProbeLease(self, allowed=True, generation=self.generation, is_probe=False)
+            return ProbeLease(
+                self, allowed=True, generation=self.generation, is_probe=False
+            )
         if curr_state == "half_open":
             if not self._probe_in_flight:
                 self._probe_in_flight = True
                 self.state = "half_open"
-                return ProbeLease(self, allowed=True, generation=self.generation, is_probe=True)
-            return ProbeLease(self, allowed=False, generation=self.generation, is_probe=False)
-        return ProbeLease(self, allowed=False, generation=self.generation, is_probe=False)
+                return ProbeLease(
+                    self, allowed=True, generation=self.generation, is_probe=True
+                )
+            return ProbeLease(
+                self, allowed=False, generation=self.generation, is_probe=False
+            )
+        return ProbeLease(
+            self, allowed=False, generation=self.generation, is_probe=False
+        )
 
     def allow_request(self, now: float | None = None) -> bool:
         """向后兼容的轻量查询方法。"""
@@ -164,12 +174,17 @@ class CircuitBreaker:
         if is_probe or curr_state == "half_open":
             self._probe_in_flight = False
 
-        if curr_state == "half_open" or self.consecutive_failures >= self.failure_threshold:
+        if (
+            curr_state == "half_open"
+            or self.consecutive_failures >= self.failure_threshold
+        ):
             self.state = "open"
             self.generation += 1
             self._probe_in_flight = False
 
-    def release_probe(self, request_generation: int | None = None, is_probe: bool = False) -> None:
+    def release_probe(
+        self, request_generation: int | None = None, is_probe: bool = False
+    ) -> None:
         """释放探测位（用于 CancelledError 或未显式完成时的安全回收）。"""
         if request_generation is not None and request_generation != self.generation:
             return

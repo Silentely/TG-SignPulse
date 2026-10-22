@@ -116,11 +116,13 @@ def _check_opentele_available() -> tuple[Any, Any]:
         from opentele.td import TDesktop
 
         return opentele, TDesktop
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except (ImportError, ModuleNotFoundError) as exc:
         raise RuntimeError(
             "TDATA_CONVERTER_UNAVAILABLE: Optional dependency 'opentele' is not installed"
         ) from exc
-    except Exception as exc:
+    except BaseException as exc:
         raise RuntimeError(
             f"TDATA_CONVERTER_UNAVAILABLE: Optional dependency 'opentele' failed to initialize: {exc}"
         ) from exc

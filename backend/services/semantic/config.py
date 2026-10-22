@@ -47,7 +47,10 @@ class JevConfigStore:
                     config_dict["api_key"] = env_key
 
             saved_base = config_dict.get("base_url")
-            if not saved_base or str(saved_base).rstrip("/") == "https://api.typesafe.ai/v1":
+            if (
+                not saved_base
+                or str(saved_base).rstrip("/") == "https://api.typesafe.ai/v1"
+            ):
                 env_base = os.getenv("JEV_BASE_URL", "").strip()
                 if env_base:
                     config_dict["base_url"] = env_base
@@ -77,12 +80,18 @@ class JevConfigStore:
 
             # 2. 凭据外送面保护：更换 base_url 时，不得把已存密钥送往任意非同源主机
             if new_base_url:
-                old_host = (urllib.parse.urlparse(current.base_url).hostname or "").lower()
+                old_host = (
+                    urllib.parse.urlparse(current.base_url).hostname or ""
+                ).lower()
                 new_host = (urllib.parse.urlparse(new_base_url).hostname or "").lower()
                 if old_host and new_host and old_host != new_host:
                     patch_key = patch.get("api_key")
                     # 若未提供新密钥，清空已存密钥，防止旧凭据外送
-                    if not patch_key or is_masked_secret(patch_key) or patch_key.endswith("****"):
+                    if (
+                        not patch_key
+                        or is_masked_secret(patch_key)
+                        or patch_key.endswith("****")
+                    ):
                         current_dict["api_key"] = ""
 
             clear_key = patch.get("clear_api_key", False)
