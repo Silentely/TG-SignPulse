@@ -1,6 +1,9 @@
 import asyncio
+import logging
 import time
 from typing import Any, Callable
+
+logger = logging.getLogger("tg_signer.semantic.service")
 
 from tg_signer.semantic.client import JevClient
 from tg_signer.semantic.models import Decision, DecisionRequest
@@ -54,8 +57,15 @@ class SemanticService:
         deadline: float,
         run_id: str,
     ) -> Decision:
+        req_scope = getattr(request, "scope", "")
         budget_err = self._check_rate_limits(run_id)
         if budget_err:
+            logger.warning(
+                "jev_service_rate_limit: reason=%s run_id=%s scope=%s",
+                budget_err,
+                run_id,
+                req_scope,
+            )
             decision = Decision(status="budget_exceeded", reason_code=budget_err)
             if self.record_callback:
                 try:
@@ -66,6 +76,11 @@ class SemanticService:
 
         now = time.monotonic()
         if now >= deadline:
+            logger.warning(
+                "jev_service_rate_limit: reason=DEADLINE_EXCEEDED run_id=%s scope=%s",
+                run_id,
+                req_scope,
+            )
             decision = Decision(
                 status="budget_exceeded", reason_code="DEADLINE_EXCEEDED"
             )

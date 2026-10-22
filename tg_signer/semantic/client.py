@@ -178,10 +178,24 @@ class JevClient:
         jitter = random.uniform(0.0, 0.2)
         return min(0.6, max(0.2, base + jitter))
 
-    def _log_structured(self, decision: Decision) -> None:
-        logger.info(
-            "jev_query_completed: decision=%s confidence=%.2f latency_ms=%.1f "
-            "http_status=%s attempts=%d breaker=%s cache_hit=%s truncated=%s",
+    def _log_structured(self, decision: Decision, *, scope: str = "") -> None:
+        level = logging.INFO
+        if decision.status in ("unavailable", "invalid") or (
+            decision.http_status is not None and decision.http_status >= 500
+        ):
+            level = logging.ERROR
+        elif (
+            decision.status in ("escalate", "budget_exceeded")
+            or decision.http_status == 429
+        ):
+            level = logging.WARNING
+
+        logger.log(
+            level,
+            "jev_query_completed: status=%s reason=%s decision=%s confidence=%.2f latency_ms=%.1f "
+            "http_status=%s attempts=%d breaker=%s cache_hit=%s truncated=%s scope=%s error=%s",
+            decision.status,
+            decision.reason_code or "none",
             decision.selected,
             decision.confidence,
             decision.elapsed_ms,
@@ -190,7 +204,11 @@ class JevClient:
             decision.breaker,
             decision.cache_hit,
             decision.truncated,
+            scope or "none",
+            decision.error_message or "none",
             extra={
+                "status": decision.status,
+                "reason_code": decision.reason_code,
                 "decision": decision.selected,
                 "confidence": decision.confidence,
                 "latency_ms": decision.elapsed_ms,
@@ -199,6 +217,8 @@ class JevClient:
                 "breaker": decision.breaker,
                 "cache_hit": decision.cache_hit,
                 "truncated": decision.truncated,
+                "scope": scope,
+                "error": decision.error_message,
             },
         )
 
@@ -214,6 +234,11 @@ class JevClient:
         *,
         deadline: float | None = None,
     ) -> Decision:
+        req_scope = getattr(request, "scope", "")
+
+        def _log(d: Decision) -> None:
+            self._log_structured(d, scope=req_scope)
+
         start_t = time.monotonic()
         budget_deadline = start_t + self.total_budget
         if deadline is not None:
@@ -232,7 +257,7 @@ class JevClient:
                 attempts=0,
                 breaker=self.breaker.get_state(),
             )
-            self._log_structured(decision)
+            _log(decision)
             return decision
 
         # 2. SSRF 与凭据外送面白名单校验
@@ -249,7 +274,7 @@ class JevClient:
                 attempts=0,
                 breaker=self.breaker.get_state(),
             )
-            self._log_structured(decision)
+            _log(decision)
             return decision
 
         # 3. 超长截断与安全净化（截断标记保留在 request.truncated）
@@ -269,7 +294,7 @@ class JevClient:
                 truncated=is_truncated,
                 error_message="Total budget exceeded before request",
             )
-            self._log_structured(decision)
+            _log(decision)
             return decision
 
         # 5. 熔断判定与探测租约获取（永不静默放行）
@@ -289,7 +314,7 @@ class JevClient:
                 truncated=is_truncated,
                 error_message="Circuit breaker is OPEN (consecutive failures threshold reached); escalating to manual review",
             )
-            self._log_structured(decision)
+            _log(decision)
             return decision
 
         try:
@@ -314,7 +339,7 @@ class JevClient:
                             truncated=is_truncated,
                             error_message="Total budget exceeded on cache hit",
                         )
-                        self._log_structured(decision)
+                        _log(decision)
                         return decision
 
                     # 缓存命中：属于有效业务成功
@@ -328,7 +353,7 @@ class JevClient:
                         elapsed_ms=elapsed_ms,
                     )
                     lease.release()
-                    self._log_structured(decision)
+                    _log(decision)
                     return decision
                 self.metrics.cache_misses += 1
 
@@ -410,7 +435,7 @@ class JevClient:
                                 truncated=is_truncated,
                                 error_message=err_msg or "Authentication failed",
                             )
-                            self._log_structured(decision)
+                            _log(decision)
                             return decision
 
                         # 429: 限流，属于可重试错误；尊重 Retry-After
@@ -430,7 +455,7 @@ class JevClient:
                                     error_message=err_msg
                                     or "Rate limit exceeded (HTTP 429)",
                                 )
-                                self._log_structured(decision)
+                                _log(decision)
                                 return decision
 
                             retry_after_sec: float | None = None
@@ -445,6 +470,13 @@ class JevClient:
                             if retry_after_sec is not None and retry_after_sec > 0:
                                 backoff = max(backoff, retry_after_sec)
 
+                            logger.warning(
+                                "jev_request_retry: attempt=%d/%d backoff=%.2fs reason=RATE_LIMITED (HTTP 429) scope=%s",
+                                attempt_idx + 1,
+                                self.MAX_RETRIES,
+                                backoff,
+                                req_scope,
+                            )
                             if time.monotonic() + backoff >= budget_deadline:
                                 raise asyncio.TimeoutError()
                             await asyncio.sleep(backoff)
@@ -467,10 +499,18 @@ class JevClient:
                                     error_message=err_msg
                                     or f"Server error: {resp.status_code}",
                                 )
-                                self._log_structured(decision)
+                                _log(decision)
                                 return decision
 
                             backoff = self._calculate_backoff(attempt_idx)
+                            logger.warning(
+                                "jev_request_retry: attempt=%d/%d backoff=%.2fs reason=HTTP_%d scope=%s",
+                                attempt_idx + 1,
+                                self.MAX_RETRIES,
+                                backoff,
+                                resp.status_code,
+                                req_scope,
+                            )
                             if time.monotonic() + backoff >= budget_deadline:
                                 raise asyncio.TimeoutError()
                             await asyncio.sleep(backoff)
@@ -491,7 +531,7 @@ class JevClient:
                                 error_message=err_msg
                                 or f"Unexpected status: {resp.status_code}",
                             )
-                            self._log_structured(decision)
+                            _log(decision)
                             return decision
 
                         # 200 OK 解析
@@ -510,7 +550,7 @@ class JevClient:
                                 truncated=is_truncated,
                                 error_message=f"JSON decode error: {json_err}",
                             )
-                            self._log_structured(decision)
+                            _log(decision)
                             return decision
 
                         if not isinstance(data, dict):
@@ -526,7 +566,7 @@ class JevClient:
                                 truncated=is_truncated,
                                 error_message=f"Response root must be a JSON object, got {type(data).__name__}",
                             )
-                            self._log_structured(decision)
+                            _log(decision)
                             return decision
 
                         raw_answers = data.get("answers")
@@ -551,7 +591,7 @@ class JevClient:
                                 truncated=is_truncated,
                                 error_message="No answer returned in response",
                             )
-                            self._log_structured(decision)
+                            _log(decision)
                             return decision
 
                         selected_raw = str(
@@ -573,7 +613,7 @@ class JevClient:
                                 truncated=is_truncated,
                                 error_message="Model returned empty choice",
                             )
-                            self._log_structured(decision)
+                            _log(decision)
                             return decision
 
                         if (
@@ -646,7 +686,7 @@ class JevClient:
                         ):
                             self.cache.set(cache_key, decision)
 
-                        self._log_structured(decision)
+                        _log(decision)
                         return decision
 
                     except (httpx.TimeoutException, httpx.TransportError) as exc:
@@ -672,10 +712,18 @@ class JevClient:
                                 truncated=is_truncated,
                                 error_message=default_msg,
                             )
-                            self._log_structured(decision)
+                            _log(decision)
                             return decision
 
                         backoff = self._calculate_backoff(attempt_idx)
+                        logger.warning(
+                            "jev_request_retry: attempt=%d/%d backoff=%.2fs reason=%s scope=%s",
+                            attempt_idx + 1,
+                            self.MAX_RETRIES,
+                            backoff,
+                            err_code,
+                            req_scope,
+                        )
                         if time.monotonic() + backoff >= budget_deadline:
                             raise asyncio.TimeoutError()
                         await asyncio.sleep(backoff)
@@ -701,7 +749,7 @@ class JevClient:
                     truncated=is_truncated,
                     error_message="Total budget wall-clock limit exceeded",
                 )
-                self._log_structured(decision)
+                _log(decision)
                 return decision
         except asyncio.CancelledError:
             self.metrics.failed_calls += 1
@@ -721,7 +769,7 @@ class JevClient:
                     f"{type(exc).__name__}: {exc}", self.api_key
                 ),
             )
-            self._log_structured(decision)
+            _log(decision)
             return decision
         finally:
             # 保证在任何情况下（成功、失败、CancelledError、早退）释放试水探测位
