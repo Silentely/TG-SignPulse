@@ -137,6 +137,7 @@ docker run -d -p 8080:8080 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 - **Python**: PEP 8，ruff 静态检查（`line-length=88`，规则集显式 select，见 `pyproject.toml`）
 - **TypeScript**: `vue-tsc` 严格模式 + Vite 构建
 - **代码自动格式化与质量门禁**:
+  - **AI / Claude / Agent 提交强制规范（重要）**：所有 AI Agent 与开发者在执行 git commit 前，**必须先对所修改的 Python 文件执行 `ruff format` 与 `ruff check --fix`**（或直接运行 `bash scripts/format`），并在提交前自检 `.venv/bin/ruff format --check .` 确保通过，杜绝 CI 镜像构建在 `Ruff format check` 步骤阻断。
   - **IDE 保存自动格式化**：根目录配置了 `.vscode/settings.json`，保存文件时自动触发 Ruff 格式化与 import 排序
   - **Git 自动修复钩子**：运行 `bash scripts/install-hooks` 安装 `pre-commit`（提交时自动格式化并暂存）与 `pre-push`（质量门禁）
   - **全量一键格式化**：`bash scripts/format`（或 `./.venv/bin/ruff format backend/ tg_signer/ tests/ scripts/`）
