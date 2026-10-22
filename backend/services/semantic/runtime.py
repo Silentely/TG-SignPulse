@@ -30,7 +30,7 @@ class SemanticRuntime:
         self.config_store = JevConfigStore(self.workdir)
         self.semantic_store = SemanticStore(self.workdir)
         self._breaker = CircuitBreaker()
-        self._cache = JevDecisionCache()
+        self._cache = JevDecisionCache(namespace="gen_0")
         self._service: SemanticService | None = None
         self._generation: int = -1
         self._queue: asyncio.Queue[tuple[DecisionRequest, str, str, float]] = (
@@ -56,6 +56,8 @@ class SemanticRuntime:
         if self._service is None or self._generation != cfg.generation:
             if self._service is not None:
                 self._track_close_service(self._service)
+            # 配置代际切换时新建缓存命名空间，隔离旧缓存
+            self._cache = JevDecisionCache(namespace=f"gen_{cfg.generation}")
             client = JevClient(
                 api_key=cfg.api_key,
                 base_url=cfg.base_url,
@@ -63,6 +65,7 @@ class SemanticRuntime:
                 timeout=cfg.timeout_seconds,
                 breaker=self._breaker,
                 cache=self._cache,
+                is_saved_key=True,
             )
             self._service = SemanticService(
                 client,

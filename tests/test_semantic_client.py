@@ -386,19 +386,33 @@ async def test_network_and_timeout_retry(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_total_budget_deadline_exceeded(monkeypatch):
-    """单次调用总预算显式化 (<= 20s)，超预算直接退出"""
+    """单次调用总预算显式化：HTTP mock 传输耗时超预算，请求后查 deadline 判失败，不得返回 ok、不得写缓存"""
+    cache = JevDecisionCache(maxsize=10, ttl=60.0)
     client = JevClient(
         api_key="test_key",
         base_url="https://api.example.com/v1",
-        total_budget=0.01,
+        total_budget=0.05,
+        cache=cache,
     )
-    # 模拟耗时
-    await asyncio.sleep(0.02)
+
+    async def fake_slow_post(self, url, json=None, headers=None, timeout=None):
+        # sleep 在 HTTP mock 内部；返回 200 OK，用于验证墙钟硬上限检查
+        await asyncio.sleep(0.08)
+        return httpx.Response(
+            status_code=200,
+            json={"answers": {"decision": {"choice": "pong", "confidence": 0.99}}},
+            request=httpx.Request("POST", str(url)),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_slow_post)
+
     dec = await client.query_choice(_make_dummy_request())
     await client.close()
 
     assert dec.status == "budget_exceeded"
     assert dec.reason_code == "DEADLINE_EXCEEDED"
+    assert dec.selected == "unknown"
+    assert len(cache._cache) == 0
 
 
 @pytest.mark.asyncio
@@ -543,7 +557,7 @@ async def test_cache_hit_and_expiration(monkeypatch):
     assert cache.hits == 1
 
     # 模拟过期
-    key = compute_cache_key(req)
+    key = compute_cache_key(req, model=client.model, base_url=client.base_url)
     t_expired = cache._cache[key][0] - 65.0
     cache._cache[key] = (t_expired, dec1)
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import ipaddress
 import json
+import os
 import re
+import urllib.parse
 from typing import Any
 
 from tg_signer.semantic.models import DecisionRequest
@@ -10,9 +13,94 @@ from tg_signer.semantic.models import DecisionRequest
 MAX_STATE_CHARS: int = 4096
 MAX_FIELD_CHARS: int = 2048
 
+OFFICIAL_WHITELIST_HOSTS = frozenset({"api.typesafe.ai", "api.example.com", "example.com"})
+
+
+def is_ip_private_or_restricted(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+    except ValueError:
+        return False
+
+
+def validate_ssrf_and_host(
+    url: str,
+    *,
+    is_saved_key: bool = False,
+    custom_allowed_hosts: set[str] | None = None,
+) -> tuple[bool, str]:
+    """校验目标 URL 是否存在 SSRF 风险，以及是否允许发送已保存密钥。
+
+    安全策略：
+    1. 必须使用 http 或 https 协议；
+    2. 禁止向内网/保留 IP（127.0.0.1, 10.x, 172.16.x, 192.168.x, 169.254.x, ::1 等）发送请求；
+    3. 禁止向云厂商元数据主机（如 169.254.169.254, metadata.google.internal, instance-data）发送请求；
+    4. 禁止向 localhost 及 *.localhost 发送请求；
+    5. 若使用已保存的 key（is_saved_key=True），目标 host 必须属于白名单，禁止将已存 key 送往任意自定义或未知主机。
+    """
+    if not url or not isinstance(url, str):
+        return False, "SSRF_BLOCKED: Empty or invalid URL"
+
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+    except Exception as e:
+        return False, f"SSRF_BLOCKED: Malformed URL: {e}"
+
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False, f"SSRF_BLOCKED: Unsupported scheme '{parsed.scheme}'; only http and https are allowed"
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        return False, "SSRF_BLOCKED: Missing host in URL"
+
+    # 检测常见回环与元数据主机名
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or hostname.endswith(".localhost"):
+        return False, f"SSRF_BLOCKED: Requests to localhost or loopback '{hostname}' are forbidden"
+
+    if hostname in ("metadata.google.internal", "instance-data", "169.254.169.254"):
+        return False, f"SSRF_BLOCKED: Requests to cloud metadata endpoint '{hostname}' are forbidden"
+
+    # 如果 host 是 IP 地址，检查是否为私有/受限地址
+    if is_ip_private_or_restricted(hostname):
+        return False, f"SSRF_BLOCKED: Target IP address '{hostname}' is in a private or restricted network range"
+
+    # 凭据外送面管控：已保存的 key 只允许送往白名单 host
+    if is_saved_key:
+        whitelist = set(OFFICIAL_WHITELIST_HOSTS)
+        if custom_allowed_hosts:
+            whitelist.update(h.lower() for h in custom_allowed_hosts)
+        env_allowed = os.getenv("JEV_ALLOWED_HOSTS", "").strip()
+        if env_allowed:
+            whitelist.update(h.strip().lower() for h in env_allowed.split(",") if h.strip())
+
+        if hostname not in whitelist:
+            return (
+                False,
+                f"UNTRUSTED_HOST: Saved API key cannot be forwarded to non-whitelisted host '{hostname}'. "
+                f"Allowed hosts: {sorted(whitelist)}",
+            )
+
+    return True, ""
+
 
 def redact_sensitive_text(text: str, key: str | None = None) -> str:
-    """脱敏字符串中的密钥、Token 与认证凭据，绝不泄露 key。"""
+    """脱敏字符串中的密钥、Token 与认证凭据，绝不泄露 key。
+
+    覆盖场景：
+    - 精确传入的 key
+    - Bearer tokens 与 sk-* 密钥
+    - {"password": "..."}、{"api_key": "..."} 等 JSON / Dict 格式
+    - apiKey: "..." 驼峰格式
+    - secret=opaque 等 query / assignment 格式
+    """
     if not text:
         return ""
     result = text
@@ -29,10 +117,18 @@ def redact_sensitive_text(text: str, key: str | None = None) -> str:
     )
     # sk- 前缀密钥脱敏
     result = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[REDACTED]", result)
-    # 类似 api_key=xxx / secret=xxx 的赋值脱敏
+
+    # JSON/Dict 结构脱敏：{"password": "secret", "api_key": "secret"}
     result = re.sub(
-        r"(?i)(api[_-]?key|api[_-]?secret|password|token)\s*[:=]\s*[\"']?[^\s\"',;]+[\"']?",
-        r"\1=[REDACTED]",
+        r'(?i)(["\']?(?:api[_-]?key|apiKey|password|passwd|token|secret|access[_-]?token|accessToken|client[_-]?secret|clientSecret)["\']?\s*[:=]\s*)(["\'][^"\']+["\'])',
+        r'\1"[REDACTED]"',
+        result,
+    )
+
+    # 赋值结构脱敏：secret=opaque_value 或 api_key=secret_123
+    result = re.sub(
+        r'(?i)(\b(?:api[_-]?key|apiKey|password|passwd|token|secret|access[_-]?token)\s*=\s*)([^\s"\',;{}]+)',
+        r'\1[REDACTED]',
         result,
     )
     return result

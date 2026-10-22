@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ from tg_signer.security import (
     is_masked_secret,
     mask_secret,
 )
+from tg_signer.semantic.security import validate_ssrf_and_host
 
 
 class JevConfigStore:
@@ -65,6 +67,23 @@ class JevConfigStore:
         with path_write_lock(self.config_path):
             current = self.load()
             current_dict = current.dict()
+
+            # 1. 目标 URL SSRF 校验
+            new_base_url = patch.get("base_url")
+            if new_base_url:
+                is_valid, ssrf_err = validate_ssrf_and_host(new_base_url)
+                if not is_valid:
+                    raise ValueError(ssrf_err)
+
+            # 2. 凭据外送面保护：更换 base_url 时，不得把已存密钥送往任意非同源主机
+            if new_base_url:
+                old_host = (urllib.parse.urlparse(current.base_url).hostname or "").lower()
+                new_host = (urllib.parse.urlparse(new_base_url).hostname or "").lower()
+                if old_host and new_host and old_host != new_host:
+                    patch_key = patch.get("api_key")
+                    # 若未提供新密钥，清空已存密钥，防止旧凭据外送
+                    if not patch_key or is_masked_secret(patch_key) or patch_key.endswith("****"):
+                        current_dict["api_key"] = ""
 
             clear_key = patch.get("clear_api_key", False)
             new_key = patch.get("api_key")

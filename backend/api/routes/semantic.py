@@ -1,3 +1,4 @@
+import urllib.parse
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
@@ -9,6 +10,7 @@ from backend.services.semantic.store import SemanticStore
 from backend.services.sign_tasks import get_sign_task_service
 from tg_signer.semantic.client import JevClient
 from tg_signer.semantic.models import DecisionRequest
+from tg_signer.semantic.security import redact_sensitive_text, validate_ssrf_and_host
 
 router = APIRouter(prefix="/semantic", tags=["semantic"])
 
@@ -79,7 +81,8 @@ def update_config(
             sanitized["stats"] = runtime.get_stats()
         return sanitized
     except Exception as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        safe_detail = redact_sensitive_text(str(e))
+        raise HTTPException(status_code=422, detail=safe_detail)
 
 
 @router.post("/test")
@@ -90,19 +93,41 @@ async def test_connection(
 ):
     cfg = store.load()
     payload = body or {}
-    api_key = payload.get("api_key") or cfg.api_key
+    req_base_url = payload.get("base_url") or cfg.base_url
+    req_api_key = payload.get("api_key")
+
+    # 1. 目标 URL SSRF 检查
+    is_valid, ssrf_err = validate_ssrf_and_host(req_base_url)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=ssrf_err)
+
+    # 2. 凭据外送面保护：若未提供新密钥，禁止将已存密钥发送至非白名单/不同源的主机
+    if not req_api_key:
+        cfg_host = (urllib.parse.urlparse(cfg.base_url).hostname or "").lower()
+        req_host = (urllib.parse.urlparse(req_base_url).hostname or "").lower()
+        if cfg_host != req_host:
+            is_whitelisted, _ = validate_ssrf_and_host(req_base_url, is_saved_key=True)
+            if not is_whitelisted:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"UNTRUSTED_HOST: Cannot forward saved API key to different host '{req_host}'. Please provide an explicit API key.",
+                )
+        api_key = cfg.api_key
+    else:
+        api_key = req_api_key
+
     if not api_key:
         raise HTTPException(status_code=400, detail="MISSING_API_KEY")
 
-    base_url = payload.get("base_url") or cfg.base_url
     model = payload.get("model") or cfg.model
     timeout = float(payload.get("timeout_seconds") or cfg.timeout_seconds)
 
     client = JevClient(
         api_key=api_key,
-        base_url=base_url,
+        base_url=req_base_url,
         model=model,
         timeout=timeout,
+        is_saved_key=not bool(req_api_key),
     )
     req = DecisionRequest(
         kind="result",
@@ -130,6 +155,7 @@ async def test_connection(
         }
     except Exception as exc:
         await client.close()
+        safe_msg = redact_sensitive_text(f"{type(exc).__name__}: {exc}", api_key)
         return {
             "success": False,
             "status": "invalid",
@@ -137,7 +163,7 @@ async def test_connection(
             "selected": "unknown",
             "elapsed_ms": 0.0,
             "reason_code": f"EXCEPTION_{type(exc).__name__}",
-            "error_message": str(exc),
+            "error_message": safe_msg,
         }
 
 
