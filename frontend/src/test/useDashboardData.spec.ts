@@ -62,6 +62,9 @@ vi.mock('../lib/api', () => ({
 vi.mock('../stores/activeRuns', () => ({
   useActiveRunsStore: () => activeRunsStoreMock,
 }))
+vi.mock('../lib/api/semantic', () => ({
+  getSemanticConfig: vi.fn().mockResolvedValue({ enabled: false, has_api_key: false }),
+}))
 vi.mock('pinia', async (importOriginal) => {
   const actual = await importOriginal<typeof import('pinia')>()
   return {
