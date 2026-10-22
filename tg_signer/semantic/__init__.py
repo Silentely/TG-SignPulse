@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tg_signer.semantic.client import JevClient
+from tg_signer.semantic.client import JevClient, normalize_base_url
 from tg_signer.semantic.decisions import button_request, result_request, triage_request
 from tg_signer.semantic.models import (
     ButtonPolicy,
@@ -40,6 +40,7 @@ __all__ = [
     "SemanticReviewRequired",
     "SemanticStopRequested",
     "JevClient",
+    "normalize_base_url",
     "SemanticService",
     "accept_decision",
     "triage_disposition",

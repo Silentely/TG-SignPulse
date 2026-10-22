@@ -3,6 +3,7 @@ import { request } from './core'
 export interface SemanticConfig {
   enabled: boolean
   drift_enabled: boolean
+  mode: 'official' | 'custom'
   base_url: string
   model: string
   has_api_key: boolean
@@ -60,19 +61,29 @@ export interface RuleSuggestion {
   applied_by?: string
 }
 
+export interface SemanticTestResult {
+  success: boolean
+  status: string
+  http_status: number | null
+  selected: string
+  elapsed_ms: number
+  reason_code: string
+  error_message: string
+}
+
 export const getSemanticConfig = (token?: string) =>
   request<SemanticConfig>('/semantic/config', {}, token)
 
-export const updateSemanticConfig = (patch: Partial<SemanticConfig>, token?: string) =>
+export const updateSemanticConfig = (patch: Partial<SemanticConfig> & { api_key?: string; clear_api_key?: boolean }, token?: string) =>
   request<SemanticConfig>('/semantic/config', {
     method: 'PATCH',
     body: JSON.stringify(patch),
   }, token)
 
-export const testSemanticConnection = (body: { api_key?: string }, token?: string) =>
-  request<{ status: string; selected: string; elapsed_ms: number; reason_code: string }>('/semantic/test', {
+export const testSemanticConnection = (body?: { api_key?: string; base_url?: string; model?: string; timeout_seconds?: number }, token?: string) =>
+  request<SemanticTestResult>('/semantic/test', {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(body || {}),
   }, token)
 
 export const listSemanticObservations = (params: { account_name?: string; task_name?: string; limit?: number }, token?: string) => {

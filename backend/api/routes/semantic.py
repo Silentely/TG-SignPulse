@@ -56,15 +56,22 @@ async def test_connection(
     store: JevConfigStore = Depends(get_jev_store),
     _: Any = Depends(get_current_user),
 ):
+    cfg = store.load()
     payload = body or {}
-    api_key = payload.get("api_key")
-    if not api_key:
-        cfg = store.load()
-        api_key = cfg.api_key
+    api_key = payload.get("api_key") or cfg.api_key
     if not api_key:
         raise HTTPException(status_code=400, detail="MISSING_API_KEY")
 
-    client = JevClient(api_key=api_key, timeout=5.0)
+    base_url = payload.get("base_url") or cfg.base_url
+    model = payload.get("model") or cfg.model
+    timeout = float(payload.get("timeout_seconds") or cfg.timeout_seconds)
+
+    client = JevClient(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=timeout,
+    )
     req = DecisionRequest(
         kind="result",
         scope="test",
@@ -77,18 +84,28 @@ async def test_connection(
     try:
         decision = await client.query_choice(req)
         await client.close()
+        success = decision.status == "ok"
+        http_status = decision.http_status or (200 if success else None)
+        error_summary = decision.error_message or decision.reason_code or ""
         return {
+            "success": success,
             "status": decision.status,
+            "http_status": http_status,
             "selected": decision.selected,
             "elapsed_ms": decision.elapsed_ms,
             "reason_code": decision.reason_code,
+            "error_message": error_summary,
         }
     except Exception as exc:
         await client.close()
         return {
+            "success": False,
             "status": "invalid",
-            "reason_code": f"EXCEPTION_{type(exc).__name__}",
+            "http_status": None,
+            "selected": "unknown",
             "elapsed_ms": 0.0,
+            "reason_code": f"EXCEPTION_{type(exc).__name__}",
+            "error_message": str(exc),
         }
 
 

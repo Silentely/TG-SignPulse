@@ -27,6 +27,8 @@ class Decision:
     elapsed_ms: float = 0.0
     input_tokens: int = 0
     reason_code: str = ""
+    http_status: int | None = None
+    error_message: str = ""
 
 
 @dataclass(frozen=True)
