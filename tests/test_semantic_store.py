@@ -27,6 +27,21 @@ def test_semantic_store_append_and_duplicate(tmp_path: Path):
     store.label(obs_id, scope="acc_1:task_1", label="already_done")
     records_after = store.list_observations(scope="acc_1:task_1")
     assert records_after["items"][0]["human_label"] == "already_done"
+    # Query with trailing colon should match prefix properly
+    records_colon = store.list_observations(scope="acc_1:")
+    assert records_colon["total"] == 1
+
+    # Non-string scope handling (defense against malformed records)
+    obs_bad = {
+        "scope": None,
+        "request_key": "k_bad",
+        "kind": "result",
+        "observed_at": "2026-10-21T00:00:00Z",
+        "selected": "failure",
+    }
+    store.append(obs_bad)
+    records_safe = store.list_observations(scope="acc_1:task_1")
+    assert records_safe["total"] == 1
 
     # 测试容量统计
     stats = store.get_capacity_stats()

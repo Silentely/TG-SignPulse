@@ -1,4 +1,5 @@
 import ast
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -287,8 +288,26 @@ def test_standardized_user_agent_format(monkeypatch):
 async def test_semantic_runtime_worker_cancellation_no_duplicate_task_done(
     tmp_path: Path,
 ):
+    import time
+
     runtime = SemanticRuntime(tmp_path)
+
+    started_ev = asyncio.Event()
+    block_ev = asyncio.Event()
+
+    async def mock_evaluate(*args, **kwargs):
+        started_ev.set()
+        await block_ev.wait()
+        return Decision(status="ok")
+
+    mock_svc = MagicMock()
+    mock_svc.evaluate = mock_evaluate
+    mock_svc.close = AsyncMock()
+    runtime._ensure_service = MagicMock(return_value=mock_svc)
+    runtime._service = mock_svc
+
     runtime.start_workers(num_workers=1)
+    worker_task = runtime._workers[0]
 
     req = DecisionRequest(
         kind="result",
@@ -299,10 +318,30 @@ async def test_semantic_runtime_worker_cancellation_no_duplicate_task_done(
         request_key="req_cancel_test",
         config_revision="rev_1",
     )
-    import time
-
     runtime.enqueue_observation(
         req, rule_result="ok", deadline=time.time() + 10.0, run_id="r1"
     )
+
+    # 确保 worker 已经从队列中取出并进入 evaluate 执行中
+    await asyncio.wait_for(started_ev.wait(), timeout=3.0)
+
+    # 触发关闭与取消
     await runtime.close()
-    assert len(runtime._workers) == 0
+
+    # 断言 worker 没有抛出 ValueError: task_done() called too many times
+    assert worker_task.done()
+    assert worker_task.exception() is None
+    assert runtime._queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_semantic_runtime_worker_cancellation_while_idle(
+    tmp_path: Path,
+):
+    runtime = SemanticRuntime(tmp_path)
+    runtime.start_workers(num_workers=1)
+    worker_task = runtime._workers[0]
+    await asyncio.sleep(0.02)
+    await runtime.close()
+    assert worker_task.done()
+    assert worker_task.exception() is None

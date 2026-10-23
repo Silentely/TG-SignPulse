@@ -213,9 +213,9 @@ describe('buildTaskFormPayload', () => {
     expect(payload.chats?.[0]?.steps?.[1]?.timeout_seconds).toBe(30)
     expect(payload.chats?.[0]?.steps?.[1]?.next_step_id).toBe('COMPLETE')
   })
-  it('preserves target chats with same chatId but different sourceAccount', () => {
+  it('deduplicates target chats with same chatId and threadId to prevent duplicate execution', () => {
     const payload = buildTaskFormPayload({
-      taskName: 'multi_acc_target',
+      taskName: 'dedup_target',
       selectedAccounts: ['acc1', 'acc2'],
       allAccountsMode: false,
       scheduleMode: 'scheduled',
@@ -264,8 +264,7 @@ describe('buildTaskFormPayload', () => {
       listenerActiveTimeEnd: '22:00',
     })
 
-    expect(payload.chats).toHaveLength(2)
-    expect(payload.chats?.[0]?.source_account).toBe('acc1')
-    expect(payload.chats?.[1]?.source_account).toBe('acc2')
+    expect(payload.chats).toHaveLength(1)
+    expect(payload.chats?.[0]?.chat_id).toBe(-100123456)
   })
 })

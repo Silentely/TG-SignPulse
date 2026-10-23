@@ -26,6 +26,7 @@ DEFAULT_BACKUP_PATHS: Tuple[str, ...] = (
     "sessions",
     "signs",
     "monitors",
+    "history",
     "signs_history",
     ".signer",
     ".global_settings.json",

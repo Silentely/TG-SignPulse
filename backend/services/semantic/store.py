@@ -6,12 +6,17 @@ from typing import Any, Callable
 from tg_signer.atomic_io import path_write_lock, read_json_safe, write_json_atomic
 
 
-def _scope_matches(target_scope: str, query_scope: str) -> bool:
+def _scope_matches(target_scope: Any, query_scope: str) -> bool:
     if not query_scope:
         return True
-    if target_scope == query_scope:
+    if not isinstance(target_scope, str):
+        return False
+    clean_query = query_scope.rstrip(":")
+    if not clean_query:
         return True
-    return target_scope.startswith(f"{query_scope}:")
+    if target_scope == clean_query:
+        return True
+    return target_scope.startswith(f"{clean_query}:")
 
 
 class SemanticStore:
