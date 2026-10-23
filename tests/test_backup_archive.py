@@ -19,6 +19,9 @@ def test_default_backup_paths_includes_plugins():
     assert "plugins" in DEFAULT_BACKUP_PATHS
     assert "plugin_storage.db" in DEFAULT_BACKUP_PATHS
     assert "data_dicts" in DEFAULT_BACKUP_PATHS
+    assert "signs" in DEFAULT_BACKUP_PATHS
+    assert "monitors" in DEFAULT_BACKUP_PATHS
+    assert "signs_history" in DEFAULT_BACKUP_PATHS
     assert ".signer/keyword_monitor" in DEFAULT_BACKUP_PATHS
     assert ".signer/.device_keepalive_state.json" in DEFAULT_BACKUP_PATHS
 
@@ -32,6 +35,10 @@ def test_create_backup_tarball_with_plugins(tmp_path: Path):
     plugins_dir.mkdir()
     (plugins_dir / "my_plugin.py").write_text("print('hello')")
 
+    signs_dir = data_dir / "signs" / "account1" / "task1"
+    signs_dir.mkdir(parents=True)
+    (signs_dir / "config.json").write_text('{"name": "task1"}')
+
     dest = tmp_path / "backups" / "backup.tar.gz"
     res = create_backup_tarball(data_dir, dest)
     assert res.exists()
@@ -41,6 +48,7 @@ def test_create_backup_tarball_with_plugins(tmp_path: Path):
         assert "db.sqlite" in names
         assert "plugin_storage.db" in names
         assert "plugins/my_plugin.py" in names
+        assert "signs/account1/task1/config.json" in names
 
 
 def test_create_backup_tarball_empty_raises(tmp_path: Path):

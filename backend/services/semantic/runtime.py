@@ -203,7 +203,6 @@ class SemanticRuntime:
                     request, decision, rule_result=rule_result, run_id=run_id
                 )
             except asyncio.CancelledError:
-                self._queue.task_done()
                 break
             except Exception as e:
                 logger.error(

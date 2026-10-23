@@ -32,3 +32,30 @@ def test_semantic_store_append_and_duplicate(tmp_path: Path):
     stats = store.get_capacity_stats()
     assert stats["monitor_keys_capacity"] == 10000
     assert stats["is_full"] is False
+
+
+def test_semantic_store_hierarchical_scope_matching(tmp_path: Path):
+    store = SemanticStore(tmp_path)
+    obs = {
+        "scope": "acc_1:task_1:-100123:node_1",
+        "request_key": "k_sub",
+        "kind": "result",
+        "observed_at": "2026-10-21T00:00:00Z",
+        "selected": "success",
+    }
+    obs_id = store.append(obs)
+    assert obs_id is not None
+
+    # Prefix query by account:task should match sub-scope
+    records = store.list_observations(scope="acc_1:task_1")
+    assert records["total"] == 1
+    assert records["items"][0]["id"] == obs_id
+
+    # Query with mismatch account should not match
+    records_mismatch = store.list_observations(scope="acc_2:task_1")
+    assert records_mismatch["total"] == 0
+
+    # Labeling using prefix scope should succeed without SCOPE_MISMATCH
+    store.label(obs_id, scope="acc_1:task_1", label="already_done")
+    records_after = store.list_observations(scope="acc_1:task_1")
+    assert records_after["items"][0]["human_label"] == "already_done"

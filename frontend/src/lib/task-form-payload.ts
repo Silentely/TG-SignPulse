@@ -159,7 +159,8 @@ export function buildTaskFormPayload(
       const id = Number(c.chatId)
       if (!Number.isFinite(id) || id === 0) return false
       const threadId = c.messageThreadId ? Number(c.messageThreadId) : ""
-      const targetKey = `${id}:${threadId}`
+      const sourceAccount = c.sourceAccount ? c.sourceAccount.trim() : ""
+      const targetKey = `${sourceAccount}:${id}:${threadId}`
       if (seenChatTargets.has(targetKey)) return false
       seenChatTargets.add(targetKey)
       return true

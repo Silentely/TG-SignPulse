@@ -210,6 +210,20 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     expect(pollState.stops[0]).toHaveBeenCalled()
   })
 
+  it('does not start polling or SSE if unmounted before initial load resolves', async () => {
+    let resolveAccounts!: (v: any) => void
+    api.listAccounts.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveAccounts = resolve
+    }))
+    const { unmount } = mountComposable(() => useDashboardData())
+    unmount()
+    resolveAccounts({ accounts: [] })
+    await flushPromises(10)
+
+    expect(startChainPoll).not.toHaveBeenCalled()
+    expect(MockEventSource.instances.length).toBe(0)
+  })
+
   it('uses a Dashboard-specific fallback when an initial data source fails', async () => {
     api.getRecentAccountLogs.mockRejectedValueOnce(new Error('logs unavailable'))
     const { result, unmount } = mountComposable(() => useDashboardData())

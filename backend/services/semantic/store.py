@@ -6,6 +6,14 @@ from typing import Any, Callable
 from tg_signer.atomic_io import path_write_lock, read_json_safe, write_json_atomic
 
 
+def _scope_matches(target_scope: str, query_scope: str) -> bool:
+    if not query_scope:
+        return True
+    if target_scope == query_scope:
+        return True
+    return target_scope.startswith(f"{query_scope}:")
+
+
 class SemanticStore:
     def __init__(self, root: Path):
         self.root = Path(root)
@@ -88,7 +96,7 @@ class SemanticStore:
 
             matched = []
             for item in reversed(obs_list):
-                if scope and item.get("scope") != scope:
+                if scope and not _scope_matches(item.get("scope", ""), scope):
                     continue
                 if kind and item.get("kind") != kind:
                     continue
@@ -110,7 +118,7 @@ class SemanticStore:
             target_obs = None
             for item in obs_list:
                 if item["id"] == observation_id:
-                    if scope and item.get("scope") != scope:
+                    if scope and not _scope_matches(item.get("scope", ""), scope):
                         raise ValueError("SCOPE_MISMATCH")
                     target_obs = item
                     break
@@ -260,7 +268,7 @@ class SemanticStore:
             s_list = data.get("suggestions", [])
             matched = []
             for s in reversed(s_list):
-                if scope and s.get("scope") != scope:
+                if scope and not _scope_matches(s.get("scope", ""), scope):
                     continue
                 if status and s.get("status") != status:
                     continue
@@ -275,7 +283,7 @@ class SemanticStore:
             target = None
             for s in s_list:
                 if s.get("id") == suggestion_id:
-                    if scope and s.get("scope") != scope:
+                    if scope and not _scope_matches(s.get("scope", ""), scope):
                         raise ValueError("SCOPE_MISMATCH")
                     target = s
                     break

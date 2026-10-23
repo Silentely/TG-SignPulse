@@ -213,4 +213,59 @@ describe('buildTaskFormPayload', () => {
     expect(payload.chats?.[0]?.steps?.[1]?.timeout_seconds).toBe(30)
     expect(payload.chats?.[0]?.steps?.[1]?.next_step_id).toBe('COMPLETE')
   })
+  it('preserves target chats with same chatId but different sourceAccount', () => {
+    const payload = buildTaskFormPayload({
+      taskName: 'multi_acc_target',
+      selectedAccounts: ['acc1', 'acc2'],
+      allAccountsMode: false,
+      scheduleMode: 'scheduled',
+      timeRange: '08:00',
+      retryCount: 1,
+      targetChats: [
+        {
+          chatId: -100123456,
+          chatName: 'Group A',
+          messageThreadId: '',
+          senderFilter: '',
+          sourceAccount: 'acc1',
+        },
+        {
+          chatId: -100123456,
+          chatName: 'Group A',
+          messageThreadId: '',
+          senderFilter: '',
+          sourceAccount: 'acc2',
+        },
+        {
+          chatId: -100123456,
+          chatName: 'Group A Duplicate',
+          messageThreadId: '',
+          senderFilter: '',
+          sourceAccount: 'acc1',
+        },
+      ],
+      fallbackChatId: 0,
+      fallbackChatName: '',
+      fallbackThreadId: '',
+      fallbackSenderFilter: '',
+      fallbackSourceAccount: '',
+      actions: [{ id: 1, type: 'send_text', value: 'ping', aiPrompt: '' }],
+      listenerKeywords: '',
+      listenerMatchMode: 'contains',
+      listenerPushChannel: 'continue',
+      listenerForwardChatId: '',
+      listenerForwardThreadId: '',
+      listenerBarkUrl: '',
+      listenerCustomUrl: '',
+      listenerServerChanKey: '',
+      listenerIgnoreSelf: true,
+      listenerTimeWindowEnabled: false,
+      listenerActiveTimeStart: '09:00',
+      listenerActiveTimeEnd: '22:00',
+    })
+
+    expect(payload.chats).toHaveLength(2)
+    expect(payload.chats?.[0]?.source_account).toBe('acc1')
+    expect(payload.chats?.[1]?.source_account).toBe('acc2')
+  })
 })

@@ -281,3 +281,28 @@ def test_standardized_user_agent_format(monkeypatch):
     monkeypatch.setenv("APP_VERSION", "0.0.0")
     ua_placeholder = get_user_agent("AI")
     assert ua_placeholder == f"TG-SignPulse-AI/{__version__} (tg-signer/{__version__})"
+
+
+@pytest.mark.asyncio
+async def test_semantic_runtime_worker_cancellation_no_duplicate_task_done(
+    tmp_path: Path,
+):
+    runtime = SemanticRuntime(tmp_path)
+    runtime.start_workers(num_workers=1)
+
+    req = DecisionRequest(
+        kind="result",
+        scope="acc:task:1:1",
+        state={},
+        choices={"yes": "是", "no": "否"},
+        instructions="",
+        request_key="req_cancel_test",
+        config_revision="rev_1",
+    )
+    import time
+
+    runtime.enqueue_observation(
+        req, rule_result="ok", deadline=time.time() + 10.0, run_id="r1"
+    )
+    await runtime.close()
+    assert len(runtime._workers) == 0

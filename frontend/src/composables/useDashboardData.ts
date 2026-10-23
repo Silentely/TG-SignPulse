@@ -375,6 +375,7 @@ export function useDashboardData() {
     sseIntentionalClose = false
     activeRunsStore.acquire()
     await loadDashboardData()
+    if (disposed) return
     pageLoading.value = false
     refreshHandle = startChainPoll(loadDashboardData, {
       intervalMs: 30000,
