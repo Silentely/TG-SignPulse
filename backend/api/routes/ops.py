@@ -196,6 +196,13 @@ async def _start_restore_services() -> None:
 
     engine = get_engine()
     engine.dispose()
+    # A restored archive may contain an older schema. Apply the same metadata
+    # creation and lightweight migrations used during normal startup before
+    # reopening services that query the database.
+    from backend.core.database import Base, run_migrations
+
+    Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
     get_config_service()._global_settings_cache().clear()
@@ -598,11 +605,14 @@ async def export_backup_archive(
         tar_kwargs["encrypt"] = True
 
     try:
+        backup_paths = tuple(
+            entry.relative_path for entry in build_backup_manifest(data_dir)
+        )
         await asyncio.to_thread(
             create_backup_tarball,
             data_dir,
             archive_path,
-            BACKUP_ARCHIVE_PATHS,
+            backup_paths,
             **tar_kwargs,
         )
         if not archive_path.exists() or archive_path.stat().st_size == 0:

@@ -13,6 +13,40 @@ from typing import Any, Literal
 MANIFEST_NAME = "backup-manifest.json"
 MANIFEST_VERSION = 1
 
+_CONFIGURED_PATH_VARS = (
+    "APP_DB_PATH",
+    "APP_SIGNER_WORKDIR",
+    "APP_SESSION_DIR",
+    "APP_LOGS_DIR",
+    "PLUGIN_STORAGE_PATH",
+)
+
+
+def _configured_path(value: str, *, variable: str) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if variable in {"APP_DATABASE_URL", "DATABASE_URL"}:
+        if not raw.startswith("sqlite:///"):
+            return None
+        raw = raw.removeprefix("sqlite:///").split("?", 1)[0]
+    return Path(raw).resolve()
+
+
+def _configured_paths(data_dir: Path) -> list[tuple[str, Path]]:
+    values = [(name, os.getenv(name, "")) for name in _CONFIGURED_PATH_VARS]
+    values.extend(
+        (name, os.getenv(name, "")) for name in ("APP_DATABASE_URL", "DATABASE_URL")
+    )
+    paths: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+    for variable, raw in values:
+        path = _configured_path(raw, variable=variable)
+        if path is not None and path not in seen:
+            seen.add(path)
+            paths.append((variable, path))
+    return paths
+
 
 @dataclass(frozen=True)
 class BackupEntry:
@@ -56,39 +90,46 @@ def build_backup_manifest(
         entries += [
             BackupEntry(name, "directory") for name in ("history", "signs_history")
         ]
-    for variable in ("PLUGIN_STORAGE_PATH", "APP_DATABASE_URL"):
-        value = os.getenv(variable, "")
-        if variable == "APP_DATABASE_URL":
-            value = (
-                value.removeprefix("sqlite:///")
-                if value.startswith("sqlite:///")
-                else ""
+    existing = {entry.relative_path for entry in entries}
+    root = data_dir.resolve()
+    for variable, path in _configured_paths(data_dir):
+        if path.is_relative_to(root):
+            relative = path.relative_to(root).as_posix()
+            if relative in existing:
+                continue
+            is_sqlite = variable in {
+                "APP_DB_PATH",
+                "PLUGIN_STORAGE_PATH",
+                "APP_DATABASE_URL",
+                "DATABASE_URL",
+            } or path.suffix in {".db", ".sqlite", ".sqlite3"}
+            is_directory = variable in {
+                "APP_SIGNER_WORKDIR",
+                "APP_SESSION_DIR",
+                "APP_LOGS_DIR",
+            } or (path.exists() and path.is_dir())
+            kind = "sqlite" if is_sqlite else ("directory" if is_directory else "file")
+            entries.append(
+                BackupEntry(
+                    relative,
+                    kind,
+                    exporter="sqlite_online_backup" if is_sqlite else None,
+                )
             )
-        if value:
-            path = Path(value).resolve()
-            if path.is_relative_to(data_dir.resolve()):
-                relative = path.relative_to(data_dir.resolve()).as_posix()
-                if relative not in {entry.relative_path for entry in entries}:
-                    entries.append(
-                        BackupEntry(relative, "sqlite", exporter="sqlite_online_backup")
-                    )
+            existing.add(relative)
     return entries
 
 
 def external_backup_paths(data_dir: Path) -> list[str]:
     """Explicitly report persistent storage that cannot fit a portable data archive."""
     outside = []
-    for name in ("PLUGIN_STORAGE_PATH", "APP_DATABASE_URL"):
-        value = os.getenv(name, "").strip()
-        if not value:
+    root = data_dir.resolve()
+    for name in _CONFIGURED_PATH_VARS + ("APP_DATABASE_URL", "DATABASE_URL"):
+        raw = os.getenv(name, "").strip()
+        if not raw:
             continue
-        if name == "APP_DATABASE_URL":
-            if not value.startswith("sqlite:///"):
-                outside.append(name)
-                continue
-            value = value.removeprefix("sqlite:///")
-        path = Path(value).resolve()
-        if not path.is_relative_to(data_dir.resolve()):
+        path = _configured_path(raw, variable=name)
+        if path is None or not path.is_relative_to(root):
             outside.append(name)
     return outside
 

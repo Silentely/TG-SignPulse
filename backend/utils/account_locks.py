@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import logging
 import weakref
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import AsyncIterator, Iterable
 
@@ -33,6 +34,9 @@ logger = logging.getLogger("backend.account_locks")
 
 _ACCOUNT_LOCKS: weakref.WeakValueDictionary[str, asyncio.Lock] = (
     weakref.WeakValueDictionary()
+)
+_HELD_ACCOUNT_NAMES: ContextVar[frozenset[str]] = ContextVar(
+    "held_account_names", default=frozenset()
 )
 
 
@@ -97,6 +101,21 @@ def get_account_lock(account_name: str) -> asyncio.Lock:
     return lock
 
 
+def account_lock_held_by_current_task(account_name: str) -> bool:
+    """Return whether the current task owns the lifecycle lock for an account."""
+    return account_name in _HELD_ACCOUNT_NAMES.get()
+
+
+@contextlib.asynccontextmanager
+async def account_lock_context(account_name: str) -> AsyncIterator[None]:
+    """Acquire an account lock unless the current task already owns it."""
+    if account_lock_held_by_current_task(account_name):
+        yield
+        return
+    async with get_account_lock(account_name):
+        yield
+
+
 @contextlib.asynccontextmanager
 async def acquire_account_lock_with_timeout(
     account_name: str,
@@ -150,8 +169,10 @@ async def acquire_multi_account_locks(
             lock.release()
         raise
 
+    token = _HELD_ACCOUNT_NAMES.set(frozenset(ordered_names))
     try:
         yield acquired_locks
     finally:
         for lock in reversed(acquired_locks):
             lock.release()
+        _HELD_ACCOUNT_NAMES.reset(token)

@@ -100,7 +100,16 @@ def _inventory(telegram, tasks, name):
     from backend.services.sign_task_history_store import SignTaskHistoryStore
 
     safe_name = SignTaskHistoryStore.safe_history_key(name)
-    history = sorted(set(tasks.run_history_dir.glob(f"{safe_name}__*.json")))
+    # Account names may contain glob metacharacters. Enumerate and compare the
+    # encoded prefix literally so one account cannot match another's history.
+    history_prefix = f"{safe_name}__"
+    history = sorted(
+        {
+            path
+            for path in tasks.run_history_dir.glob("*.json")
+            if path.name.startswith(history_prefix)
+        }
+    )
     files = [telegram.session_dir / f"{name}{ext}" for ext in _SESSION_SUFFIXES]
     files += [
         get_settings().resolve_workdir() / "avatars" / f"{name}{ext}"
@@ -314,6 +323,11 @@ async def apply_account_change_plan(
             await monitor.stop()
             await close_client_by_name(plan.old_name, workdir=telegram.session_dir)
             _assert_idle(tasks, plan.old_name)
+            # Closing a WAL-backed Telegram session can remove -wal/-shm
+            # sidecars. Re-inventory after closing the client before moving or
+            # deleting session files, otherwise a stale plan entry aborts the
+            # transaction and needlessly triggers rollback.
+            files = _inventory(telegram, tasks, plan.old_name)[2]
             for path in files:
                 if plan.operation == "rename":
                     move(

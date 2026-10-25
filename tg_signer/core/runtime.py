@@ -101,10 +101,12 @@ class BaseUserWorker(Generic[ConfigT]):
         no_updates: Optional[bool] = None,
         *,
         loop: Optional[asyncio.AbstractEventLoop] = None,
+        storage_account_id: Optional[str] = None,
     ):
         self.task_name = task_name or "my_task"
         self._session_dir = pathlib.Path(session_dir)
         self._account = account
+        self._storage_account_id = storage_account_id or account
         self._proxy = proxy
         if workdir:
             self._workdir = pathlib.Path(workdir)

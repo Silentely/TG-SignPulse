@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -179,12 +180,31 @@ def get_account_session_string(account_name: str) -> Optional[str]:
     return None
 
 
+def get_account_storage_id(account_name: str) -> str:
+    """Return the immutable identity used for account-scoped plugin storage.
+
+    Legacy account records have no id and continue using their name until they
+    are written again, preserving existing namespaces. Newly created records
+    receive a random id so a delete/recreate cycle cannot inherit old state.
+    """
+    data = _load_account_store()
+    entry = data.get("accounts", {}).get(account_name)
+    if not isinstance(entry, dict):
+        return str(account_name)
+    storage_id = str(entry.get("storage_id") or "").strip()
+    return storage_id or str(account_name)
+
+
 def set_account_session_string(account_name: str, session_string: str) -> None:
     data = _load_account_store()
     accounts = data["accounts"]
     entry = accounts.get(account_name)
+    legacy_entry = isinstance(entry, dict)
     if not isinstance(entry, dict):
         entry = {}
+    # Keep legacy name-based namespaces stable for existing accounts. New
+    # accounts get an immutable id so delete/recreate cannot inherit state.
+    entry.setdefault("storage_id", account_name if legacy_entry else uuid.uuid4().hex)
     cleaned = session_string.strip()
     if not is_valid_session_string(cleaned):
         raise ValueError("invalid pyrogram session_string")
@@ -201,6 +221,11 @@ def delete_account_session_string(account_name: str) -> None:
     data = _load_account_store()
     accounts = data["accounts"]
     if account_name in accounts:
+        # Rotate legacy name-based storage identity before removal so a later
+        # account with the same display name cannot inherit old plugin state.
+        entry = accounts.get(account_name)
+        if isinstance(entry, dict) and not entry.get("storage_id"):
+            entry["storage_id"] = uuid.uuid4().hex
         accounts.pop(account_name, None)
         _save_account_store(data)
 

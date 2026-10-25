@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import asdict, replace
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -210,3 +211,17 @@ async def test_false_active_entry_does_not_block_completed_account(resources):
     tasks._active_tasks[("alice", "daily")] = False
     plan = await lifecycle.build_account_change_plan("alice", "delete")
     assert plan.old_name == "alice"
+
+
+@pytest.mark.asyncio
+async def test_history_inventory_treats_glob_characters_literally(resources):
+    root, _, _ = resources
+    history = root / "history"
+    (root / "sessions" / "*.session").write_bytes(b"fake")
+    (history / "alice__daily.json").write_text('[{"account_name":"alice"}]')
+    (history / "bob__daily.json").write_text('[{"account_name":"bob"}]')
+    (history / "*__daily.json").write_text('[{"account_name":"*"}]')
+
+    plan = await lifecycle.build_account_change_plan("*", "delete")
+
+    assert [Path(path).name for path in plan.history_paths] == ["*__daily.json"]

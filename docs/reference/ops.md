@@ -328,4 +328,9 @@ to staging, validates hashes/configuration/integrity, enters maintenance mode,
 reopens services, and retains the previous data directory until health checks
 pass. Restore requires a single application worker (`WEB_CONCURRENCY=1` or
 `UVICORN_WORKERS=1`). Operational runbook actions default to dry-run and only
-allow explicitly named reversible actions.
+allow explicitly named reversible actions. The current action registry exposes
+only `refresh_task_cache`; diagnosis does not silently mark a task as reviewed.
+Backup manifests also include persistent paths configured through
+`APP_DB_PATH`, `APP_DATABASE_URL`/`DATABASE_URL`, `APP_SIGNER_WORKDIR`,
+`APP_SESSION_DIR`, `APP_LOGS_DIR`, and `PLUGIN_STORAGE_PATH` when they are
+inside the data directory; paths outside it are reported as external storage.

@@ -32,6 +32,27 @@ def test_manifest_covers_all_subsystems_and_excludes_wal(tmp_path):
     assert not any(path.endswith(("-wal", "-shm")) for path in paths)
 
 
+def test_manifest_includes_custom_paths_and_reports_external_paths(
+    tmp_path, monkeypatch
+):
+    from backend.services.backup_manifest import (
+        build_backup_manifest,
+        external_backup_paths,
+    )
+
+    data = tmp_path / "data"
+    data.mkdir()
+    custom_db = data / "custom.sqlite"
+    external_sessions = tmp_path / "sessions-outside"
+    monkeypatch.setenv("APP_DB_PATH", str(custom_db))
+    monkeypatch.setenv("APP_SESSION_DIR", str(external_sessions))
+
+    paths = {entry.relative_path for entry in build_backup_manifest(data)}
+
+    assert "custom.sqlite" in paths
+    assert "APP_SESSION_DIR" in external_backup_paths(data)
+
+
 def test_archive_snapshots_live_sqlite_and_validates_hashes(tmp_path):
     from backend.services.backup_manifest import validate_backup_manifest
 

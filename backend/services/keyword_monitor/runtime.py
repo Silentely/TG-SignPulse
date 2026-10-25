@@ -39,7 +39,7 @@ from backend.services.keyword_monitor.rules import (
     settings,
 )
 from backend.services.push_notifications import send_keyword_push
-from backend.utils.account_locks import get_account_lock
+from backend.utils.account_locks import account_lock_context
 from backend.utils.atomic_io import write_json_atomic
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
@@ -1003,8 +1003,7 @@ class KeywordMonitorService:
                             )
                         continue
 
-                lock = get_account_lock(account_name)
-                async with lock:
+                async with account_lock_context(account_name):
                     client_key = str(session_dir.joinpath(account_name).resolve())
                     existing = _CLIENT_INSTANCES.get(client_key)
                     if (
@@ -1099,8 +1098,7 @@ class KeywordMonitorService:
                 active=False,
             )
         for account_name, client, refs in self._handler_refs:
-            lock = get_account_lock(account_name)
-            async with lock:
+            async with account_lock_context(account_name):
                 ref_list = refs if isinstance(refs, list) else [refs]
                 for href in ref_list:
                     try:

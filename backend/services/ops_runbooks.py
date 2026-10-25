@@ -15,14 +15,14 @@ def get_runbook_diagnosis(account_name: str, task_name: str) -> dict[str, Any]:
         "task_name": task_name,
         "status": status,
         "confidence": "source_state",
-        "actions": ["refresh_task_cache", "mark_manual_review"],
+        "actions": ["refresh_task_cache"],
     }
 
 
 def apply_runbook_action(
     action_id: str, *, account_name: str = "", task_name: str = "", dry_run: bool = True
 ) -> dict[str, Any]:
-    allowed = {"refresh_task_cache", "mark_manual_review"}
+    allowed = {"refresh_task_cache"}
     if action_id not in allowed:
         raise ValueError("RUNBOOK_ACTION_NOT_ALLOWED")
     if dry_run:

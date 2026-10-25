@@ -188,6 +188,24 @@ async def test_runner_finalize_cancelled_skips_persistence_and_notifications(
         assert state["svc"]._active_tasks[state["task_key"]] is False
 
 
+@pytest.mark.asyncio
+async def test_runner_finalize_assigns_artifact_before_history_save(base_state):
+    state = base_state
+    with (
+        patch(
+            "backend.services.sign_task_runner._runner_record_artifact",
+            side_effect=lambda value: value.__setitem__("artifact_id", "run-1"),
+        ),
+        patch(
+            "backend.services.sign_task_runner._runner_save_run_info",
+        ) as mock_save,
+    ):
+        await _runner_finalize(state)
+
+    assert state["artifact_id"] == "run-1"
+    mock_save.assert_called_once_with(state)
+
+
 def test_run_status_exposes_finalize_errors():
     """收尾异常必须写入运行状态并跨 phase 刷新保留。"""
     from backend.services.sign_tasks import get_sign_task_service

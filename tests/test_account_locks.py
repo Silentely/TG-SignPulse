@@ -10,6 +10,7 @@ from backend.utils.account_locks import (
     _ACCOUNT_LOCKS,
     AccountLockLease,
     AccountLockTimeout,
+    account_lock_context,
     acquire_account_lock_with_timeout,
     acquire_multi_account_locks,
     get_account_lock,
@@ -136,6 +137,13 @@ async def test_multi_account_locks_released_on_cancellation():
     blocker_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await blocker_task
+
+
+@pytest.mark.asyncio
+async def test_account_lock_context_is_reentrant_for_lifecycle_helpers():
+    async with acquire_multi_account_locks(["lifecycle"], timeout=1.0):
+        async with account_lock_context("lifecycle"):
+            assert get_account_lock("lifecycle").locked()
 
 
 @pytest.mark.asyncio

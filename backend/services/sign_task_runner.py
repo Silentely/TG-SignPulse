@@ -328,6 +328,8 @@ async def _runner_instantiate_signer(
 ) -> None:
     """Phase 6: 根据解析出的配置实例化 BackendUserSigner。"""
     svc: SignTaskService = state["svc"]
+    from backend.utils.tg_session import get_account_storage_id
+
     signer = state["BackendUserSigner"](
         task_name=state["task_name"],
         session_dir=str(state["session_dir"]),
@@ -339,6 +341,7 @@ async def _runner_instantiate_signer(
         api_id=state["api_id"],
         api_hash=state["api_hash"],
         no_updates=state["signer_no_updates"],
+        storage_account_id=get_account_storage_id(state["account_name"]),
     )
     _set_ctx(state, "signer", signer)
 
@@ -963,6 +966,41 @@ async def _runner_trigger_chained_task(
     svc._register_background_run(chain_key, chained_coro)
 
 
+async def _runner_record_artifact(state: TaskExecutionContext | Dict[str, Any]) -> None:
+    """Persist bounded evidence and expose its id to the history writer."""
+    from backend.services.run_artifacts import record_run_artifact
+    from tg_signer.semantic.models import config_revision
+
+    signer_context = getattr(state.get("signer"), "context", None)
+    raw_config = state.get("raw_task_cfg") or {}
+    artifact_id = record_run_artifact(
+        run_id=str(
+            state.get("run_id")
+            or f"{state.get('account_name', '')}-{state.get('task_name', '')}-{int(time.time() * 1000)}"
+        ),
+        config_revision=config_revision(raw_config),
+        graph_revision=config_revision(raw_config),
+        terminal_status=(
+            "cancelled"
+            if state.get("cancelled")
+            else "timeout"
+            if state.get("timed_out")
+            else state.get("aggregate_status", "not_evaluated")
+        ),
+        node_outcomes=getattr(signer_context, "flow_trace", [])
+        if isinstance(getattr(signer_context, "flow_trace", []), list)
+        else [],
+        events=getattr(signer_context, "observed_events", [])
+        if isinstance(getattr(signer_context, "observed_events", []), list)
+        else [],
+        receipts=getattr(signer_context, "operation_receipts", [])
+        if isinstance(getattr(signer_context, "operation_receipts", []), list)
+        else [],
+        targets=state.get("targets", []),
+    )
+    _set_ctx(state, "artifact_id", artifact_id)
+
+
 async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None:
     """统一收尾：更新时间、解析回复、补抓消息、持久化、通知、清理。"""
     svc: SignTaskService = state["svc"]
@@ -1051,6 +1089,15 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
         # 取消的任务不落历史、不通知：调用方已单独置为 CANCELLED 状态
         if not state.get("cancelled"):
             try:
+                await _runner_record_artifact(state)
+            except Exception as exc:
+                _service_logger.error(
+                    "Failed to persist run artifact before history for task '%s': %s",
+                    state.get("task_name"),
+                    exc,
+                    exc_info=True,
+                )
+            try:
                 await _runner_save_run_info(state)
             except Exception as exc:
                 exc_type = "IOError" if type(exc) is OSError else type(exc).__name__
@@ -1103,40 +1150,11 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
                         exc_info=True,
                     )
     finally:
-        try:
-            from backend.services.run_artifacts import record_run_artifact
-            from tg_signer.semantic.models import config_revision
-
-            signer_context = getattr(state.get("signer"), "context", None)
-            raw_config = state.get("raw_task_cfg") or {}
-            artifact_id = record_run_artifact(
-                run_id=str(
-                    state.get("run_id")
-                    or f"{state.get('account_name', '')}-{state.get('task_name', '')}-{int(time.time() * 1000)}"
-                ),
-                config_revision=config_revision(raw_config),
-                graph_revision=config_revision(raw_config),
-                terminal_status=(
-                    "cancelled"
-                    if state.get("cancelled")
-                    else "timeout"
-                    if state.get("timed_out")
-                    else state.get("aggregate_status", "not_evaluated")
-                ),
-                node_outcomes=getattr(signer_context, "flow_trace", [])
-                if isinstance(getattr(signer_context, "flow_trace", []), list)
-                else [],
-                events=getattr(signer_context, "observed_events", [])
-                if isinstance(getattr(signer_context, "observed_events", []), list)
-                else [],
-                receipts=getattr(signer_context, "operation_receipts", [])
-                if isinstance(getattr(signer_context, "operation_receipts", []), list)
-                else [],
-                targets=state.get("targets", []),
-            )
-            _set_ctx(state, "artifact_id", artifact_id)
-        except Exception:
-            _service_logger.exception("Failed to persist run artifact")
+        if not state.get("artifact_id"):
+            try:
+                await _runner_record_artifact(state)
+            except Exception:
+                _service_logger.exception("Failed to persist run artifact")
         # 先调度清理再停止客户端：清理注册是同步的，若放在 stop() 之后，
         # stop() 抛出 CancelledError（BaseException）时本次运行的日志将永不回收。
         await _runner_schedule_cleanup(state)

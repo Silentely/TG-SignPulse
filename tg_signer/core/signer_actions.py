@@ -110,8 +110,13 @@ class SignerActionsMixin:
                     snapshot, sort_keys=True, ensure_ascii=False, default=str
                 ).encode()
             ).hexdigest()
+        storage_account_id = str(
+            getattr(self, "_storage_account_id", None)
+            or getattr(self, "_account", "")
+            or ""
+        )
         return PluginExecutionIdentity(
-            account_id=str(getattr(self, "_account", "") or ""),
+            account_id=storage_account_id,
             task_id=str(getattr(self, "task_name", "") or ""),
             run_id=str(getattr(context, "run_id", "") or ""),
             step_id=str(
