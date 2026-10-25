@@ -124,7 +124,7 @@ function lineTone(text: string): string {
         <div class="ui-section-label">{{ t('taskLogs.lastResponse') }}</div>
       </div>
       <div
-        class="p-3 bg-emerald-950/20 border border-emerald-500/25 rounded-[var(--sp-radius)] text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-emerald-100 font-mono shadow-inner"
+        class="p-3 bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 rounded-[var(--sp-radius)] text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-emerald-900 dark:text-emerald-100 font-mono"
         :class="compact ? 'text-[11px]' : ''"
       >
         <div v-for="(item, i) in lastTargetItems" :key="i" class="leading-relaxed">

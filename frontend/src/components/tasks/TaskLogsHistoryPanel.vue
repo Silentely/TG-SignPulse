@@ -102,7 +102,7 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
 
       <div v-if="log.last_target_message || log.bot_message" class="mt-2 text-sm text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
         <div class="ui-section-label mb-1">{{ t('taskLogs.lastResponse') }}</div>
-        <div class="whitespace-pre-wrap break-all p-2 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] text-xs">
+        <div class="whitespace-pre-wrap break-all p-2 bg-[var(--sp-surface)] dark:bg-[var(--sp-surface-elevated)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius)] text-xs text-[var(--sp-text)] font-mono">
           {{ log.last_target_message || log.bot_message }}
         </div>
       </div>
