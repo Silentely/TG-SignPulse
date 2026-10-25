@@ -288,3 +288,18 @@ export interface TrendsResponse {
 
 export const getHistoryTrends = (token: string, days = 7) =>
   request<TrendsResponse>(`/ops/trends?days=${days}`, {}, token);
+
+export interface RunbookDiagnosis {
+  account_name: string;
+  task_name: string;
+  status: Record<string, unknown>;
+  confidence: string;
+  actions: string[];
+}
+
+export const getRunbookDiagnosis = (token: string, accountName: string, taskName: string) =>
+  request<RunbookDiagnosis>(
+    `/ops/runbooks/diagnosis?account_name=${encodeURIComponent(accountName)}&task_name=${encodeURIComponent(taskName)}`,
+    {},
+    token,
+  );

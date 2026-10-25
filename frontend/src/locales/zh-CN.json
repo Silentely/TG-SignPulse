@@ -65,6 +65,12 @@
     "ACCOUNT_UPDATE_FAILED": "更新账号信息失败，请稍后重试"
   },
   "dashboard": {
+    "runbookTitle": "运行诊断",
+    "runbookDiagnose": "诊断最近任务",
+    "runbookConfidence": "证据来源",
+    "runbookActions": "安全操作",
+    "runbookHint": "对最近运行中或历史任务生成诊断。",
+    "runbookLoadFailed": "诊断加载失败。",
     "activeAccounts": "活跃账号",
     "totalTasks": "任务总数",
     "recentSuccess": "近期成功",

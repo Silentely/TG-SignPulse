@@ -65,6 +65,12 @@
     "ACCOUNT_UPDATE_FAILED": "Failed to update account, please try again later"
   },
   "dashboard": {
+    "runbookTitle": "Operational diagnosis",
+    "runbookDiagnose": "Diagnose recent task",
+    "runbookConfidence": "Evidence",
+    "runbookActions": "Safe actions",
+    "runbookHint": "Run a diagnosis for the most recent active or logged task.",
+    "runbookLoadFailed": "Unable to load the diagnosis.",
     "activeAccounts": "Active Accounts",
     "totalTasks": "Total Tasks",
     "recentSuccess": "Recent Success",

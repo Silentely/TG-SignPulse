@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Users, Zap, Terminal, Settings, RefreshCw, ShieldAlert } from 'lucide-vue-next'
+import { Users, Zap, Terminal, Settings, RefreshCw, ShieldAlert, Stethoscope } from 'lucide-vue-next'
 import type {
   ActiveRunSummary,
   KeywordHitRecord,
@@ -20,6 +20,8 @@ import {
 } from '../lib/run-status'
 import ToneBadge from '../components/ToneBadge.vue'
 import { formatShortDateTime } from '../lib/datetime'
+import { getRunbookDiagnosis, type RunbookDiagnosis } from '../lib/api/ops'
+import { getAuthToken } from '../lib/api/core'
 
 const quickLinks = [
   { name: 'accounts', icon: Users, titleKey: 'dashboard.goAccounts', descKey: 'dashboard.goAccountsDesc' },
@@ -31,6 +33,9 @@ const quickLinks = [
 const { t } = useI18n()
 const router = useRouter()
 const selectedLog = ref<DashboardLog | null>(null)
+const runbookDiagnosis = ref<RunbookDiagnosis | null>(null)
+const runbookLoading = ref(false)
+const runbookError = ref('')
 
 const {
   pageLoading,
@@ -141,6 +146,27 @@ const jobStatusLabel = (status: string) => {
   const key = `dashboard.jobStatus.${status}`
   const translated = t(key)
   return translated !== key ? translated : status
+}
+
+const loadRunbookDiagnosis = async () => {
+  const active = activeRuns.value[0]
+  const recent = logs.value.find((item) => item.account && item.task)
+  const source = active
+    ? { account: active.account_name, task: active.task_name }
+    : recent
+      ? { account: recent.account, task: recent.task }
+      : null
+  const token = getAuthToken()
+  if (!source || !source.account || !source.task || !token) return
+  runbookLoading.value = true
+  runbookError.value = ''
+  try {
+    runbookDiagnosis.value = await getRunbookDiagnosis(token, source.account, source.task)
+  } catch {
+    runbookError.value = t('dashboard.runbookLoadFailed')
+  } finally {
+    runbookLoading.value = false
+  }
 }
 </script>
 
@@ -286,6 +312,24 @@ const jobStatusLabel = (status: string) => {
           </div>
           <p class="text-[11px] text-[var(--sp-text-muted)] leading-relaxed line-clamp-2">{{ t(link.descKey) }}</p>
         </button>
+      </div>
+      <div class="mt-3 ui-card p-4 flex flex-col gap-3" data-testid="runbook-card">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="ui-section-icon"><Stethoscope class="w-3.5 h-3.5" /></span>
+            <span class="text-sm font-medium text-[var(--sp-text)]">{{ t('dashboard.runbookTitle') }}</span>
+          </div>
+          <button type="button" class="ui-btn-secondary !px-2.5 !py-1.5 !text-xs" :disabled="runbookLoading" @click="loadRunbookDiagnosis">
+            {{ runbookLoading ? t('common.loading') : t('dashboard.runbookDiagnose') }}
+          </button>
+        </div>
+        <p v-if="runbookError" class="text-xs text-rose-600 dark:text-rose-300">{{ runbookError }}</p>
+        <div v-else-if="runbookDiagnosis" class="text-xs text-[var(--sp-text-muted)] space-y-1">
+          <div>{{ runbookDiagnosis.account_name }} / {{ runbookDiagnosis.task_name }}</div>
+          <div>{{ t('dashboard.runbookConfidence') }}: {{ runbookDiagnosis.confidence }}</div>
+          <div>{{ t('dashboard.runbookActions') }}: {{ runbookDiagnosis.actions.join(', ') }}</div>
+        </div>
+        <p v-else class="text-xs text-[var(--sp-text-muted)]">{{ t('dashboard.runbookHint') }}</p>
       </div>
     </div>
 
