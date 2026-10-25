@@ -970,16 +970,47 @@ class PulseFlowEngine:
             event_type=node.event_type,
             since_timestamp=since_ts,
         )
+
+        def _delivery_gap() -> StepOutcome | None:
+            stats = bus.get_delivery_stats(queue)
+            if not stats.dropped_events:
+                return None
+            message = "消息事件传递存在缺口，无法确认机器人回复结果"
+            _log_msg(message, level="WARNING")
+            return StepOutcome(
+                node_id=node.id,
+                status=NodeStatus.FAILED,
+                output_text=message,
+                updates_last_output=False,
+                details={
+                    "chat_id": chat_id,
+                    "failure_category": "event_gap",
+                    "result": "unknown",
+                    "event_gap": {
+                        "dropped_events": stats.dropped_events,
+                        "oldest_dropped_at": stats.oldest_dropped_at,
+                        "newest_dropped_at": stats.newest_dropped_at,
+                    },
+                },
+            )
+
         try:
             deadline = time.perf_counter() + timeout
             while True:
+                gap = _delivery_gap()
+                if gap is not None:
+                    return gap
                 remaining = deadline - time.perf_counter()
                 if remaining <= 0:
                     return _handle_timeout()
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=remaining)
                 except asyncio.TimeoutError:
-                    return _handle_timeout()
+                    return _delivery_gap() or _handle_timeout()
+
+                gap = _delivery_gap()
+                if gap is not None:
+                    return gap
 
                 # 1. 目标 chat 隔离（兼容 int 与 str 对比）
                 if str(event.chat_id) != str(chat_id):
@@ -1191,6 +1222,9 @@ class PulseFlowEngine:
                                     rule_result="unmatched",
                                 )
                             if disp == "success":
+                                gap = _delivery_gap()
+                                if gap is not None:
+                                    return gap
                                 _log_msg(
                                     f"步骤 [{node.id}] 语义辅助判断确认签到成功: {decision.selected}",
                                     level="INFO",

@@ -90,6 +90,36 @@ class _CutoverNodeExecutor(TelegramNodeExecutor):
 
 
 class SignerRunnerMixin:
+    def _track_event_publish(self, publication) -> asyncio.Task:
+        tasks = getattr(self, "_event_publish_tasks", None)
+        if tasks is None:
+            tasks = self._event_publish_tasks = set()
+        task = asyncio.create_task(publication)
+        tasks.add(task)
+
+        def done(completed):
+            tasks.discard(completed)
+            if not completed.cancelled() and completed.exception() is not None:
+                logger.error("Event publication failed", exc_info=completed.exception())
+
+        task.add_done_callback(done)
+        return task
+
+    async def _drain_event_publish_tasks(self, *, timeout: float = 1.0) -> None:
+        tasks = set(getattr(self, "_event_publish_tasks", ()))
+        if not tasks:
+            return
+        try:
+            _, pending = await asyncio.wait(tasks, timeout=timeout)
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     async def sign_a_chat(
         self,
         chat: SignChatV3,
@@ -1024,6 +1054,7 @@ class SignerRunnerMixin:
                         self.app.remove_handler(edited_handler_ref)
                 except Exception:
                     pass
+            await self._drain_event_publish_tasks()
             # Clear context to release message references
             if hasattr(self, "context") and self.context is not None:
                 self.context.chat_messages.clear()
@@ -1131,8 +1162,8 @@ class SignerRunnerMixin:
                     occurred_at=time.time(),
                     button_snapshot=buttons,
                 )
-                asyncio.create_task(
-                    bus.publish(ev, include_legacy_scope=has_unthreaded_chat)
+                SignerRunnerMixin._track_event_publish(
+                    self, bus.publish(ev, include_legacy_scope=has_unthreaded_chat)
                 )
             except Exception:
                 pass
@@ -1293,6 +1324,7 @@ class SignerRunnerMixin:
                         self.context.flow_trace = flow_res.get("trace")
                         self.context.flow_metrics = flow_res.get("metrics")
                         flow_succeeded = True
+                        await self._drain_event_publish_tasks()
                         if getattr(self, "_event_bus", None) is bus:
                             self._event_bus = None
                         return True
@@ -1370,6 +1402,7 @@ class SignerRunnerMixin:
                         level="WARNING",
                     )
 
+            await self._drain_event_publish_tasks()
             if getattr(self, "_event_bus", None) is bus:
                 self._event_bus = None
 
