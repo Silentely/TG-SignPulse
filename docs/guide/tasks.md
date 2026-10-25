@@ -1,5 +1,9 @@
 # 任务编排
 
+<p align="center">
+  <img src="/screenshots/tasks.png" alt="任务编排管理列表" style="border-radius: 8px; border: 1px solid var(--vp-c-divider);">
+</p>
+
 ## 任务模型
 
 一个 TG-SignPulse 任务由这些部分组成：
@@ -14,6 +18,10 @@
 一个任务可以绑定单个账号，也可以绑定多个账号作为共享任务。
 
 > 面板与 API 统一使用 **sign-tasks**（`/api/sign-tasks`）。旧版 ORM `/api/tasks` 已完全移除，详见 [FAQ](/faq)。
+
+<p align="center">
+  <img src="/screenshots/task-editor.png" alt="任务动作流编排与参数配置" style="border-radius: 8px; border: 1px solid var(--vp-c-divider); max-width: 720px;">
+</p>
 
 ## 运行状态与可视
 

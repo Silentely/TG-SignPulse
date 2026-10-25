@@ -1,15 +1,25 @@
 # 账号管理
 
+TG-SignPulse 提供集中的 Telegram 多账号管理控制台，支持会话生命周期管理、网络代理绑定、设备指纹画像与状态健康检测。
+
+<p align="center">
+  <img src="/screenshots/accounts.png" alt="账号管理列表与状态监控" style="border-radius: 8px; border: 1px solid var(--vp-c-divider);">
+</p>
+
 ## 支持的登录方式
 
 TG-SignPulse 当前支持以下登录流程：
 
-- 短信验证码登录
-- 二维码登录
-- 会话导入（复用已有的 Telegram 会话文件或 SessionString，无需重新收码）
-- 账号启用了 Telegram 2FA 时补交密码
+- **二维码扫码**：手机端 Telegram 扫码确认，最推荐的快捷登录方式。
+- **短信验证码登录**：输入手机号，并在官方客户端或短信接收 5 位验证码。
+- **会话免收码导入**：复用已有的 Telegram 会话文件或 SessionString，无需重新收码。
+- **两步验证（2FA）**：账号启用了 Telegram 2FA 时安全输入独立密码。
 
-所有登录流程都通过后端 `accounts` API 完成，登录状态会被保存到数据目录中。
+<p align="center">
+  <img src="/screenshots/account-modal.png" alt="添加账号方式选择与扫码登录" style="border-radius: 8px; border: 1px solid var(--vp-c-divider); max-width: 600px;">
+</p>
+
+所有登录流程都通过后端 `accounts` API 完成，登录状态会被安全保存到数据目录中。
 
 ## 会话导入
 

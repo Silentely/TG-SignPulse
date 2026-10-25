@@ -2,6 +2,10 @@
 
 本指南面向面板使用者：如何配置 WebDAV 远端备份、设定定时与保留策略、手动上传与直接下载完整归档、从远端下载历史备份，以及换机恢复。
 
+<p align="center">
+  <img src="/screenshots/settings.png" alt="系统设置与 WebDAV 灾备管理" style="border-radius: 8px; border: 1px solid var(--vp-c-divider);">
+</p>
+
 技术细节与 API 见 [运维手册](/reference/ops)。
 
 ## 两种备份的定位与区别
@@ -171,11 +175,3 @@ https://nas.your-domain.com:5006/
 - [运维手册](/reference/ops) — API 规格、自动化脚本备份与运维场景
 - [配置参考](/reference/configuration) — 环境变量与全局配置项全集
 - [Docker 部署](/deploy/docker) — 数据卷挂载与升级维护
-# Backup coverage and WebDAV target policy
-
-Manual and automatic backups share one manifest and include task data, plugin
-storage, semantic state, dictionaries, history, and nested SQLite stores. The
-manifest reports external paths that cannot be portable. WebDAV validates every
-redirect target and binds requests to the validated destination; private
-targets require `webdav_allow_private=true`. `webdav_skip_ssl_verify` controls
-TLS verification only and no longer grants private-network access.

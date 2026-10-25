@@ -2,6 +2,10 @@
 
 > Telegram 多账号自动化、任务编排、关键词监听和 AI 验证处理控制台。
 
+<p align="center">
+  <img src="/screenshots/dashboard.png" alt="TG-SignPulse 仪表盘概览" style="border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.25); border: 1px solid var(--vp-c-divider);">
+</p>
+
 ## 产品简介
 
 TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、点击按钮、识图答题、监听关键词、推送通知」这些动作组合成可重复执行的自动化流程。它同时提供 Web 面板、后端 API、调度器和执行引擎，适合长期稳定挂机。
@@ -12,6 +16,7 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 - 机器人交互流程编排
 - 群组或频道关键词监听与自动响应
 - AI 识图、OCR、计算题、按钮验证
+- JEV 原生语义决策与按钮规则自愈
 - 多账号共享同一套任务模板
 - Docker / VPS 持续部署
 
@@ -24,6 +29,7 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 | 认证 | JWT (HS256)、TOTP 2FA、bcrypt、Rate Limiting |
 | Telegram | Pyrogram / Kurigram、Session File / String 双模式 |
 | AI | OpenAI SDK（兼容接口）、识图 / OCR / 计算题 |
+| 语义引擎 | **JEV (SystemOne 协议)**、三态熔断降级 (closed/half_open/open)、规则优化建议 |
 | 数据库 | **默认 SQLite**；可选 `APP_DATABASE_URL` 使用 PostgreSQL |
 | 部署 | Docker Multi-stage、GitHub Actions、GHCR |
 
@@ -32,6 +38,7 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 - **多账号管理**：支持短信登录、二维码登录、2FA 密码、状态检测、重新登录
 - **任务编排**：支持固定时间、时间段随机执行、监听触发三种执行模式
 - **AI 动作**：支持识图选项、OCR 文本提取、计算题作答、AI 推断后点按钮
+- **JEV 语义决策**：专为 Telegram 打造的原生语义决策引擎、三态熔断保护与规则自愈建议（Suggestions）
 - **关键词监听**：支持包含、完全匹配、正则；支持继续执行后续动作
 - **推送通知**：支持 Telegram Bot、转发、Bark、自定义 URL
 - **多账号共享任务**：一套任务可绑定多个账号执行
@@ -57,8 +64,9 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 |------|------|
 | [账号管理](guide/accounts.md) | 短信登录、二维码登录、2FA、代理、会话模式 |
 | [任务编排](guide/tasks.md) | 任务模型、动作类型、执行模式、多账号共享 |
-| [自定义插件](guide/plugins.md) | 本地 Action 插件扩展、沙箱隔离与测试 |
 | [AI 动作](guide/ai.md) | OpenAI 配置、默认模型、自定义提示词 |
+| [JEV 语义决策](guide/jev.md) | 专为 Telegram 打造的按钮语义推断、三态熔断降级与智能规则建议 |
+| [自定义插件](guide/plugins.md) | 本地 Action 插件扩展、沙箱隔离与测试 |
 | [关键词监听](guide/keyword-monitor.md) | 监听模式、推送通道、后续动作、模板变量 |
 | [备份与恢复](guide/backup-webdav.md) | 完整备份、自动备份、远端下载、换机恢复 |
 
@@ -82,21 +90,22 @@ TG-SignPulse 用来集中管理多个 Telegram 账号，并把「发送消息、
 ```text
 TG-SignPulse/
 ├── backend/            # FastAPI 后端
-│   ├── api/            #   API 路由层
+│   ├── api/            #   API 路由层（含 semantic.py 语义决策）
 │   ├── core/           #   配置、认证、数据库
 │   ├── models/         #   SQLAlchemy 数据模型
-│   ├── services/       #   业务逻辑层（签到、监听、Telegram）
+│   ├── services/       #   业务逻辑层（签到、监听、Telegram、semantic/）
 │   ├── scheduler/      #   APScheduler 调度器
 │   └── utils/          #   工具函数
 ├── tg_signer/          # Telegram 自动化引擎
 │   ├── core/           #   签到执行核心（Client / runtime / 动作 / 匹配）
+│   ├── semantic/       #   JEV 语义客户端与 SystemOne 协议
 │   ├── config.py       #   任务配置模型 (V1→V2→V3)
 │   ├── ai_tools.py     #   AI 工具集成
 │   └── async_utils.py  #   异步工具
 ├── frontend/           # Vue 3 前端
 │   ├── src/
 │   │   ├── views/      #     页面组件
-│   │   ├── components/ #     通用组件
+│   │   ├── components/ #     通用组件（含 settings/JevSettings, TaskRuleSuggestionsPanel）
 │   │   ├── stores/     #     Pinia 状态管理
 │   │   ├── composables/#     组合式函数
 │   │   └── lib/        #     API 调用与类型定义
@@ -124,6 +133,7 @@ TG-SignPulse/
 │   └── *.session                # Session 文件
 ├── plugins/                     # 自定义 Action 插件
 └── .signer/                     # 签到引擎工作目录
+    ├── .jev_config.json         # JEV 语义接口配置
     ├── signs/                   # 任务配置
     │   └── <account>/
     │       └── <task>/config.json
@@ -139,13 +149,15 @@ Browser (Vue 3 SPA)
         ├── AuthService (JWT + TOTP)
         ├── TelegramService (账号管理)
         ├── SignTaskService (任务 CRUD + 执行)
+        ├── SemanticService (JEV 语义决策、熔断、规则建议)
         ├── PluginService (自定义插件沙箱 IPC)
         ├── KeywordMonitorService (后台监听)
         ├── APScheduler (定时触发)
         ├── SQLite (WAL mode)
         └── tg_signer Engine
               ├── Pyrogram/Kurigram Client
-              ├── OpenAI API (AI 动作)
+              ├── OpenAI API (AI 多模态动作)
+              ├── JevClient (SystemOne 语义决策与熔断降级)
               └── Telegram API
 ```
 
@@ -163,7 +175,8 @@ Browser (Vue 3 SPA)
 2. [Docker 部署](deploy/docker.md)
 3. [账号管理](guide/accounts.md)
 4. [任务编排](guide/tasks.md)
-5. [备份与恢复](guide/backup-webdav.md)
-6. [配置参考](reference/configuration.md)
-7. [AI 动作](guide/ai.md)
-8. [关键词监听](guide/keyword-monitor.md)
+5. [JEV 语义决策](guide/jev.md)
+6. [备份与恢复](guide/backup-webdav.md)
+7. [配置参考](reference/configuration.md)
+8. [AI 动作](guide/ai.md)
+9. [关键词监听](guide/keyword-monitor.md)

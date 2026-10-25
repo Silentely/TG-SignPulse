@@ -33,6 +33,19 @@
 | `GET /api/keyword-hits/export` | 导出命中记录 CSV（UTF-8 BOM） |
 | `DELETE /api/keyword-hits` | 清空命中记录（可按账号/任务过滤） |
 
+### JEV 语义引擎与智能自愈 API
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/semantic/config` | 获取 JEV 语义配置、运行状态、缓存命中率、熔断器状态 (`stats`) 与容量统计 |
+| `PATCH /api/semantic/config` | 热更新 JEV 语义引擎配置（`enabled`、`base_url`、`model`、`api_key`、`timeout_seconds`） |
+| `POST /api/semantic/test` | 测试 JEV 语义服务连通性（带 SSRF 检查与凭据外送隔离） |
+| `GET /api/semantic/observations` | 查询执行中记录的决策上下文观测事件（`Observations`，支持按账号、任务与类型分页筛选） |
+| `PUT /api/semantic/observations/{id}/label` | 为观测记录添加或更新人工复核标签与意图 |
+| `GET /api/semantic/suggestions` | 查询规则自愈建议列表（`Suggestions`，支持状态过滤：`pending` / `applied` / `dismissed`） |
+| `POST /api/semantic/suggestions/{id}/apply` | 采纳指定规则建议并原子热更新对应任务动作配置 |
+| `POST /api/semantic/suggestions/{id}/dismiss` | 忽略指定规则建议 |
+
 ### 完整备份落点：WebDAV 与本地归档
 
 用户操作步骤见 **[备份与恢复](/guide/backup-webdav)**。实现要点：
@@ -76,7 +89,7 @@
 | 端点 | 用途 |
 | --- | --- |
 | `/health` | 基础存活检查 |
-| `/healthz` | 容器健康检查 |
+| `/readyz` | 容器健康检查 |
 | `/readyz` | 服务是否完成启动 |
 
 示例：
@@ -137,200 +150,3 @@ docker logs -f tg-signpulse
 - 监听任务是不是命中了关键词
 
 > **观测性说明**：任务执行日志与运行状态是**内存态**，任务结束后约 60 秒、运行状态约 10 分钟无更新即被回收（`ACTIVE_LOG_CLEANUP_DELAY_SECONDS` / `RUN_STATUS_CLEANUP_DELAY_SECONDS`）；面板账号列表有 5 秒 TTL 缓存。历史日志（含完整流程日志）持久化在 `history/`，不受上述回收影响——长时间未刷新看到空的任务日志属正常回收，不是数据丢失。
-
-## 备份与配置迁移
-
-面板「设置 → 数据管理」提供两套能力，用途不同：
-
-| 能力 | 内容 | 可否面板导入 | 用途 |
-|------|------|--------------|------|
-| **配置 JSON** | 任务 / 监控 / 全局与 AI·TG 设置（AI 密钥脱敏） | ✅ 可导入 | 流程迁移、模板拷贝 |
-| **完整备份 .spbak / .tar.gz** | `db.sqlite`、`sessions`、`.signer`、配置文件等 | 支持上传归档 | 换机 / 灾难恢复 |
-
-### 配置 JSON 注意
-
-- **不含** Telegram 登录会话；导入后账号仍需已登录或重新登录。
-- 导出的 `api_key` 为 `***MASKED***`；再导入时**不会**用占位符覆盖服务器上已有密钥。
-- 导入成功后会同步调度并尝试重启关键词监听；请刷新页面。
-
-### 完整备份（面板或命令行）
-
-面板 **完整备份**（WebDAV / 归档下载）的逐步说明见 [备份与恢复](/guide/backup-webdav)。
-
-面板上传/导出备份包会打包推荐路径（**不含** `.admin_bootstrap_password`）。
-
-`POST /api/ops/backup/export` 默认导出使用当前实例密钥加密的 `.spbak`；可通过 `format=tar.gz` 选择未加密归档，或通过表单字段 `password` 设置备份密码。`POST /api/ops/backup/import` 接收归档文件与可选密码，并替换数据目录。换机前须单独保存原 `APP_SECRET_KEY` 或 `.app_secret_key`，以解密归档及其中的敏感配置；面板归档不包含 `.app_secret_key`。
-
-宿主机整目录备份示例：
-
-```bash
-tar -czf "tg-signpulse-backup-$(date +%F).tar.gz" -C "$(pwd)" data
-```
-
-重点内容：
-
-- `db.sqlite`（及 wal/shm）
-- `sessions/`
-- `.signer/`（任务配置 + 历史）
-- `.global_settings.json` / `.openai_config.json` / `.telegram_api.json`
-
-### 停机手动恢复 tar.gz
-
-1. **停止** 面板服务（避免写冲突）  
-2. 将备份解压到 `APP_DATA_DIR`（默认 `/data` 或 `./data`），覆盖同名路径  
-3. 确认目录属主/权限可写  
-4. **启动** 服务，用原账号登录验证  
-
-```bash
-# 示例：面板导出的未加密 tar.gz 在当前目录，数据目录为 ./data
-systemctl stop tg-signpulse   # 按你的部署方式停止
-tar -xzf tg-signpulse-backup-YYYYMMDD-HHMMSS.tar.gz -C ./data
-# 若 tar 内路径已是 db.sqlite、sessions 等，应直接落在 data 根下
-systemctl start tg-signpulse
-```
-
-上面的宿主机整目录备份含 `data/` 顶层目录，应解压到其父目录（如 `tar -xzf tg-signpulse-backup-YYYY-MM-DD.tar.gz -C .`），避免生成 `data/data/`。`.spbak` 不能直接使用这些 `tar` 命令。
-
-> PostgreSQL 部署时：`db.sqlite` 备份意义不大，请自行 `pg_dump`；sessions 与 `.signer` 仍须备份。
-
-### 自动化备份脚本
-
-生产环境建议用宿主机 cron 定时备份 `data/`：
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-# 解析项目根目录的绝对路径，确保从任意工作目录执行都能确定定位
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DATA_DIR="${APP_DATA_DIR:-$PROJECT_ROOT/data}"
-
-# 验证 data 目录存在
-if [ ! -d "$DATA_DIR" ]; then
-    echo "错误: 数据目录不存在: $DATA_DIR" >&2
-    exit 1
-fi
-
-# 解析为绝对路径，确保 APP_DATA_DIR 指向项目外目录时也能正确备份
-DATA_DIR="$(cd "$DATA_DIR" && pwd)"
-
-backup_dir="${BACKUP_DIR:-$PROJECT_ROOT/backups}"
-mkdir -p "$backup_dir"
-
-ts="$(date +%Y%m%d-%H%M%S)"
-tar -czf "$backup_dir/tg-signpulse-data-$ts.tar.gz" \
-    -C "$(dirname "$DATA_DIR")" \
-    "$(basename "$DATA_DIR")"
-
-find "$backup_dir" -name 'tg-signpulse-data-*.tar.gz' -mtime +14 -delete
-```
-
-如果任务运行频率很高，备份前先执行 `docker compose stop app`，备份完成后再启动，避免备份期间发生 SQLite 写锁冲突。
-
-## 恢复
-
-1. 停止容器
-2. 替换或还原 `data/`
-3. 重新启动容器
-
-```bash
-docker compose down
-tar -xzf tg-signpulse-backup-2026-05-09.tar.gz
-docker compose up -d
-```
-
-## 升级策略
-
-### 使用测试镜像
-
-适合先验证：
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-预发/主干标签建议使用：
-
-- `dev` / `dev-<sha>`（dev 分支）
-- `main` / `main-<sha>`（main 分支）
-- 手动触发其它 ref 时可能出现 `test-<ref>` / `test-<short-sha>`
-
-### 使用正式镜像
-
-确认测试没问题后，再切换到：
-
-- `vX.Y.Z`
-- 或 `latest`
-
-## 常规巡检清单
-
-- `/readyz` 是否正常
-- `data/` 是否仍可写
-- 最近任务失败率是否异常升高
-- 账号状态是否出现 `needs_relogin`
-- 监听任务是否仍在此接收更新
-- 代理是否失效
-- AI 接口是否还能返回结果
-
-## 常见排障动作
-
-### 检查数据目录可写
-
-```bash
-ls -ld data
-touch data/.probe && rm data/.probe
-```
-
-### 读取首登密码
-
-```bash
-cat data/.admin_bootstrap_password
-```
-
-### 观察健康状态
-
-```bash
-watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
-```
-
-## 升级前建议
-
-- 先备份 `data/`
-- 先在测试标签上验证
-- 确认 AI、登录、监听、共享任务都能正常工作
-- 再把生产环境切到正式标签
-
-## 事件响应手册
-
-### 场景 1：服务不可用
-
-1. 检查 `docker ps` 和 `docker logs --tail=200 tg-signpulse`。
-2. 请求 `/healthz` 与 `/readyz`，确认是进程未启动还是启动未完成。
-3. 检查 `data/` 权限、磁盘空间和最近一次升级变更。
-
-### 场景 2：数据库锁定
-
-1. 确认没有多个容器实例挂载同一个 `data/`。
-2. 检查是否有长时间运行的任务或外部脚本占用 `db.sqlite`。
-3. 重启单个应用实例；如果仍复现，降低任务并发并保留日志。
-
-### 场景 3：账号需要重新登录
-
-1. 在面板查看账号状态是否为 `needs_relogin`。
-2. 重新完成 Telegram 登录流程。
-3. 如果多个账号同时失效，优先检查代理和 Telegram API 配置。
-# Restore and runbook rules
-
-Backups use a versioned manifest and SQLite online snapshots. Restore extracts
-to staging, validates hashes/configuration/integrity, enters maintenance mode,
-reopens services, and retains the previous data directory until health checks
-pass. Restore requires a single application worker (`WEB_CONCURRENCY=1` or
-`UVICORN_WORKERS=1`). Operational runbook actions default to dry-run and only
-allow explicitly named reversible actions. The current action registry exposes
-only `refresh_task_cache`; diagnosis does not silently mark a task as reviewed.
-Backup manifests also include persistent paths configured through
-`APP_DB_PATH`, `APP_DATABASE_URL`/`DATABASE_URL`, `APP_SIGNER_WORKDIR`,
-`APP_SESSION_DIR`, `APP_LOGS_DIR`, and `PLUGIN_STORAGE_PATH` when they are
-inside the data directory; paths outside it are reported as external storage.

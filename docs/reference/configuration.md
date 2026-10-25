@@ -58,65 +58,13 @@ environment:
 **生效规则：**
 
 - 面板设置优先于环境变量
-- 新创建的调度任务立即使用当前时区
-- 已有任务的触发器时区需要重启服务后生效（面板会输出日志提示）
-- 时区值遵循 IANA 时区数据库标准
+- 修改后立即生效，定时任务调度器会自动切换到新时区
+- 影响所有 Cron 定时任务的触发时间和日志中的时间显示
 
-## CORS 部署拓扑
-
-`APP_CORS_ALLOW_ORIGINS` 只影响浏览器跨域访问 API 的场景：
-
-- 前后端同源部署：例如统一通过 `https://panel.example.com` 访问，通常不需要额外放宽 CORS。
-- 前端独立域名：例如前端是 `https://app.example.com`、后端是 `https://api.example.com`，必须把前端完整 origin 写入 `APP_CORS_ALLOW_ORIGINS`。
-- 本地开发：默认允许 `http://127.0.0.1:3000` 和 `http://localhost:3000`。
-
-生产环境不要使用通配符；多 origin 用英文逗号分隔。
-
-> 环境变量变更规范见 [开发规范 - 代码变更原则](development.md#代码变更原则)。
-
-## Telegram 相关
+## 调度与任务执行
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `TG_API_ID` | 内置默认 | Telegram API ID（可选，从 my.telegram.org 获取自定义值） |
-| `TG_API_HASH` | 内置默认 | Telegram API HASH（可选，同上） |
-| `TG_SESSION_MODE` | `file` | 会话模式：`file`（本地 SQLite）/ `string`（内存+JSON） |
-| `TG_GLOBAL_CONCURRENCY` | 自动（CPU核心数，上限5） | 全局 Telegram 操作并发上限，可通过此变量覆盖自动值 |
-| `TG_PROXY` | 无 | CLI / 执行层的兜底代理 |
-
-> 客户端是否接收实时消息更新（updates）由系统按任务自动决定：含监听或「等待消息响应」类动作的任务会接收 updates，纯文本/骰子发送类任务以 `no_updates` 模式运行。无相关环境变量。
-
-### 获取 Telegram API 凭证
-
-> 💡 未配置时会回退到上游 tg-signer 的内置公开默认凭据（非私有密钥），其 API 限额为所有用户共享；**建议申请并配置自有凭据**，以获得更稳定的限额与可用性。未配置时启动日志会出现一次性 warning 提示。
-
-`TG_API_ID` 和 `TG_API_HASH` 是使用 Telegram API 的必要凭证，需要从 Telegram 官方申请：
-
-1. 打开 [https://my.telegram.org](https://my.telegram.org)
-2. 使用你的 Telegram 手机号登录（输入手机号后会收到验证码）
-3. 登录后点击 **「API development tools」**
-4. 填写应用信息（App title 和 Short name 可随意填写，其他字段可留空）
-5. 点击 **「Create application」**
-6. 页面会显示 `App api_id` 和 `App api_hash` — 分别对应 `TG_API_ID` 和 `TG_API_HASH`
-
-> ⚠️ 每个 Telegram 账号只能创建一个 API 应用。请妥善保管凭证，不要提交到公开仓库。
-
-在 Docker Compose 中配置：
-
-```yaml
-environment:
-  - TG_API_ID=12345678
-  - TG_API_HASH=abcdef1234567890abcdef1234567890
-```
-
-或在面板「系统设置 → Telegram API」中填写。
-
-## 任务执行相关
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `SIGN_TASK_EXECUTION_TIMEOUT` | `300` | 单次任务执行超时（秒） |
-| `SIGN_TASK_ACCOUNT_COOLDOWN` | `5` | 同一账号两次执行间的冷却时间（秒） |
 | `SIGN_TASK_FLOW_RETRY_ATTEMPTS` | `1` | 流程级重试缺省值（面板「高级参数」可覆盖）。**仅当任务 config 未写入 `retry_count` 键时生效**；任务表单/创建接口写入的 `retry_count` 优先 |
 | `SIGN_TASK_RETRY_BACKOFF_STEPS` | `0` | 流程重试时回退的步数（0 = 从失败步骤继续，不重发已完成的步骤） |
 | `SIGN_TASK_RETRY_DELAY` | `1.0` | 流程重试等待秒数兜底值（仅当目标聊天未配置 `action_interval` 时生效；已配置时按其指数退避加抖动） |
@@ -144,14 +92,13 @@ environment:
 | `AI_VISION_JPEG_QUALITY` | `85` | 图片预处理 JPEG 压缩质量 |
 | `AI_VISION_WHITE_THRESHOLD` | `245` | 图片白色边框裁剪阈值 |
 
-
 > 说明：AI 视觉请求采用「参数兼容降级阶梯」——先按完整参数（`response_format: {"type":"json_object"}` + `reasoning_effort`）发起；被网关以 400/403/422 参数校验类错误拒绝（如 Vercel AI Gateway 的 `Invalid input`）时，自动依次降级为去掉 `reasoning_effort`、改用 Vercel 官方 `reasoning: {"enabled": false}` 关闭思考（仅当设置为 `none` 时启用，且优先与 JSON mode 组合）、去掉 `response_format`、最后退回裸请求重试，确保不因参数不兼容而失败。认证（401）、配额（429）与 5xx 瞬时错误不触发降级；上下文超长、内容策略等非参数错误也不触发降级。
 >
 > 针对 OpenAI GPT-5 与 o 系列（o1/o3/o4）等新架构模型：系统自动适配 `max_completion_tokens` 代替废弃的 `max_tokens`，并自动省略不支持的 `temperature` 参数；当遭遇不同网关/代理对 token 参数或 `temperature` 的互斥报错时，系统会自动进行双向参数名互换及 `temperature` 剔除重试，并包含单次请求防振荡死循环熔断保护。
 
-## Jev 语义接口配置
+## JEV 语义接口配置
 
-配置文件默认位于 `/data/.signer/.jev_config.json`，可在 **系统设置** → **JEV / 语义接口** 中保存接口地址、模型、密钥与超时。使用方式与任务策略见 [Jev 语义自动化策略](../guide/ai.md#jev-语义自动化策略)。
+配置文件默认位于 `/data/.signer/.jev_config.json`，可在 **系统设置** → **JEV 设置** 中保存接口地址、模型、密钥与超时。使用方式与工作机制详见 [JEV 语义决策引擎](../guide/jev.md)。
 
 | 环境变量 | 默认值 | 生效条件 |
 |------|--------|------|
@@ -180,7 +127,7 @@ environment:
 | `.global_settings.json` | 全局设置（面板「系统设置」保存） |
 | `.openai_config.json` | AI 配置（面板「AI 设置」保存） |
 | `.telegram_api.json` | Telegram API 配置 |
-| `.signer/.jev_config.json` | Jev 语义接口配置（位于签到引擎工作目录） |
+| `.signer/.jev_config.json` | JEV 语义接口配置（位于工作目录 `.signer/` 下） |
 
 ## 全局设置文件
 
@@ -217,6 +164,27 @@ environment:
 
 支持任何 OpenAI 兼容接口（如 Azure OpenAI、本地 LLM 等）。
 
+## JEV 语义配置文件
+
+`.signer/.jev_config.json`：
+
+```json
+{
+  "enabled": true,
+  "mode": "official",
+  "base_url": "https://api.typesafe.ai/v1",
+  "model": "jev-1.13.0",
+  "api_key": "<Fernet加密的密文>",
+  "timeout_seconds": 10.0
+}
+```
+
+- `enabled`：是否在打卡中启用 SystemOne 语义决策。
+- `mode`：运行模式，`official`（官方托管服务）或 `custom`（自定义端点）。
+- `base_url`：语义决策服务端点。
+- `model`：默认模型 `jev-1.13.0`。
+- `api_key`：访问凭据，保存时经过 Fernet 对称加密。
+
 ## Telegram API 配置文件
 
 `.telegram_api.json`：
@@ -246,6 +214,7 @@ environment:
 │   ├── accounts.json            # 账号元数据（session string 模式）
 │   └── *.session                # Session 文件（file 模式）
 └── .signer/                     # 签到引擎工作目录
+    ├── .jev_config.json         # JEV 语义接口配置
     ├── signs/                   # 任务配置
     │   └── <account_name>/
     │       └── <task_name>/
@@ -302,7 +271,6 @@ environment:
 
 - 进程启动后修改 `.env` 或环境变量不会自动生效，需要重启后端进程。
 - 测试中如果临时修改环境变量，需要调用 `get_settings.cache_clear()` 后再重新导入或读取配置。
-
 
 ## 面板高级设置字段（`.global_settings.json`）
 
