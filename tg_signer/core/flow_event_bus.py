@@ -124,29 +124,45 @@ class TelegramEventBus:
             if not self._subscribers[key]:
                 del self._subscribers[key]
 
-    async def publish(self, event: TelegramMessageEvent) -> None:
-        key = (_normalize_chat_id(event.chat_id), event.message_thread_id)
+    async def publish(
+        self, event: TelegramMessageEvent, *, include_legacy_scope: bool = False
+    ) -> None:
+        chat_id = _normalize_chat_id(event.chat_id)
+        keys = [(chat_id, event.message_thread_id)]
+        if include_legacy_scope and event.message_thread_id is not None:
+            keys.append((chat_id, None))
         now = time.time()
 
-        buf = self._history_buffers.setdefault(key, [])
-        if any(
-            existing.event_id == event.event_id
-            and now - existing.occurred_at <= self._buffer_ttl
-            for existing in buf
-        ):
-            return
-        buf.append(event)
-        self._history_buffers[key] = [
-            e
-            for e in buf[-self._buffer_size :]
-            if now - e.occurred_at <= self._buffer_ttl
-        ]
+        for key in keys:
+            buf = self._history_buffers.setdefault(key, [])
+            latest_revision = next(
+                (
+                    existing
+                    for existing in reversed(buf)
+                    if existing.message_id == event.message_id
+                    and existing.message_thread_id == event.message_thread_id
+                    and existing.event_type == event.event_type
+                    and now - existing.occurred_at <= self._buffer_ttl
+                ),
+                None,
+            )
+            if (
+                latest_revision is not None
+                and latest_revision.event_id == event.event_id
+            ):
+                continue
+            buf.append(event)
+            self._history_buffers[key] = [
+                e
+                for e in buf[-self._buffer_size :]
+                if now - e.occurred_at <= self._buffer_ttl
+            ]
 
-        for q in self._subscribers.get(key, []):
-            try:
-                q.put_nowait(event)
-            except asyncio.QueueFull:
-                logger.warning(f"订阅队列已满，丢弃慢消费者事件: {event.event_id}")
+            for q in self._subscribers.get(key, []):
+                try:
+                    q.put_nowait(event)
+                except asyncio.QueueFull:
+                    logger.warning(f"订阅队列已满，丢弃慢消费者事件: {event.event_id}")
 
     def clear(self, chat_id: Optional[int] = None) -> None:
         """重置所有（或指定会话）订阅与历史缓冲区，避免跨任务或测试间相互干扰"""

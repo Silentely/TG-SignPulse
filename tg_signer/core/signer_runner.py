@@ -1053,7 +1053,9 @@ class SignerRunnerMixin:
                     occurred_at=time.time(),
                     button_snapshot=buttons,
                 )
-                asyncio.create_task(bus.publish(ev))
+                asyncio.create_task(
+                    bus.publish(ev, include_legacy_scope=has_unthreaded_chat)
+                )
             except Exception:
                 pass
 

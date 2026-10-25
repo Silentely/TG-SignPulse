@@ -14,6 +14,7 @@ from tg_signer.core.flow_models import NodeStatus, WaitEventNode
 from tg_signer.core.signer_matchers import SignerMatchersMixin
 from tg_signer.core.signer_runner import SignerRunnerMixin
 from tg_signer.semantic import runtime_port
+from tg_signer.semantic.models import Decision
 
 
 def make_event(text, buttons=(), thread_id=1):
@@ -55,6 +56,19 @@ async def test_identical_message_revision_is_published_once():
     assert first.event_id == repeat.event_id
     assert [item.event_id for item in bus.get_history(123, 1)] == [first.event_id]
     assert queue.qsize() == 1
+
+
+@pytest.mark.asyncio
+async def test_restored_message_content_after_an_edit_is_delivered_again():
+    bus = TelegramEventBus()
+    events = [make_event(text) for text in ("A", "B", "A")]
+    queue = bus.subscribe(123, 1, event_type="ANY")
+    for event in events:
+        await bus.publish(event)
+
+    assert len(bus.get_history(123, 1)) == 3
+    assert queue.qsize() == 3
+    assert events[0].event_id == events[2].event_id
 
 
 @pytest.mark.asyncio
@@ -186,6 +200,9 @@ async def test_matcher_candidate_and_waiters_read_topic_cache():
 
 @pytest.mark.asyncio
 async def test_unthreaded_config_receives_topic_reply_in_legacy_cache():
+    bus = TelegramEventBus()
+    legacy_queue = bus.subscribe(123, None, event_type="ANY")
+    topic_queue = bus.subscribe(123, 2, event_type="ANY")
     runner = SimpleNamespace(
         context=SimpleNamespace(
             sign_chats={123: [SimpleNamespace(message_thread_id=None)]},
@@ -193,7 +210,7 @@ async def test_unthreaded_config_receives_topic_reply_in_legacy_cache():
             topic_last_received_text={},
             last_received_text="",
         ),
-        _event_bus=None,
+        _event_bus=bus,
         log=lambda *args, **kwargs: None,
     )
     message = SimpleNamespace(
@@ -202,13 +219,64 @@ async def test_unthreaded_config_receives_topic_reply_in_legacy_cache():
         message_thread_id=2,
         text="topic reply",
         caption=None,
+        from_user=SimpleNamespace(id=7),
+        reply_markup=None,
     )
 
     await SignerRunnerMixin._on_message(runner, None, message)
+    await asyncio.sleep(0)
 
     assert runner.context.chat_messages[123][10] is message
     assert runner.context.chat_messages[(123, 2)][10] is message
     assert runner.context.last_received_text == "topic reply"
+    assert legacy_queue.get_nowait().text == "topic reply"
+    assert topic_queue.get_nowait().text == "topic reply"
+    context = ScopedFlowContext()
+    context.system["chat_id"] = 123
+    outcome = await PulseFlowEngine(bus)._run_wait_event_node(
+        WaitEventNode(
+            id="wait",
+            event_type="NEW_MESSAGE",
+            success_patterns=["topic reply"],
+            timeout_seconds=1,
+            metadata={"chat_id": 123},
+        ),
+        context,
+        bus,
+    )
+    assert outcome.status == NodeStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_topic_only_config_does_not_publish_to_legacy_subscription():
+    bus = TelegramEventBus()
+    legacy_queue = bus.subscribe(123, None, event_type="ANY")
+    runner = SimpleNamespace(
+        context=SimpleNamespace(
+            sign_chats={123: [SimpleNamespace(message_thread_id=2)]},
+            chat_messages={},
+            topic_last_received_text={},
+            last_received_text="",
+        ),
+        _event_bus=bus,
+        log=lambda *args, **kwargs: None,
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=123),
+        id=11,
+        message_thread_id=2,
+        text="scoped",
+        caption=None,
+        from_user=SimpleNamespace(id=7),
+        reply_markup=None,
+    )
+
+    await SignerRunnerMixin._on_message(runner, None, message)
+    await asyncio.sleep(0)
+
+    assert legacy_queue.empty()
+    assert bus.get_history(123) == []
+    assert len(bus.get_history(123, 2)) == 1
 
 
 @pytest.mark.asyncio
@@ -228,6 +296,47 @@ async def test_observe_request_key_changes_for_message_edits(monkeypatch):
     )
 
     for text in ("ok first", "ok second"):
+        bus = TelegramEventBus()
+        event = make_event(text)
+        await bus.publish(event)
+        context = ScopedFlowContext(account={"name": "account"})
+        context.system["chat_id"] = 123
+        outcome = await PulseFlowEngine(bus)._run_wait_event_node(node, context, bus)
+        assert outcome.status == NodeStatus.SUCCESS
+        assert requests[-1].request_key.endswith(
+            f":{event.event_type}:{event.message_id}:{event.message_revision}"
+        )
+
+    assert requests[0].request_key != requests[1].request_key
+
+
+@pytest.mark.asyncio
+async def test_assist_request_key_changes_for_message_edits(monkeypatch):
+    requests = []
+
+    async def evaluate(request, **kwargs):
+        requests.append(request)
+        return Decision(
+            status="ok",
+            selected="success",
+            probabilities={"success": 0.99, "failure": 0.01},
+        )
+
+    runtime = SimpleNamespace(
+        service=SimpleNamespace(evaluate=evaluate),
+        record_observation=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(runtime_port, "_SEMANTIC_RUNTIME_PROVIDER", lambda: runtime)
+    node = WaitEventNode(
+        id="wait",
+        event_type="EDITED_MESSAGE",
+        success_patterns=["never matches"],
+        semantic_result={"mode": "assist", "goal": "confirmed"},
+        timeout_seconds=1,
+        metadata={"chat_id": 123, "message_thread_id": 1},
+    )
+
+    for text in ("edited first", "edited second"):
         bus = TelegramEventBus()
         event = make_event(text)
         await bus.publish(event)
