@@ -17,8 +17,14 @@ def serialize_plugin_identity(identity: Any) -> Optional[Dict[str, Any]]:
     return {
         key: getattr(identity, key)
         for key in (
-            "account_id", "task_id", "run_id", "step_id", "chat_id",
-            "thread_id", "event_id", "event_revision",
+            "account_id",
+            "task_id",
+            "run_id",
+            "step_id",
+            "chat_id",
+            "thread_id",
+            "event_id",
+            "event_revision",
         )
         if hasattr(identity, key)
     }
