@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -21,6 +23,33 @@ class TelegramMessageEvent:
     text: str
     occurred_at: float
     is_outgoing: bool = False
+    button_snapshot: tuple[Any, ...] = ()
+    message_revision: str = ""
+
+    def __post_init__(self) -> None:
+        """Identify each visible revision, including edits to an inline keyboard."""
+        snapshot = json.dumps(
+            {
+                "chat_id": self.chat_id,
+                "thread_id": self.message_thread_id,
+                "message_id": self.message_id,
+                "sender_id": self.sender_id,
+                "event_type": self.event_type,
+                "text": self.text,
+                "buttons": self.button_snapshot,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        revision = hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
+        object.__setattr__(self, "message_revision", revision)
+        object.__setattr__(
+            self,
+            "event_id",
+            f"msg_{self.chat_id}_{self.message_thread_id}_{self.message_id}_{self.event_type.lower()}_{revision[:16]}",
+        )
 
 
 def _normalize_chat_id(cid: Any) -> Any:
@@ -100,6 +129,12 @@ class TelegramEventBus:
         now = time.time()
 
         buf = self._history_buffers.setdefault(key, [])
+        if any(
+            existing.event_id == event.event_id
+            and now - existing.occurred_at <= self._buffer_ttl
+            for existing in buf
+        ):
+            return
         buf.append(event)
         self._history_buffers[key] = [
             e

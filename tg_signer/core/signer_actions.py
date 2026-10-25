@@ -1224,7 +1224,14 @@ class SignerActionsMixin:
             if isinstance(action, ClickKeyboardByTextAction):
                 next_history_scan = 0.0
                 while time.perf_counter() - start < timeout:
-                    messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+                    messages_dict = (
+                        self.context.chat_messages.get(
+                            chat.chat_id
+                            if chat.message_thread_id is None
+                            else (chat.chat_id, chat.message_thread_id)
+                        )
+                        or {}
+                    )
                     for message in reversed(list(messages_dict.values())):
                         if message is None:
                             continue
@@ -1263,7 +1270,7 @@ class SignerActionsMixin:
                                     timeout=follow_timeout,
                                     action=action,
                                 )
-                            self.context.chat_messages[chat.chat_id][message.id] = None
+                            messages_dict[message.id] = None
                             return True
                         if matched:
                             self.context.waiting_message = None
@@ -1402,7 +1409,11 @@ class SignerActionsMixin:
 
             while time.perf_counter() - start < timeout:
                 await asyncio.sleep(0.3)
-                messages_dict = self.context.chat_messages.get(chat.chat_id)
+                messages_dict = self.context.chat_messages.get(
+                    chat.chat_id
+                    if chat.message_thread_id is None
+                    else (chat.chat_id, chat.message_thread_id)
+                )
                 if not messages_dict:
                     continue
                 messages = list(messages_dict.values())
@@ -1442,7 +1453,7 @@ class SignerActionsMixin:
                         )
                     if ok:
                         # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
-                        self.context.chat_messages[chat.chat_id][message.id] = None
+                        messages_dict[message.id] = None
                         return None
             # Fallback: try recent history in case message handlers missed the reply.
             if isinstance(

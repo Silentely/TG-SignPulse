@@ -1069,7 +1069,7 @@ class PulseFlowEngine:
                                 "unknown": "未知",
                             },
                             instructions=f"判断回复是否达成目标：{goal}",
-                            request_key=f"{s_key}:{ev.message_id}",
+                            request_key=f"{s_key}:{ev.event_type}:{ev.message_id}:{ev.message_revision}",
                             config_revision=config_rev,
                         )
                         deadline = time.monotonic() + 10.0
@@ -1162,7 +1162,7 @@ class PulseFlowEngine:
                                         "unknown": "未知",
                                     },
                                     instructions=f"判断回复是否达成目标：{goal}",
-                                    request_key=f"{s_key}:{event.message_id}",
+                                    request_key=f"{s_key}:{event.event_type}:{event.message_id}:{event.message_revision}",
                                     config_revision=config_rev,
                                 )
                                 pol = ResultPolicy(

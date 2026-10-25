@@ -16,6 +16,11 @@ except ImportError:  # pragma: no cover - pydantic v1
 _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
 
+def chat_scope_key(chat_id: int, thread_id: Optional[int] = None):
+    """Keep ordinary chats on their historical key and isolate forum topics."""
+    return chat_id if thread_id is None else (chat_id, thread_id)
+
+
 class UserSignerWorkerContext(BaseModel):
     """签到工作上下文"""
 
@@ -28,7 +33,9 @@ class UserSignerWorkerContext(BaseModel):
             extra = "allow"
 
     sign_chats: dict  # 签到配置列表, int -> list[SignChatV3]
-    chat_messages: dict  # 收到的消息, int -> dict[int, Optional[Message]]
+    chat_messages: dict  # 收到的消息, chat_id 或 (chat_id, thread_id) -> 消息
+    topic_last_output: dict = Field(default_factory=dict)
+    topic_last_received_text: dict = Field(default_factory=dict)
     waiting_message: Optional[Message] = None  # 正在处理的消息
     stop_after_current_action: bool = False
     stop_reason: Optional[str] = None

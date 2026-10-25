@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from tg_signer.config import SignChatV3
+from tg_signer.core.context import chat_scope_key
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_models import BaseFlowNode, ExecutionGraph
 
@@ -30,15 +31,21 @@ class FlowCompatibilityBridge:
     # 1. 快照读取操作 (Snapshot Reading)
     # ---------------------------------------------------------
 
-    def get_last_received_text(self) -> str:
+    def get_last_received_text(self, thread_id: Optional[int] = None) -> str:
         """获取 runner context 中记录的最新接收文本快照。"""
         ctx = self.runner_context
         if ctx is None:
             return ""
-        txt = getattr(ctx, "last_received_text", "")
+        if thread_id is not None:
+            topic_text = getattr(ctx, "topic_last_received_text", {})
+            txt = topic_text.get((self.chat.chat_id, thread_id), "")
+        else:
+            txt = getattr(ctx, "last_received_text", "")
         return str(txt) if isinstance(txt, str) else ""
 
-    def get_chat_messages(self, chat_id: Optional[int] = None) -> Dict[int, Any]:
+    def get_chat_messages(
+        self, chat_id: Optional[int] = None, thread_id: Optional[int] = None
+    ) -> Dict[int, Any]:
         """获取指定会话的消息缓冲字典快照（只读视图/浅拷贝）。"""
         ctx = self.runner_context
         if ctx is None or not hasattr(ctx, "chat_messages"):
@@ -49,7 +56,7 @@ class FlowCompatibilityBridge:
         chat_dict = ctx.chat_messages
         if not isinstance(chat_dict, dict):
             return {}
-        msgs = chat_dict.get(target_cid) or {}
+        msgs = chat_dict.get(chat_scope_key(target_cid, thread_id)) or {}
         if isinstance(msgs, dict):
             return dict(msgs)
         return {}
@@ -70,12 +77,18 @@ class FlowCompatibilityBridge:
         val = getattr(ctx, "last_callback_answer", "")
         return str(val) if isinstance(val, str) else ""
 
-    def get_last_output(self) -> str:
+    def get_last_output(
+        self, chat_id: Optional[int] = None, thread_id: Optional[int] = None
+    ) -> str:
         """获取 runner context 中显式记录的 last_output。"""
         ctx = self.runner_context
         if ctx is None:
             return ""
-        val = getattr(ctx, "last_output", "")
+        if thread_id is not None:
+            target_cid = chat_id if chat_id is not None else self.chat.chat_id
+            val = getattr(ctx, "topic_last_output", {}).get((target_cid, thread_id), "")
+        else:
+            val = getattr(ctx, "last_output", "")
         return str(val) if isinstance(val, str) else ""
 
     # ---------------------------------------------------------
@@ -119,13 +132,28 @@ class FlowCompatibilityBridge:
             except Exception:
                 pass
 
-    def set_last_output(self, output: str) -> None:
+    def set_last_output(
+        self,
+        output: str,
+        *,
+        chat_id: Optional[int] = None,
+        thread_id: Optional[int] = None,
+    ) -> None:
         """向旧 runner context 提交本次动作产生的输出文本。"""
         ctx = self.runner_context
         if ctx is not None:
             try:
-                ctx.last_output = output
-                ctx.last_received_text = output
+                if thread_id is not None:
+                    target_cid = chat_id if chat_id is not None else self.chat.chat_id
+                    if not hasattr(ctx, "topic_last_output"):
+                        ctx.topic_last_output = {}
+                    if not hasattr(ctx, "topic_last_received_text"):
+                        ctx.topic_last_received_text = {}
+                    ctx.topic_last_output[(target_cid, thread_id)] = output
+                    ctx.topic_last_received_text[(target_cid, thread_id)] = output
+                else:
+                    ctx.last_output = output
+                    ctx.last_received_text = output
             except Exception:
                 pass
 
@@ -156,7 +184,11 @@ class FlowCompatibilityBridge:
         ctx = self.runner_context
         if ctx is not None:
             try:
-                ctx.last_output = ""
+                thread_id = getattr(self.chat, "message_thread_id", None)
+                if thread_id is not None:
+                    ctx.topic_last_output[(self.chat.chat_id, thread_id)] = ""
+                else:
+                    ctx.last_output = ""
                 ctx.stop_after_current_action = False
                 ctx.stop_reason = ""
             except Exception:
@@ -177,38 +209,40 @@ class FlowCompatibilityBridge:
     def output_text(self, res: Any = None, action: Any = None) -> str:
         """多重来源回填 Telegram 输出文本，确保动作响应不丢失、状态跟得上更新。"""
         # 1. 优先读取旧 runner context 中显式设置的 last_output
-        output = self.get_last_output()
+        thread_id = getattr(self.chat, "message_thread_id", None)
+        chat_id = getattr(self.chat, "chat_id", None)
+        output = self.get_last_output(chat_id, thread_id)
         if output:
             return output
 
         # 2. 从当前会话收到的最新 Telegram 消息提取文本
-        chat_msgs = self.get_chat_messages(getattr(self.chat, "chat_id", None))
+        chat_msgs = self.get_chat_messages(chat_id, thread_id)
         for msg in reversed(list(chat_msgs.values())):
             if msg is not None:
                 txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
                 if txt and isinstance(txt, str):
-                    self.set_last_output(txt)
+                    self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
                     return txt
 
         # 3. 从终态命中原因或回调通知文本提取
         stop_reason = self.get_stop_reason()
         if stop_reason:
-            self.set_last_output(stop_reason)
+            self.set_last_output(stop_reason, chat_id=chat_id, thread_id=thread_id)
             return stop_reason
 
         last_cb = self.get_last_callback_answer()
         if last_cb:
-            self.set_last_output(last_cb)
+            self.set_last_output(last_cb, chat_id=chat_id, thread_id=thread_id)
             return last_cb
 
-        last_recv = self.get_last_received_text()
+        last_recv = self.get_last_received_text(thread_id)
         if last_recv:
-            self.set_last_output(last_recv)
+            self.set_last_output(last_recv, chat_id=chat_id, thread_id=thread_id)
             return last_recv
 
         # 4. 从动作返回值提取（如插件返回、计算结果或 Message 对象）
         if isinstance(res, str) and res:
-            self.set_last_output(res)
+            self.set_last_output(res, chat_id=chat_id, thread_id=thread_id)
             return res
         if (
             hasattr(res, "text")
@@ -216,7 +250,7 @@ class FlowCompatibilityBridge:
             and isinstance(res.text, str)
         ):
             txt = res.text
-            self.set_last_output(txt)
+            self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
             return txt
         if (
             hasattr(res, "caption")
@@ -224,7 +258,7 @@ class FlowCompatibilityBridge:
             and isinstance(res.caption, str)
         ):
             txt = res.caption
-            self.set_last_output(txt)
+            self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
             return txt
 
         return ""
@@ -235,10 +269,11 @@ class FlowCompatibilityBridge:
             parts.append(str(context.last_output))
         ctx = self.runner_context
         if ctx is not None:
-            lr = getattr(ctx, "last_received_text", "")
+            thread_id = getattr(self.chat, "message_thread_id", None)
+            lr = self.get_last_received_text(thread_id)
             if lr and isinstance(lr, str):
                 parts.append(lr)
-            msgs = self.get_chat_messages()
+            msgs = self.get_chat_messages(thread_id=thread_id)
             if msgs:
                 try:
                     recent = sorted(
@@ -275,7 +310,8 @@ class FlowCompatibilityBridge:
         if account_name:
             account_dict["name"] = str(account_name)
 
-        last_received = self.get_last_received_text()
+        thread_id = getattr(self.chat, "message_thread_id", None)
+        last_received = self.get_last_received_text(thread_id)
         steps = dict(scope_dict.get("steps") or {})
         step_aliases = dict(steps)
         for idx, (_k, v) in enumerate(steps.items(), start=1):
@@ -313,7 +349,7 @@ class FlowCompatibilityBridge:
             if sr and isinstance(sr, str):
                 res_ctx.setdefault("stop_reason", sr)
             if not flow_context.last_output:
-                lo = getattr(ctx, "last_output", "")
+                lo = self.get_last_output(thread_id=thread_id)
                 if lo and isinstance(lo, str):
                     res_ctx["output"] = lo
                     result.setdefault("prev", {})["output"] = lo

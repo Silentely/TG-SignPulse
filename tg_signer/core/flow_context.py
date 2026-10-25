@@ -74,6 +74,26 @@ class ScopedFlowContext:
         self.step_outcomes: Dict[str, StepOutcome] = {}
         self.step_history: list[StepOutcome] = []
         self.last_output: str = ""
+        self.topic_last_outputs: Dict[tuple[int, int], str] = {}
+
+    def set_last_output(
+        self,
+        output: str,
+        chat_id: Optional[int] = None,
+        thread_id: Optional[int] = None,
+    ) -> None:
+        """Store topic output separately; retain the legacy slot for plain chats."""
+        if chat_id is not None and thread_id is not None:
+            self.topic_last_outputs[(chat_id, thread_id)] = output
+        else:
+            self.last_output = output
+
+    def get_last_output(
+        self, chat_id: Optional[int] = None, thread_id: Optional[int] = None
+    ) -> str:
+        if chat_id is not None and thread_id is not None:
+            return self.topic_last_outputs.get((chat_id, thread_id), "")
+        return self.last_output
 
     def set_var(self, key: str, value: Any) -> None:
         self.vars[key] = value
@@ -105,6 +125,10 @@ class ScopedFlowContext:
             "account": account_dict,
             "vars": vars_dict,
             "last_output": self.last_output,
+            "topic_last_outputs": [
+                {"chat_id": chat_id, "thread_id": thread_id, "output": output}
+                for (chat_id, thread_id), output in self.topic_last_outputs.items()
+            ],
             "step_outcomes": {
                 nid: so.to_dict(redact_sensitive=redact_sensitive)
                 for nid, so in self.step_outcomes.items()
@@ -124,6 +148,11 @@ class ScopedFlowContext:
         )
         ctx.vars = dict(data.get("vars", {}))
         ctx.last_output = data.get("last_output", "")
+        for item in data.get("topic_last_outputs", []):
+            if isinstance(item, dict):
+                ctx.topic_last_outputs[
+                    (int(item["chat_id"]), int(item["thread_id"]))
+                ] = item["output"]
         raw_outcomes = data.get("step_outcomes", {})
         for nid, o_dict in raw_outcomes.items():
             if isinstance(o_dict, StepOutcome):

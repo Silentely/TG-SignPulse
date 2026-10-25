@@ -33,6 +33,7 @@ from tg_signer.config import (
 )
 from tg_signer.context_vars import task_retry_count_var
 from tg_signer.core.client import Client, get_now
+from tg_signer.core.context import chat_scope_key
 from tg_signer.core.flow_adapter import TelegramNodeExecutor
 from tg_signer.core.template import render_template, render_template_recursive
 from tg_signer.log_utils import safe_text_preview
@@ -283,10 +284,11 @@ class SignerRunnerMixin:
                     )
             try:
                 if start_index == 1:
-                    if chat.chat_id in self.context.chat_messages:
-                        self.context.chat_messages[chat.chat_id].clear()
+                    scope_key = chat_scope_key(chat.chat_id, chat.message_thread_id)
+                    if scope_key in self.context.chat_messages:
+                        self.context.chat_messages[scope_key].clear()
                     else:
-                        self.context.chat_messages[chat.chat_id] = {}
+                        self.context.chat_messages[scope_key] = {}
                     self.context.step_outputs = {}
                     self.context.last_output = ""
                     self.context.last_received_text = ""
@@ -560,7 +562,9 @@ class SignerRunnerMixin:
                 continue
             finally:
                 # Always clear chat messages to prevent memory accumulation
-                self.context.chat_messages[chat.chat_id].clear()
+                self.context.chat_messages[
+                    chat_scope_key(chat.chat_id, chat.message_thread_id)
+                ].clear()
 
             await asyncio.sleep(config.sign_interval)
 
@@ -597,10 +601,11 @@ class SignerRunnerMixin:
             task_name=task_name,
         )
 
-        if chat.chat_id in self.context.chat_messages:
-            self.context.chat_messages[chat.chat_id].clear()
+        scope_key = chat_scope_key(chat.chat_id, chat.message_thread_id)
+        if scope_key in self.context.chat_messages:
+            self.context.chat_messages[scope_key].clear()
         else:
-            self.context.chat_messages[chat.chat_id] = {}
+            self.context.chat_messages[scope_key] = {}
         self.context.step_outputs = {}
         self.context.last_output = ""
         self.context.last_received_text = ""
@@ -993,7 +998,8 @@ class SignerRunnerMixin:
                 level="WARNING",
             )
             return
-        chat_msgs = self.context.chat_messages[message.chat.id]
+        scope_key = chat_scope_key(message.chat.id, message_thread_id)
+        chat_msgs = self.context.chat_messages.setdefault(scope_key, {})
         chat_msgs[message.id] = message
         # Bound message cache per chat to prevent memory growth
         if len(chat_msgs) > 200:
@@ -1004,7 +1010,10 @@ class SignerRunnerMixin:
             getattr(message, "text", None) or getattr(message, "caption", None) or ""
         )
         if msg_text:
-            self.context.last_received_text = str(msg_text)
+            if message_thread_id is None:
+                self.context.last_received_text = str(msg_text)
+            else:
+                self.context.topic_last_received_text[scope_key] = str(msg_text)
         bus = getattr(self, "_event_bus", None)
         if bus is not None:
             try:
@@ -1014,6 +1023,24 @@ class SignerRunnerMixin:
 
                 ev_type = "EDITED_MESSAGE" if is_edit else "NEW_MESSAGE"
                 is_outgoing = bool(getattr(message, "outgoing", False))
+                keyboard = (
+                    getattr(
+                        getattr(message, "reply_markup", None), "inline_keyboard", None
+                    )
+                    or []
+                )
+                buttons = tuple(
+                    tuple(
+                        (
+                            getattr(button, "text", "") or "",
+                            str(getattr(button, "callback_data", None) or ""),
+                            str(getattr(button, "url", None) or ""),
+                            str(getattr(button, "web_app", None) or ""),
+                        )
+                        for button in row
+                    )
+                    for row in keyboard
+                )
                 ev = TelegramMessageEvent(
                     is_outgoing=is_outgoing,
                     event_id=f"msg_{message.chat.id}_{message.id}_{'edit' if is_edit else 'new'}",
@@ -1024,6 +1051,7 @@ class SignerRunnerMixin:
                     event_type=ev_type,
                     text=str(msg_text),
                     occurred_at=time.time(),
+                    button_snapshot=buttons,
                 )
                 asyncio.create_task(bus.publish(ev))
             except Exception:
@@ -1046,13 +1074,18 @@ class SignerRunnerMixin:
         has_semantic = task_requires_semantic(chat)
 
         def _reset_v4_legacy_context() -> None:
-            if chat.chat_id in self.context.chat_messages:
-                self.context.chat_messages[chat.chat_id].clear()
+            scope_key = chat_scope_key(chat.chat_id, chat.message_thread_id)
+            if scope_key in self.context.chat_messages:
+                self.context.chat_messages[scope_key].clear()
             else:
-                self.context.chat_messages[chat.chat_id] = {}
+                self.context.chat_messages[scope_key] = {}
             self.context.step_outputs = {}
-            self.context.last_output = ""
-            self.context.last_received_text = ""
+            if chat.message_thread_id is None:
+                self.context.last_output = ""
+                self.context.last_received_text = ""
+            else:
+                self.context.topic_last_output[scope_key] = ""
+                self.context.topic_last_received_text[scope_key] = ""
             self.context.stop_after_current_action = False
             self.context.stop_reason = None
             self.context.last_callback_answer = None
@@ -1146,8 +1179,19 @@ class SignerRunnerMixin:
                             f"PulseFlow (v4) 执行成功：共推进 {steps} 个节点，耗时 {dur:.1f}ms"
                         )
                         if ctx.last_output:
-                            self.context.last_output = ctx.last_output
-                            self.context.last_received_text = ctx.last_output
+                            scope_key = chat_scope_key(
+                                chat.chat_id, chat.message_thread_id
+                            )
+                            if chat.message_thread_id is None:
+                                self.context.last_output = ctx.last_output
+                                self.context.last_received_text = ctx.last_output
+                            else:
+                                self.context.topic_last_output[scope_key] = (
+                                    ctx.last_output
+                                )
+                                self.context.topic_last_received_text[scope_key] = (
+                                    ctx.last_output
+                                )
                         if not isinstance(
                             getattr(self.context, "step_outputs", None), dict
                         ):
@@ -1182,7 +1226,11 @@ class SignerRunnerMixin:
                     elif flow_executed_path:
                         self.context.workflow_steps = len(flow_executed_path)
                     if ctx.last_output:
-                        self.context.last_output = ctx.last_output
+                        scope_key = chat_scope_key(chat.chat_id, chat.message_thread_id)
+                        if chat.message_thread_id is None:
+                            self.context.last_output = ctx.last_output
+                        else:
+                            self.context.topic_last_output[scope_key] = ctx.last_output
                         err_str = str(flow_res.get("error") or "")
                         if (
                             "等待期间未收到机器人的任何回复消息" not in err_str
