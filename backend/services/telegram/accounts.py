@@ -825,8 +825,24 @@ class TelegramAccountsMixin:
             }
 
     async def delete_account(self, account_name: str) -> bool:
-        """Delete only Telegram session material for legacy API compatibility."""
+        """Delete session material while respecting active account work."""
         account_name = self._normalize_account_name(account_name)
+        from backend.services.account_lifecycle import _assert_idle
+        from backend.services.sign_tasks import get_sign_task_service
+
+        tasks = get_sign_task_service()
+        try:
+            _assert_idle(tasks, account_name)
+        except ValueError as exc:
+            raise ValueError(
+                "ACCOUNT_BUSY: legacy session deletion requires an idle account"
+            ) from exc
+        async with acquire_account_lock_with_timeout(account_name, timeout=5.0):
+            _assert_idle(tasks, account_name)
+            return await self._delete_account_unlocked(account_name)
+
+    async def _delete_account_unlocked(self, account_name: str) -> bool:
+        """Delete only Telegram session material for legacy API compatibility."""
         from tg_signer.core import close_client_by_name
 
         try:

@@ -170,6 +170,8 @@ def validate_backup_manifest(archive_path: Path, data_dir: Path) -> dict[str, An
             raise ValueError("Unsupported backup manifest version")
         described = set()
         for entry in report.get("files", []):
+            if not isinstance(entry, dict):
+                raise ValueError("Invalid backup manifest entry")
             name = entry.get("path", "")
             path = (root / name).resolve()
             if not name or not path.is_relative_to(root) or path == root:
