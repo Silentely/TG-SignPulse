@@ -47,7 +47,13 @@ from tg_signer.core.client import (
 from tg_signer.core.context import chat_scope_key
 from tg_signer.core.humanize import simulate_typing_action
 from tg_signer.core.plugin_host import PluginProcessHost
-from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
+from tg_signer.core.plugins import (
+    PluginContext,
+    PluginExecutionIdentity,
+    PluginRegistry,
+    PluginTimeoutError,
+    resolve_plugin_params,
+)
 from tg_signer.core.signer_config import FLOOD_WAIT_RETRY_MAX_SECONDS
 from tg_signer.core.telegram_actions import click_inline_button_unified
 from tg_signer.log_utils import (
@@ -88,6 +94,37 @@ class SequenceClickPartialError(RuntimeError):
 class SignerActionsMixin:
     _get_message_text = staticmethod(_get_message_text)
     _normalize_button_text = staticmethod(_normalize_button_text)
+
+    def _plugin_execution_identity(self, chat, message=None):
+        context = getattr(self, "context", None)
+        event_id = str(getattr(message, "id", "")) if message is not None else None
+        event_revision = getattr(message, "message_revision", None)
+        if message is not None and not event_revision:
+            from hashlib import sha256
+
+            from tg_signer.core.plugin_ipc import serialize_message_for_worker
+
+            snapshot = serialize_message_for_worker(message)
+            event_revision = sha256(
+                json.dumps(
+                    snapshot, sort_keys=True, ensure_ascii=False, default=str
+                ).encode()
+            ).hexdigest()
+        return PluginExecutionIdentity(
+            account_id=str(getattr(self, "_account", "") or ""),
+            task_id=str(getattr(self, "task_name", "") or ""),
+            run_id=str(getattr(context, "run_id", "") or ""),
+            step_id=str(
+                getattr(context, "plugin_step_id", None)
+                or getattr(context, "current_step_id", None)
+                or getattr(context, "current_action_index", "")
+                or ""
+            ),
+            chat_id=chat.chat_id,
+            thread_id=chat.message_thread_id,
+            event_id=event_id,
+            event_revision=event_revision,
+        )
 
     async def _click_inline_button(self, message: Message, btn) -> bool:
         callback_data = getattr(btn, "callback_data", None)
@@ -1048,7 +1085,10 @@ class SignerActionsMixin:
             params=action.params,
             logger=self,
             plugin_name=action.plugin_name,
+            identity=self._plugin_execution_identity(chat, message),
+            context_version=getattr(plugin, "context_version", 1),
         )
+        ctx.params = resolve_plugin_params(plugin, action.params)
 
         # 生产执行入口接入统一 PluginRuntime 抽象
         if PluginProcessHost is not _OrigPluginProcessHost:
@@ -1060,7 +1100,12 @@ class SignerActionsMixin:
             )
             try:
                 res = await host.execute()
-                return bool(res)
+                from tg_signer.core.plugin_runtime import adapt_plugin_result
+
+                adapted = adapt_plugin_result(res, identity=ctx.identity)
+                if getattr(self, "context", None) is not None:
+                    self.context.last_plugin_result = adapted
+                return bool(adapted.handled) and adapted.outcome != "failed"
             except Exception:
                 return False
 
@@ -1087,7 +1132,12 @@ class SignerActionsMixin:
                     level="WARNING",
                 )
             return False
-        return bool(plugin_res.return_value)
+        from tg_signer.core.plugin_runtime import adapt_plugin_result
+
+        adapted = adapt_plugin_result(plugin_res.return_value, identity=ctx.identity)
+        if getattr(self, "context", None) is not None:
+            self.context.last_plugin_result = adapted
+        return bool(adapted.handled) and adapted.outcome != "failed"
 
     async def wait_for(
         self,
@@ -1187,7 +1237,10 @@ class SignerActionsMixin:
                     params=action.params,
                     logger=self,
                     plugin_name=action.plugin_name,
+                    identity=self._plugin_execution_identity(chat),
+                    context_version=getattr(plugin, "context_version", 1),
                 )
+                ctx.params = resolve_plugin_params(plugin, action.params)
                 if PluginProcessHost is not _OrigPluginProcessHost:
                     host = PluginProcessHost(
                         plugin_name=action.plugin_name,
@@ -1226,7 +1279,16 @@ class SignerActionsMixin:
                             )
                     res = plugin_res.return_value
 
-                if res is False:
+                from tg_signer.core.plugin_runtime import adapt_plugin_result
+
+                adapted = adapt_plugin_result(res, identity=ctx.identity)
+                if getattr(self, "context", None) is not None:
+                    self.context.last_plugin_result = adapted
+                if (
+                    res is False
+                    or adapted.outcome == "failed"
+                    or (isinstance(res, dict) and not adapted.handled)
+                ):
                     self.log(
                         f"插件「{action.plugin_name}」返回执行失败", level="WARNING"
                     )

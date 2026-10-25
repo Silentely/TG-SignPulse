@@ -17,7 +17,12 @@ from tg_signer.core.plugin_ipc import (
     decode_ipc_payload,
     encode_ipc_payload,
 )
-from tg_signer.core.plugins import PluginMeta, PluginRegistry
+from tg_signer.core.plugins import (
+    PluginExecutionIdentity,
+    PluginMeta,
+    PluginRegistry,
+    plugin_storage_namespace,
+)
 
 
 def import_single_plugin_source(
@@ -70,16 +75,20 @@ class ProxyStorageClient:
         rpc_requester: Callable[..., Any],
         is_global: bool = False,
         namespace: str = "",
+        scope: Optional[str] = None,
     ):
         self._rpc = rpc_requester
         self._is_global = is_global
         # 与宿主侧 PluginStorageClient 保持同构：命名空间仅作标识供插件读取，
         # 实际的存储域划分由宿主的 storage/global_storage 决定
         self.namespace = namespace
+        self._scope = scope
 
     def _scope_kwargs(self, **kwargs: Any) -> Dict[str, Any]:
         if self._is_global:
             kwargs["is_global"] = True
+        if self._scope is not None:
+            kwargs["scope"] = self._scope
         return kwargs
 
     async def get(self, key: str, default: Any = None) -> Any:
@@ -150,6 +159,9 @@ class ProxyPluginContext:
         logger_sink: Callable[[Dict[str, Any]], Any],
         message_thread_id: Optional[int] = None,
         plugin_name: str = "",
+        identity: Optional[Dict[str, Any]] = None,
+        context_version: int = 1,
+        storage_prefix: str = "",
     ):
         self.chat_id = chat_id
         self.message_thread_id = message_thread_id
@@ -158,6 +170,11 @@ class ProxyPluginContext:
         self.message = ProxyMessage(message, rpc=self._rpc) if message else None
         self.params = params or {}
         self.plugin_name = plugin_name
+        self.identity = PluginExecutionIdentity(
+            **(identity or {"chat_id": chat_id, "thread_id": message_thread_id})
+        )
+        self.context_version = context_version
+        self.storage_prefix = storage_prefix
         storage_ns = f"{chat_id}:{plugin_name}" if plugin_name else str(chat_id)
         global_ns = f"global:{plugin_name}" if plugin_name else "global"
         self.storage = ProxyStorageClient(
@@ -166,9 +183,17 @@ class ProxyPluginContext:
         self.global_storage = ProxyStorageClient(
             self._rpc, is_global=True, namespace=global_ns
         )
+        if context_version == 2:
+            self.storage = self.storage_for("chat")
 
         if self.message:
             self.message.click = self.click
+
+    def storage_for(self, scope: str) -> ProxyStorageClient:
+        namespace = self.storage_prefix + plugin_storage_namespace(
+            self.plugin_name, self.identity, scope
+        )
+        return ProxyStorageClient(self._rpc, namespace=namespace, scope=scope)
 
     def get_param(
         self,
@@ -519,6 +544,9 @@ async def run_worker_loop(
         logger_sink=send_payload_sync,
         message_thread_id=init_data.get("message_thread_id"),
         plugin_name=plugin_name,
+        identity=init_data.get("identity"),
+        context_version=init_data.get("context_version", 1),
+        storage_prefix=init_data.get("storage_prefix", ""),
     )
 
     async def host_listener():
@@ -555,7 +583,12 @@ async def run_worker_loop(
             res = await meta.handler(ctx)
         else:
             res = await asyncio.to_thread(meta.handler, ctx)
-        send_payload_sync({"type": "return", "success": True, "result": bool(res)})
+        from tg_signer.core.plugin_runtime import adapt_plugin_result
+
+        validated = adapt_plugin_result(res, identity=ctx.identity)
+        send_payload_sync(
+            {"type": "return", "success": True, "result": validated.return_value}
+        )
     except ModuleNotFoundError as e:
         missing = getattr(e, "name", None) or str(e)
         hint = (

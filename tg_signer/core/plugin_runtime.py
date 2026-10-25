@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from tg_signer.core import plugin_host as _ph
 from tg_signer.core.plugin_host import (
@@ -26,12 +28,16 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 class PluginResult:
     """插件执行结果结构化负载。"""
 
-    success: bool
+    success: bool = True
     return_value: Any = None
     logs: List[str] = field(default_factory=list)
     error: Optional[str] = None
     execution_time: float = 0.0
     is_timeout: bool = False
+    handled: Optional[bool] = None
+    outcome: Literal["confirmed", "failed", "skipped", "unknown"] = "unknown"
+    outputs: Dict[str, Any] = field(default_factory=dict)
+    evidence: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -43,7 +49,92 @@ class PluginResult:
         }
         if self.is_timeout:
             d["is_timeout"] = True
+        if self.handled is not None:
+            d.update(
+                handled=self.handled,
+                outcome=self.outcome,
+                outputs=self.outputs,
+                evidence=self.evidence,
+            )
         return d
+
+
+MAX_PLUGIN_RESULT_BYTES = 32768
+
+
+def adapt_plugin_result(value: Any, *, identity=None) -> PluginResult:
+    """Validate plugin claims; handled is control flow, never host confirmation.
+
+    Evidence may reference the current host event/revision only. Plugins cannot
+    mint host evidence records or change their provenance through this channel.
+    """
+    if isinstance(value, PluginResult):
+        value = (
+            {
+                "handled": value.handled,
+                "outcome": value.outcome,
+                "outputs": value.outputs,
+                "evidence": value.evidence,
+            }
+            if value.handled is not None
+            else value.return_value
+        )
+
+    def check_json(item, depth=0):
+        if depth > 20:
+            raise ValueError("PLUGIN_RESULT_INVALID: nesting limit")
+        if item is None or type(item) in {str, bool, int}:
+            return
+        if type(item) is float and math.isfinite(item):
+            return
+        if type(item) is list:
+            for child in item:
+                check_json(child, depth + 1)
+            return
+        if type(item) is dict and all(type(key) is str for key in item):
+            for child in item.values():
+                check_json(child, depth + 1)
+            return
+        raise ValueError("PLUGIN_RESULT_INVALID: JSON value required")
+
+    check_json(value)
+    if (
+        len(json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+        > MAX_PLUGIN_RESULT_BYTES
+    ):
+        raise ValueError("PLUGIN_RESULT_INVALID: byte limit")
+    if isinstance(value, dict) and ("handled" in value or "outcome" in value):
+        if set(value) - {"handled", "outcome", "outputs", "evidence"}:
+            raise ValueError("PLUGIN_RESULT_INVALID: unknown result fields")
+        handled, outcome = value.get("handled"), value.get("outcome", "unknown")
+        outputs, evidence = value.get("outputs", {}), value.get("evidence", [])
+        if type(handled) is not bool or outcome not in {
+            "confirmed",
+            "failed",
+            "skipped",
+            "unknown",
+        }:
+            raise ValueError("PLUGIN_RESULT_INVALID: handled/outcome")
+        if not isinstance(outputs, dict) or not isinstance(evidence, list):
+            raise ValueError("PLUGIN_RESULT_INVALID: outputs/evidence")
+        for ref in evidence:
+            if (
+                not isinstance(ref, dict)
+                or set(ref) != {"event_id", "event_revision"}
+                or identity is None
+                or not identity.event_id
+                or ref["event_id"] != identity.event_id
+                or ref["event_revision"] != identity.event_revision
+            ):
+                raise ValueError("PLUGIN_RESULT_INVALID: host evidence reference")
+        return PluginResult(
+            return_value=value,
+            handled=handled,
+            outcome=outcome,
+            outputs=outputs,
+            evidence=evidence,
+        )
+    return PluginResult(return_value=value, handled=bool(value), outcome="unknown")
 
 
 class PluginRuntime(ABC):
@@ -135,12 +226,19 @@ class SubprocessPluginAdapter(PluginRuntime):
             )
             result = await host.execute()
             duration = time.perf_counter() - start_time
+            adapted = adapt_plugin_result(
+                result, identity=getattr(context, "identity", None)
+            )
             return PluginResult(
                 success=True,
                 return_value=result,
                 logs=captured_logs,
                 error=None,
                 execution_time=duration,
+                handled=adapted.handled,
+                outcome=adapted.outcome,
+                outputs=adapted.outputs,
+                evidence=adapted.evidence,
             )
         except TimeoutError as exc:
             duration = time.perf_counter() - start_time
@@ -287,12 +385,19 @@ class TestMockAdapter(PluginRuntime):
                 res = await coro
 
             duration = time.perf_counter() - start_time
+            adapted = adapt_plugin_result(
+                res, identity=getattr(context, "identity", None)
+            )
             return PluginResult(
                 success=True,
                 return_value=res,
                 logs=captured_logs,
                 error=None,
                 execution_time=duration,
+                handled=adapted.handled,
+                outcome=adapted.outcome,
+                outputs=adapted.outputs,
+                evidence=adapted.evidence,
             )
         except (asyncio.TimeoutError, TimeoutError):
             duration = time.perf_counter() - start_time

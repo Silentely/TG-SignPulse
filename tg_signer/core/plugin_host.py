@@ -15,8 +15,9 @@ from tg_signer.core.plugin_ipc import (
     decode_ipc_payload,
     encode_ipc_payload,
     serialize_message_for_worker,
+    serialize_plugin_identity,
 )
-from tg_signer.core.plugins import PluginContext, PluginRegistry
+from tg_signer.core.plugins import PluginContext, PluginRegistry, resolve_plugin_params
 
 _active_worker_lock = threading.Lock()
 _active_worker_processes: set[Any] = set()
@@ -250,6 +251,33 @@ class PluginProcessHost:
             return bool(res)
         return True
 
+    def _check_rpc_grant(self, method: str, params: Dict[str, Any]) -> None:
+        """Enforce v2 grants at host RPC; v1 remains trusted legacy code.
+
+        These grants constrain host operations, not arbitrary Python filesystem
+        or network access inside the subprocess (which is not an OS sandbox).
+        """
+        meta = PluginRegistry.get(self.plugin_name)
+        if getattr(meta, "context_version", 1) < 2:
+            return
+        grants = set(getattr(meta, "permissions", []) or [])
+        if method.startswith("storage_"):
+            required = (
+                "global_storage"
+                if params.get("is_global") or params.get("scope") == "global"
+                else "storage"
+            )
+        elif method == "click":
+            required = "buttons"
+        elif method == "react":
+            required = "reactions"
+        elif method == "get_messages":
+            required = "message_read"
+        else:
+            required = "message_write"
+        if required not in grants and method not in grants:
+            raise PermissionError(f"PLUGIN_CAPABILITY_DENIED: {required}")
+
     @staticmethod
     def _is_trigger_message_ids(mids: Any, trigger_mid: Any) -> bool:
         """请求的 message_ids 是否恰好就是触发消息本身（单值或单元素列表）。"""
@@ -304,6 +332,8 @@ class PluginProcessHost:
 
     async def _execute_inner(self, start_time: float) -> Any:
         meta = PluginRegistry.get(self.plugin_name)
+        self.ctx.params = resolve_plugin_params(meta, getattr(self.ctx, "params", {}))
+        self.ctx.context_version = getattr(meta, "context_version", 1)
         source_path = meta.source_path if meta else None
 
         cmd = [sys.executable, "-u", "-m", "tg_signer.core.plugin_worker"]
@@ -331,6 +361,11 @@ class PluginProcessHost:
                 "message_thread_id": getattr(self.ctx, "message_thread_id", None),
                 "message": serialize_message_for_worker(self.ctx.message),
                 "params": getattr(self.ctx, "params", {}),
+                "identity": serialize_plugin_identity(
+                    getattr(self.ctx, "identity", None)
+                ),
+                "context_version": self.ctx.context_version,
+                "storage_prefix": getattr(self.ctx, "storage_prefix", ""),
             }
 
             encoded_init = encode_ipc_payload(init_payload).encode("utf-8")
@@ -395,9 +430,20 @@ class PluginProcessHost:
                         elif msg_type == "return":
                             if payload.get("success"):
                                 if not result_future.done():
-                                    result_future.set_result(
-                                        payload.get("result", True)
+                                    from tg_signer.core.plugin_runtime import (
+                                        adapt_plugin_result,
                                     )
+
+                                    try:
+                                        validated = adapt_plugin_result(
+                                            payload.get("result"),
+                                            identity=getattr(
+                                                self.ctx, "identity", None
+                                            ),
+                                        )
+                                        result_future.set_result(validated.return_value)
+                                    except ValueError as exc:
+                                        result_future.set_exception(exc)
                             else:
                                 if not result_future.done():
                                     result_future.set_exception(
@@ -414,6 +460,7 @@ class PluginProcessHost:
                             call_err = ""
                             try:
                                 call_params = dict(params)
+                                self._check_rpc_grant(method, call_params)
                                 if method == "reply":
                                     text = call_params.pop("text", "")
                                     call_res = await self.ctx.reply(text, **call_params)
@@ -481,6 +528,7 @@ class PluginProcessHost:
                                         target_cid, **forward_kwargs
                                     )
                                 elif method.startswith("storage_"):
+                                    scope = call_params.pop("scope", None)
                                     is_global = bool(
                                         call_params.pop("is_global", False)
                                     )
@@ -491,6 +539,8 @@ class PluginProcessHost:
                                         if is_global
                                         else self.ctx.storage
                                     )
+                                    if scope is not None:
+                                        target_storage = self.ctx.storage_for(scope)
                                     if method == "storage_get":
                                         key = call_params.get("key", "")
                                         default = call_params.get("default", None)

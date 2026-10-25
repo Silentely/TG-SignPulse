@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Any, Callable, Dict, List, Optional, Union
+
+
+def serialize_plugin_identity(identity: Any) -> Optional[Dict[str, Any]]:
+    return asdict(identity) if identity is not None else None
 
 
 def serialize_message_for_worker(msg: Any) -> Optional[Dict[str, Any]]:

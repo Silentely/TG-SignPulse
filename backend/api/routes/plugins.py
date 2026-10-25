@@ -117,6 +117,9 @@ class PluginMetricsModel(BaseModel):
 
 
 class PluginInfo(BaseModel):
+    context_version: int = 1
+    plugin_api: Optional[str] = None
+    min_app_version: Optional[str] = None
     name: str
     mode: str
     description: str = ""
@@ -175,6 +178,9 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
     hist = PluginRegistry.get_execution_history(p.name, limit=10)
     recent_bools = [r.success for r in reversed(hist)]
     return PluginInfo(
+        context_version=getattr(p, "context_version", 1),
+        plugin_api=getattr(p, "plugin_api", None),
+        min_app_version=getattr(p, "min_app_version", None),
         name=p.name,
         mode=p.mode,
         description=p.description,
@@ -348,6 +354,9 @@ PluginTestRequest.update_forward_refs()
 
 
 class PluginTestResponse(BaseModel):
+    outcome: str = "unknown"
+    outputs: Dict[str, Any] = Field(default_factory=dict)
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
     name: str
     mode: str = "reactive"
     success: bool
@@ -366,6 +375,7 @@ class PluginTestResponse(BaseModel):
 
 
 class MarketPluginItem(BaseModel):
+    plugin_api: Optional[str] = None
     id: str
     name: str
     version: str
@@ -789,6 +799,7 @@ async def list_market_plugins(
                 icon=item.get("icon", "puzzle"),
                 tags=item.get("tags", []),
                 min_app_version=item.get("min_app_version", "1.8.0"),
+                plugin_api=item.get("plugin_api"),
                 permissions=item.get("permissions", []),
                 params_schema=item.get("params_schema", []),
                 download_url=item.get("download_url", ""),
@@ -919,6 +930,17 @@ async def _do_install_market_plugin(
         raise HTTPException(
             status_code=404, detail=f"未在插件市场中找到标识为 '{plugin_id}' 的插件"
         )
+    from tg_signer.core.plugins import validate_plugin_compatibility
+
+    try:
+        validate_plugin_compatibility(
+            min_app_version=matched_item.get("min_app_version"),
+            plugin_api=matched_item.get("plugin_api"),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409, detail={"code": str(exc), "plugin_id": plugin_id}
+        ) from exc
 
     installed_plugins = PluginRegistry.list_plugins()
     if plugin_id in installed_plugins:
@@ -1308,11 +1330,24 @@ async def test_plugin(
     def log_capture(msg: str):
         captured_logs.append(str(msg))
 
-    from tg_signer.core.plugins import validate_plugin_params
-
-    validated_params, param_warnings = validate_plugin_params(
-        meta.params_schema, req.params
+    from tg_signer.core.plugins import (
+        PluginExecutionIdentity,
+        resolve_plugin_params,
+        validate_plugin_params,
     )
+
+    try:
+        validated_params = resolve_plugin_params(meta, req.params)
+    except ValueError as exc:
+        return PluginTestResponse(
+            name=name,
+            mode=meta.mode,
+            success=False,
+            handled=False,
+            error=str(exc),
+            param_warnings=[str(exc)],
+        )
+    _, param_warnings = validate_plugin_params(meta.params_schema, validated_params)
     for pw in param_warnings:
         captured_logs.append(f"[param-warning] {pw}")
 
@@ -1403,11 +1438,21 @@ async def test_plugin(
         params=validated_params,
         logger=log_capture,
         plugin_name=name,
+        context_version=getattr(meta, "context_version", 1),
+        identity=PluginExecutionIdentity(
+            account_id="debug",
+            task_id=f"debug:{name}",
+            run_id="debug",
+            step_id="debug",
+            chat_id=eff_chat_id,
+        ),
+        storage_prefix="test:",
     )
     # 调试执行与重置共用独立的测试命名空间，与生产持久化数据（{chat_id}:{name}）完全隔离
-    ctx.storage = PluginStorageClient(
-        namespace=_plugin_test_namespace(eff_chat_id, name)
-    )
+    if ctx.context_version == 1:
+        ctx.storage = PluginStorageClient(
+            namespace=_plugin_test_namespace(eff_chat_id, name)
+        )
     ctx.global_storage = PluginStorageClient(namespace=f"global_test:{name}")
 
     if req.timeout is not None and req.timeout > 0:
@@ -1438,16 +1483,12 @@ async def test_plugin(
         timeout=test_timeout,
         trigger_type="active",
     )
-    from tg_signer.core.plugin_runtime import PluginResult
+    from tg_signer.core.plugin_runtime import PluginResult, adapt_plugin_result
 
     try:
         res_val = await host.execute()
-        plugin_res = PluginResult(
-            success=True,
-            return_value=res_val,
-            logs=captured_logs,
-            error=None,
-        )
+        plugin_res = adapt_plugin_result(res_val, identity=ctx.identity)
+        plugin_res.logs = captured_logs
     except TimeoutError as exc:
         plugin_res = PluginResult(
             success=False,
@@ -1488,11 +1529,7 @@ async def test_plugin(
         ):
             error_line = frames[-1].lineno
     if plugin_res.success:
-        handled = (
-            bool(plugin_res.return_value)
-            if plugin_res.return_value is not None
-            else False
-        )
+        handled = bool(plugin_res.handled)
     else:
         success = False
         if plugin_res.is_timeout:
@@ -1520,6 +1557,9 @@ async def test_plugin(
     duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
     return PluginTestResponse(
         name=name,
+        outcome=plugin_res.outcome,
+        outputs=plugin_res.outputs,
+        evidence=plugin_res.evidence,
         mode=meta.mode,
         success=success,
         handled=handled,

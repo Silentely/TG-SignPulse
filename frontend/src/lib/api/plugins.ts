@@ -26,6 +26,9 @@ export interface PluginMetrics {
 }
 
 export interface PluginInfo {
+  context_version?: number
+  plugin_api?: string | null
+  min_app_version?: string | null
   name: string
   mode: 'reactive' | 'active'
   description: string
@@ -151,6 +154,7 @@ export interface ImportBundleResponse {
 }
 
 export interface MarketPluginItem {
+  plugin_api?: string | null
   id: string
   name: string
   version: string
@@ -248,6 +252,9 @@ export interface PluginTestRequest {
 }
 
 export interface PluginTestResponse {
+  outcome?: 'confirmed' | 'failed' | 'skipped' | 'unknown'
+  outputs?: Record<string, unknown>
+  evidence?: Array<{ event_id: string; event_revision: string | null }>
   name: string
   mode?: "reactive" | "active" | string
   success: boolean

@@ -160,6 +160,38 @@ class PluginStorageClient:
             return self._store.get_all_records(self.namespace)
 
 
+@dataclass(frozen=True)
+class PluginExecutionIdentity:
+    account_id: str = ""
+    task_id: str = ""
+    run_id: str = ""
+    step_id: str = ""
+    chat_id: int = 0
+    thread_id: Optional[int] = None
+    event_id: Optional[str] = None
+    event_revision: Optional[str] = None
+
+
+def plugin_storage_namespace(
+    plugin_name: str, identity: PluginExecutionIdentity, scope: str
+) -> str:
+    if scope not in {"account", "task", "chat", "global"}:
+        raise ValueError("PLUGIN_STORAGE_INVALID_SCOPE")
+    parts = [plugin_name]
+    if scope != "global":
+        if not identity.account_id:
+            raise ValueError("PLUGIN_IDENTITY_ACCOUNT_REQUIRED")
+        parts.append(identity.account_id)
+    if scope in {"task", "chat"}:
+        if not identity.task_id:
+            raise ValueError("PLUGIN_IDENTITY_TASK_REQUIRED")
+        parts.append(identity.task_id)
+    if scope == "chat":
+        parts.extend([identity.chat_id, identity.thread_id])
+    digest = hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode()).hexdigest()
+    return f"v2:{scope}:{plugin_name}:{digest}"
+
+
 @dataclass
 class PluginContext:
     app: Any
@@ -171,10 +203,39 @@ class PluginContext:
     plugin_name: str = ""
     _storage: Optional[PluginStorageClient] = None
     _global_storage: Optional[PluginStorageClient] = None
+    identity: Optional[PluginExecutionIdentity] = None
+    context_version: int = 1
+    storage_prefix: str = ""
+    _scoped_storage: Dict[str, PluginStorageClient] = field(default_factory=dict)
+    _legacy_storage_warned: bool = False
+
+    def __post_init__(self):
+        if self.identity is None:
+            self.identity = PluginExecutionIdentity(
+                chat_id=self.chat_id, thread_id=self.message_thread_id
+            )
+        if self.context_version not in {1, 2}:
+            raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
+
+    def storage_for(self, scope: str) -> PluginStorageClient:
+        if scope not in self._scoped_storage:
+            namespace = self.storage_prefix + plugin_storage_namespace(
+                self.plugin_name, self.identity, scope
+            )
+            self._scoped_storage[scope] = PluginStorageClient(namespace=namespace)
+        return self._scoped_storage[scope]
 
     @property
     def storage(self) -> PluginStorageClient:
         if self._storage is None:
+            if self.context_version == 2:
+                return self.storage_for("chat")
+            if not self._legacy_storage_warned:
+                self.log(
+                    "Legacy plugin storage remains shared across accounts; opt in to context_version=2 for scoped storage.",
+                    level="WARNING",
+                )
+                self._legacy_storage_warned = True
             ns = (
                 f"{self.chat_id}:{self.plugin_name}"
                 if self.plugin_name
@@ -567,6 +628,9 @@ class PluginMeta:
     icon: Optional[str] = None
     homepage: Optional[str] = None
     isolation_mode: Literal["subprocess", "in_process"] = "subprocess"
+    context_version: int = 1
+    plugin_api: Optional[str] = None
+    min_app_version: Optional[str] = None
 
 
 @dataclass
@@ -776,10 +840,18 @@ class PluginRegistry:
         icon: Optional[str] = None,
         homepage: Optional[str] = None,
         isolation_mode: Literal["subprocess", "in_process"] = "subprocess",
+        context_version: int = 1,
+        plugin_api: Optional[str] = None,
+        min_app_version: Optional[str] = None,
     ) -> Callable:
         def decorator(
             fn: Callable[[PluginContext], Any],
         ) -> Callable[[PluginContext], Any]:
+            validate_plugin_compatibility(
+                min_app_version=min_app_version, plugin_api=plugin_api
+            )
+            if context_version not in {1, 2}:
+                raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
             existing = cls._plugins.get(name)
             if existing is not None and existing.handler is not fn:
                 is_placeholder = getattr(existing.handler, "_is_placeholder", False)
@@ -823,6 +895,9 @@ class PluginRegistry:
                 icon=icon,
                 homepage=homepage,
                 isolation_mode=isolation_mode,
+                context_version=context_version,
+                plugin_api=plugin_api,
+                min_app_version=min_app_version,
             )
             return fn
 
@@ -1214,6 +1289,18 @@ class PluginRegistry:
                         resolved_file, module_name, meta_name, fn_real_name, is_async_fn
                     )
 
+                    context_version = int(
+                        reg.get("context_version", pjson_data.get("context_version", 1))
+                    )
+                    plugin_api = reg.get("plugin_api", pjson_data.get("plugin_api"))
+                    min_app_version = reg.get(
+                        "min_app_version", pjson_data.get("min_app_version")
+                    )
+                    validate_plugin_compatibility(
+                        min_app_version=min_app_version, plugin_api=plugin_api
+                    )
+                    if context_version not in {1, 2}:
+                        raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
                     meta = PluginMeta(
                         name=meta_name,
                         handler=active_handler,
@@ -1233,6 +1320,9 @@ class PluginRegistry:
                         icon=final_icon,
                         homepage=final_homepage,
                         isolation_mode="subprocess",
+                        context_version=context_version,
+                        plugin_api=plugin_api,
+                        min_app_version=min_app_version,
                     )
                     cls._plugins[meta_name] = meta
 
@@ -1807,6 +1897,61 @@ class _SecurityVisitor(ast.NodeVisitor):
                 )
 
         self.generic_visit(node)
+
+
+PLUGIN_API_VERSION = "2.0.0"
+
+
+def validate_plugin_compatibility(
+    *, min_app_version=None, plugin_api=None, app_version=None
+):
+    """Fail closed on unsupported version declarations before activating code."""
+    from tg_signer.version import __version__
+
+    def version(value):
+        match = re.fullmatch(r"v?(\d+)(?:\.(\d+))?(?:\.(\d+))?", str(value).strip())
+        if not match:
+            raise ValueError("PLUGIN_COMPATIBILITY_INVALID_VERSION")
+        return tuple(int(part or 0) for part in match.groups())
+
+    if min_app_version and version(app_version or __version__) < version(
+        min_app_version
+    ):
+        raise ValueError("PLUGIN_APP_VERSION_INCOMPATIBLE")
+    if plugin_api and str(plugin_api).strip() != "*":
+        current = version(PLUGIN_API_VERSION)
+        for clause in str(plugin_api).split(","):
+            match = re.fullmatch(
+                r"\s*(>=|<=|==|>|<|=)?\s*(v?\d+(?:\.\d+){0,2})\s*", clause
+            )
+            if not match:
+                raise ValueError("PLUGIN_API_RANGE_INVALID")
+            op, required = match.groups()
+            wanted = version(required)
+            valid = {
+                ">=": current >= wanted,
+                "<=": current <= wanted,
+                ">": current > wanted,
+                "<": current < wanted,
+                "==": current == wanted,
+                "=": current == wanted,
+                None: current == wanted,
+            }[op]
+            if not valid:
+                raise ValueError("PLUGIN_API_VERSION_INCOMPATIBLE")
+
+
+def resolve_plugin_params(plugin_meta, action_params) -> Dict[str, Any]:
+    schema = getattr(plugin_meta, "params_schema", None)
+    supplied = dict(action_params or {})
+    for item in schema or []:
+        key = item.get("name")
+        if key and supplied.get(key) in (None, "") and item.get("default") is not None:
+            supplied[key] = item["default"]
+    resolved, warnings = validate_plugin_params(schema, supplied)
+    if warnings and getattr(plugin_meta, "context_version", 1) >= 2:
+        raise ValueError("PLUGIN_PARAMS_INVALID: " + "; ".join(warnings))
+    return resolved
 
 
 def validate_plugin_params(
