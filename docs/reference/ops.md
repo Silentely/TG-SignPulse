@@ -321,3 +321,11 @@ watch -n 5 'curl -fsS http://127.0.0.1:8080/readyz || true'
 1. 在面板查看账号状态是否为 `needs_relogin`。
 2. 重新完成 Telegram 登录流程。
 3. 如果多个账号同时失效，优先检查代理和 Telegram API 配置。
+# Restore and runbook rules
+
+Backups use a versioned manifest and SQLite online snapshots. Restore extracts
+to staging, validates hashes/configuration/integrity, enters maintenance mode,
+reopens services, and retains the previous data directory until health checks
+pass. Restore requires a single application worker (`WEB_CONCURRENCY=1` or
+`UVICORN_WORKERS=1`). Operational runbook actions default to dry-run and only
+allow explicitly named reversible actions.

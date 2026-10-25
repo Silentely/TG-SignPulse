@@ -172,3 +172,11 @@ AI、全局设置和 Telegram API 配置则单独保存在数据目录根部的 
 - **任务队列**：完整队列化（Celery/RQ 等）尚未内置；当前以进程内 APScheduler + 文件锁 + 监听分片为过渡方案。
 - 数据库锁定的排查步骤见 [运维手册 - 场景 2：数据库锁定](ops.md#场景-2数据库锁定)。
 - 反向代理可以扩展入口流量，但不等同于后端多副本扩展。
+# Reliability contracts
+
+Task runs expose execution status separately from business status. A Telegram
+message event includes chat/topic scope and a revision; an event delivery gap
+must be reported as `unknown`. Plugin v2 identity and grants constrain host RPC
+operations, while trusted v1 workers remain process-isolated rather than fully
+sandboxed. Run artifacts and replay fixtures are redacted and never contact
+Telegram or external providers.

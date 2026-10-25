@@ -171,3 +171,11 @@ https://nas.your-domain.com:5006/
 - [运维手册](/reference/ops) — API 规格、自动化脚本备份与运维场景
 - [配置参考](/reference/configuration) — 环境变量与全局配置项全集
 - [Docker 部署](/deploy/docker) — 数据卷挂载与升级维护
+# Backup coverage and WebDAV target policy
+
+Manual and automatic backups share one manifest and include task data, plugin
+storage, semantic state, dictionaries, history, and nested SQLite stores. The
+manifest reports external paths that cannot be portable. WebDAV validates every
+redirect target and binds requests to the validated destination; private
+targets require `webdav_allow_private=true`. `webdav_skip_ssl_verify` controls
+TLS verification only and no longer grants private-network access.
