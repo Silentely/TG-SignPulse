@@ -8,7 +8,10 @@ on:
     paths:
       - 'frontend/**'
       - 'backend/**'
+      - 'tg_signer/**'
       - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - '.github/workflows/e2e.yml'
   pull_request:
     paths:

@@ -1,6 +1,15 @@
 name: Docker Image
 
 on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "tg_signer/**"
+      - "tests/**"
+      - "frontend/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/docker.yml"
   push:
     branches: ["main", "dev"]
     tags: ["v*"]

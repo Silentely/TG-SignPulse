@@ -1,5 +1,7 @@
 # 自定义 Action 插件扩展机制
 
+插件 Worker 提供超时、资源和进程故障隔离，但不构成操作系统安全沙箱。可信插件代码仍使用应用用户的文件系统和网络权限；Context v2 capability grant 只约束经过宿主 RPC 的操作。
+
 TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action 插件扩展机制（对应动作 ID `99`：`CUSTOM_PLUGIN`）。
 
 ## 背景与设计理念
