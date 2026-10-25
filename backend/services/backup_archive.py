@@ -4,35 +4,31 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import logging
 import os
 import secrets
 import shutil
 import tarfile
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional, Sequence, Tuple
 
+from backend.services.backup_manifest import (
+    MANIFEST_NAME,
+    MANIFEST_VERSION,
+    build_backup_manifest,
+    external_backup_paths,
+    file_hash,
+    snapshot_sqlite_database,
+)
+
 logger = logging.getLogger("backend.backup_archive")
 
 DEFAULT_BACKUP_PATHS: Tuple[str, ...] = (
-    "db.sqlite",
-    "db.sqlite-wal",
-    "db.sqlite-shm",
-    "plugin_storage.db",
-    "plugin_storage.db-wal",
-    "plugin_storage.db-shm",
-    "plugins",
-    "sessions",
-    "signs",
-    "monitors",
-    "history",
-    "signs_history",
-    ".signer",
-    ".global_settings.json",
-    ".openai_config.json",
-    ".telegram_api.json",
-    "data_dicts",
+    *(entry.relative_path for entry in build_backup_manifest(Path("."))),
+    # Historical aliases retained for callers; the walker de-duplicates files.
     ".signer/keyword_monitor",
     ".signer/.device_keepalive_state.json",
 )
@@ -58,7 +54,7 @@ def _normalize_member_mode(info: tarfile.TarInfo) -> tarfile.TarInfo:
 def create_backup_tarball(
     data_dir: Path,
     dest: Path,
-    paths: Sequence[str] = DEFAULT_BACKUP_PATHS,
+    paths: Optional[Sequence[str]] = None,
     *,
     password: Optional[str] = None,
     encrypt: Optional[bool] = None,
@@ -69,6 +65,8 @@ def create_backup_tarball(
     归档文件与备份目录权限收敛为 0600/0700，若无任何可打包内容则抛 ValueError。
     """
     data_dir = data_dir.resolve()
+    if paths is None:
+        paths = tuple(entry.relative_path for entry in build_backup_manifest(data_dir))
     dest.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
         os.chmod(dest.parent, 0o700)
@@ -77,7 +75,13 @@ def create_backup_tarball(
     try:
         # O_EXCL + 0600：临时文件自创建起即仅属主可读，不受进程 umask 影响
         fd = os.open(temp_dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as raw:
+        with (
+            tempfile.TemporaryDirectory(prefix="signpulse-snapshot-") as stage_name,
+            os.fdopen(fd, "wb") as raw,
+        ):
+            stage = Path(stage_name)
+            files = []
+            seen = set()
             with tarfile.open(fileobj=raw, mode="w:gz") as tar:
                 for rel in paths:
                     # 拒绝绝对路径与父目录穿越
@@ -101,8 +105,64 @@ def create_backup_tarball(
                         continue
                     if not src.exists():
                         continue
-                    tar.add(src, arcname=rel, filter=_normalize_member_mode)
-                    added += 1
+                    candidates = (
+                        [src, *sorted(src.rglob("*"))] if src.is_dir() else [src]
+                    )
+                    for candidate in candidates:
+                        # Never follow nested symlinks or include volatile SQLite journals.
+                        if (
+                            candidate.is_symlink()
+                            or not candidate.resolve().is_relative_to(data_dir)
+                        ):
+                            continue
+                        name = candidate.relative_to(data_dir).as_posix()
+                        if name in seen or name.endswith(("-wal", "-shm", "-journal")):
+                            continue
+                        seen.add(name)
+                        if candidate.is_dir():
+                            tar.add(
+                                candidate,
+                                arcname=name,
+                                recursive=False,
+                                filter=_normalize_member_mode,
+                            )
+                            continue
+                        if not candidate.is_file():
+                            continue
+                        with candidate.open("rb") as source:
+                            sqlite = source.read(16) == b"SQLite format 3\x00"
+                        if sqlite:
+                            payload = snapshot_sqlite_database(candidate, stage / name)
+                        else:
+                            payload = stage / name
+                            payload.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copyfile(candidate, payload)
+                        tar.add(
+                            payload,
+                            arcname=name,
+                            recursive=False,
+                            filter=_normalize_member_mode,
+                        )
+                        files.append(
+                            {
+                                "path": name,
+                                "sha256": file_hash(payload),
+                                "required": True,
+                                "kind": "sqlite" if sqlite else "file",
+                            }
+                        )
+                        added += 1
+                manifest = json.dumps(
+                    {
+                        "version": MANIFEST_VERSION,
+                        "files": files,
+                        "external_paths": external_backup_paths(data_dir),
+                    }
+                ).encode()
+                info = tarfile.TarInfo(MANIFEST_NAME)
+                info.size = len(manifest)
+                info.mode = 0o600
+                tar.addfile(info, io.BytesIO(manifest))
         if added == 0:
             with contextlib.suppress(OSError):
                 temp_dest.unlink(missing_ok=True)
@@ -212,7 +272,8 @@ def extract_backup_archive(
                         shutil.copyfileobj(extracted_f, out)
                     with contextlib.suppress(OSError):
                         os.chmod(dest_file, 0o600)
-                    extracted_count += 1
+                    if member.name != MANIFEST_NAME:
+                        extracted_count += 1
 
     return extracted_count
 
@@ -263,7 +324,7 @@ def run_auto_backup(
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     extension = "spbak" if encrypt else "tar.gz"
     dest = backup_dir / f"auto-{ts}.{extension}"
-    path_tuple = tuple(paths) if paths is not None else DEFAULT_BACKUP_PATHS
+    path_tuple = tuple(paths) if paths is not None else None
     try:
         if encrypt:
             create_backup_tarball(data_dir, dest, path_tuple, encrypt=True)
@@ -319,6 +380,7 @@ def run_auto_backup(
                 local_path=dest,
                 proxy=wd_proxy,
                 skip_ssl_verify=skip_ssl,
+                allow_private=bool(wd.get("webdav_allow_private")),
             )
             webdav_result["attempted"] = True
         except Exception as exc:
@@ -339,6 +401,7 @@ def run_auto_backup(
                     keep=keep,
                     proxy=wd_proxy,
                     skip_ssl_verify=skip_ssl,
+                    allow_private=bool(wd.get("webdav_allow_private")),
                 )
             except Exception as exc:
                 logger.warning("WebDAV 远端备份清理失败: %s", exc)
@@ -368,6 +431,7 @@ def run_auto_backup(
         "remote_prune": remote_prune,
         "local_removed": local_removed,
         "webdav": webdav_result,
+        "external_paths": external_backup_paths(data_dir),
     }
 
 

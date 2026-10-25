@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import logging
 import os
 import re
+import socket
 import tempfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -35,6 +37,69 @@ _PROPFIND_PROP = (
 _SAFE_BACKUP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.(?:tar\.gz|spbak)$")
 
 
+def _public_address(value: str) -> bool:
+    address = ipaddress.ip_address(value)
+    if not address.is_global:
+        return False
+    if isinstance(address, ipaddress.IPv6Address):
+        embedded = [address.ipv4_mapped, address.sixtofour]
+        if address.teredo:
+            embedded.extend(address.teredo)
+        return all(item.is_global for item in embedded if item is not None)
+    return True
+
+
+class _PinnedTransport(httpx.BaseTransport):
+    """Validate every hop and connect to that exact IP with the original TLS SNI.
+
+    Binding a client to one origin also prevents 307/308 redirects from sending
+    an uploaded archive or WebDAV credentials to a different public server.
+    """
+
+    def __init__(self, inner: httpx.BaseTransport, *, allow_private: bool = False):
+        self.inner = inner
+        self.allow_private = allow_private
+        self.origin = None
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        url = request.url
+        if url.scheme not in {"http", "https"} or not url.host or url.userinfo:
+            raise ValueError("Invalid WebDAV outbound URL")
+        origin = (url.scheme, url.host, url.port)
+        if self.origin is not None and self.origin != origin:
+            raise ValueError("WebDAV redirect changes origin")
+        self.origin = origin
+        port = url.port or (443 if url.scheme == "https" else 80)
+        addresses = socket.getaddrinfo(url.host, port, type=socket.SOCK_STREAM)
+        ips = [answer[4][0] for answer in addresses]
+        if not ips or (
+            not self.allow_private and any(not _public_address(ip) for ip in ips)
+        ):
+            raise ValueError(
+                "WebDAV target must resolve exclusively to public addresses"
+            )
+        pinned = httpx.Request(
+            request.method,
+            url.copy_with(host=ips[0]),
+            headers=request.headers,
+            stream=request.stream,
+            extensions={**request.extensions, "sni_hostname": url.host},
+        )
+        return self.inner.handle_request(pinned)
+
+    def close(self) -> None:
+        self.inner.close()
+
+
+def _outbound_transport(
+    *, proxy: Optional[str], skip_ssl_verify: bool, allow_private: bool
+) -> httpx.BaseTransport:
+    return _PinnedTransport(
+        httpx.HTTPTransport(proxy=proxy, verify=not skip_ssl_verify, trust_env=False),
+        allow_private=allow_private,
+    )
+
+
 def _join_url(base: str, *parts: str) -> str:
     """拼接 WebDAV URL，保留 base 中已有路径。"""
     base = (base or "").strip().rstrip("/") + "/"
@@ -59,8 +124,7 @@ def _collection_url(url: str) -> str:
 def validate_webdav_url(url: str, *, allow_private: bool = False) -> str:
     """校验 WebDAV 基础 URL：scheme/主机非空。
 
-    默认仅允许公网地址（SSRF 防护）；当用户显式配置跳过 SSL 校验（或自建内网 WebDAV）时，
-    allow_private=True 允许私网/内网地址。
+    默认仅允许公网地址；allow_private 单独控制私网访问，与 TLS 校验无关。
     """
     from tg_signer.utils import validate_public_http_url
 
@@ -70,7 +134,11 @@ def validate_webdav_url(url: str, *, allow_private: bool = False) -> str:
     parsed = urlparse(raw)
     if parsed.scheme not in ("http", "https"):
         raise ValueError("WebDAV URL 须为 http 或 https")
-    if not parsed.netloc:
+    if (
+        not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
         raise ValueError("WebDAV URL 无效")
     if not allow_private:
         validate_public_http_url(raw)
@@ -125,6 +193,7 @@ def upload_file_to_webdav(
     timeout: Optional[Union[float, httpx.Timeout]] = None,
     proxy: Optional[str] = None,
     skip_ssl_verify: bool = False,
+    allow_private: bool = False,
 ) -> dict:
     """
     将本地文件 PUT 到 WebDAV。
@@ -133,7 +202,7 @@ def upload_file_to_webdav(
     remote_dir: 远端目录相对路径，如 backups/tg-signpulse
     skip_ssl_verify: 是否跳过 SSL 证书校验（自签名证书/内网服务商临时证书）
     """
-    base = validate_webdav_url(base_url, allow_private=skip_ssl_verify)
+    base = validate_webdav_url(base_url, allow_private=allow_private)
     user = (username or "").strip()
     if not user:
         raise ValueError("WebDAV 用户名不能为空")
@@ -153,7 +222,12 @@ def upload_file_to_webdav(
         auth=auth,
         follow_redirects=True,
         verify=not skip_ssl_verify,
-        proxy=proxy_url,
+        transport=_outbound_transport(
+            proxy=proxy_url,
+            skip_ssl_verify=skip_ssl_verify,
+            allow_private=allow_private,
+        ),
+        trust_env=False,
     ) as client:
         # 多级目录逐段创建（已存在时多数服务返回 405/409/301）
         if dir_rel:
@@ -260,13 +334,14 @@ def list_webdav_files(
     timeout: float = 30.0,
     proxy: Optional[str] = None,
     skip_ssl_verify: bool = False,
+    allow_private: bool = False,
 ) -> dict:
     """
     PROPFIND Depth:1 列出远端目录中的备份文件。
 
     返回 {success, files: [{name, href, size_bytes, mtime}], message?}
     """
-    base = validate_webdav_url(base_url, allow_private=skip_ssl_verify)
+    base = validate_webdav_url(base_url, allow_private=allow_private)
     user = (username or "").strip()
     if not user:
         raise ValueError("WebDAV 用户名不能为空")
@@ -281,7 +356,12 @@ def list_webdav_files(
         auth=auth,
         follow_redirects=True,
         verify=not skip_ssl_verify,
-        proxy=proxy_url,
+        transport=_outbound_transport(
+            proxy=proxy_url,
+            skip_ssl_verify=skip_ssl_verify,
+            allow_private=allow_private,
+        ),
+        trust_env=False,
     ) as client:
         resp = client.request(
             "PROPFIND",
@@ -374,9 +454,10 @@ def delete_webdav_file(
     timeout: float = 30.0,
     proxy: Optional[str] = None,
     skip_ssl_verify: bool = False,
+    allow_private: bool = False,
 ) -> dict:
     """删除远端备份文件（按目录 + 安全文件名构造 URL）。"""
-    base = validate_webdav_url(base_url, allow_private=skip_ssl_verify)
+    base = validate_webdav_url(base_url, allow_private=allow_private)
     user = (username or "").strip()
     if not user:
         raise ValueError("WebDAV 用户名不能为空")
@@ -391,7 +472,12 @@ def delete_webdav_file(
         auth=auth,
         follow_redirects=True,
         verify=not skip_ssl_verify,
-        proxy=proxy_url,
+        transport=_outbound_transport(
+            proxy=proxy_url,
+            skip_ssl_verify=skip_ssl_verify,
+            allow_private=allow_private,
+        ),
+        trust_env=False,
     ) as client:
         resp = client.delete(file_url)
         if resp.status_code not in _DELETE_OK:
@@ -428,13 +514,14 @@ def download_webdav_file(
     timeout: Optional[Union[float, httpx.Timeout]] = None,
     proxy: Optional[str] = None,
     skip_ssl_verify: bool = False,
+    allow_private: bool = False,
 ) -> Path:
     """从 WebDAV 流式下载备份到本地 dest_path。"""
     user = (username or "").strip()
     if not user:
         raise ValueError("WebDAV 用户名不能为空")
     _, name, file_url = _webdav_file_url(
-        base_url, remote_dir, filename, allow_private=skip_ssl_verify
+        base_url, remote_dir, filename, allow_private=allow_private
     )
     auth = (user, password or "")
     req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
@@ -447,7 +534,12 @@ def download_webdav_file(
         auth=auth,
         follow_redirects=True,
         verify=not skip_ssl_verify,
-        proxy=proxy_url,
+        transport=_outbound_transport(
+            proxy=proxy_url,
+            skip_ssl_verify=skip_ssl_verify,
+            allow_private=allow_private,
+        ),
+        trust_env=False,
     ) as client:
         actual_tmp: Optional[Path] = None
         replaced = False
@@ -502,6 +594,7 @@ def iter_webdav_file(
     chunk_size: int = 64 * 1024,
     proxy: Optional[str] = None,
     skip_ssl_verify: bool = False,
+    allow_private: bool = False,
 ) -> Iterator[bytes]:
     """
     流式读取远端备份内容（不落本地临时整包）。
@@ -512,7 +605,7 @@ def iter_webdav_file(
     if not user:
         raise ValueError("WebDAV 用户名不能为空")
     _, _name, file_url = _webdav_file_url(
-        base_url, remote_dir, filename, allow_private=skip_ssl_verify
+        base_url, remote_dir, filename, allow_private=allow_private
     )
     auth = (user, password or "")
     req_timeout = timeout if timeout is not None else _DEFAULT_UPLOAD_TIMEOUT
@@ -523,7 +616,12 @@ def iter_webdav_file(
         auth=auth,
         follow_redirects=True,
         verify=not skip_ssl_verify,
-        proxy=proxy_url,
+        transport=_outbound_transport(
+            proxy=proxy_url,
+            skip_ssl_verify=skip_ssl_verify,
+            allow_private=allow_private,
+        ),
+        trust_env=False,
     )
     try:
         with client.stream("GET", file_url) as resp:
@@ -559,6 +657,7 @@ def prune_webdav_backups(
     timeout: float = 60.0,
     proxy: Optional[str] = None,
     skip_ssl_verify: bool = False,
+    allow_private: bool = False,
 ) -> dict:
     """保留远端最近 keep 份备份，删除更旧的 .tar.gz / .spbak。"""
     keep = max(0, int(keep))
@@ -573,6 +672,7 @@ def prune_webdav_backups(
         timeout=timeout,
         proxy=proxy,
         skip_ssl_verify=skip_ssl_verify,
+        allow_private=allow_private,
     )
     if not listed.get("success"):
         return {
@@ -599,6 +699,7 @@ def prune_webdav_backups(
                 timeout=timeout,
                 proxy=proxy,
                 skip_ssl_verify=skip_ssl_verify,
+                allow_private=allow_private,
             )
             removed += 1
         except Exception as exc:
@@ -701,6 +802,7 @@ def check_webdav_connection(
     timeout: float = 15.0,
     proxy: Optional[str] = None,
     skip_ssl_verify: bool = False,
+    allow_private: bool = False,
 ) -> dict:
     """
     用 PROPFIND/HEAD 探测 WebDAV 是否可访问。
@@ -712,7 +814,7 @@ def check_webdav_connection(
 
     函数名不用 test_ 前缀，避免被 pytest 误收集。
     """
-    base = validate_webdav_url(base_url, allow_private=skip_ssl_verify)
+    base = validate_webdav_url(base_url, allow_private=allow_private)
     user = (username or "").strip()
     if not user:
         raise ValueError("WebDAV 用户名不能为空")
@@ -726,7 +828,12 @@ def check_webdav_connection(
         auth=auth,
         follow_redirects=True,
         verify=not skip_ssl_verify,
-        proxy=proxy_url,
+        transport=_outbound_transport(
+            proxy=proxy_url,
+            skip_ssl_verify=skip_ssl_verify,
+            allow_private=allow_private,
+        ),
+        trust_env=False,
     ) as client:
         resp = _propfind(client, target, depth="0")
 

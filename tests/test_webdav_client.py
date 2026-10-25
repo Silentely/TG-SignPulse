@@ -552,7 +552,9 @@ def test_webdav_operations_support_proxy(tmp_path: Path):
             local_path=f,
             proxy="http://127.0.0.1:7890",
         )
-        assert mock_cls.call_args.kwargs.get("proxy") == "http://127.0.0.1:7890"
+        transport = mock_cls.call_args.kwargs["transport"]
+        assert transport.inner._pool._proxy_url.host == b"127.0.0.1"
+        assert transport.inner._pool._proxy_url.port == 7890
 
     with patch(
         "backend.services.webdav_client.httpx.Client", return_value=mock_client
@@ -564,7 +566,9 @@ def test_webdav_operations_support_proxy(tmp_path: Path):
             remote_dir="bk",
             proxy="socks5://127.0.0.1:1080",
         )
-        assert mock_cls.call_args.kwargs.get("proxy") == "socks5://127.0.0.1:1080"
+        transport = mock_cls.call_args.kwargs["transport"]
+        assert transport.inner._pool._proxy_url.host == b"127.0.0.1"
+        assert transport.inner._pool._proxy_url.port == 1080
 
 
 def test_validate_webdav_url_allow_private():
@@ -598,6 +602,7 @@ def test_webdav_client_follows_redirects_and_skip_ssl_verify():
             password="pwd",
             remote_dir="tg-signpulse-backups",
             skip_ssl_verify=True,
+            allow_private=True,
         )
     assert r["success"] is True
     call_kwargs = mock_cls.call_args.kwargs
@@ -631,6 +636,7 @@ def test_upload_file_to_webdav_supports_skip_ssl(tmp_path: Path):
             remote_dir="bk",
             local_path=f,
             skip_ssl_verify=True,
+            allow_private=True,
         )
     assert res["success"] is True
     assert mock_cls.call_args.kwargs.get("follow_redirects") is True

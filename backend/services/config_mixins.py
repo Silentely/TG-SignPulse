@@ -178,6 +178,9 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         val = normalized["webdav_skip_ssl_verify"]
         normalized["webdav_skip_ssl_verify"] = bool(val) if val is not None else False
 
+    if "webdav_allow_private" in normalized:
+        normalized["webdav_allow_private"] = bool(normalized["webdav_allow_private"])
+
     # WebDAV 地址/用户名：去空白，空值归一为 None
     for key in ("webdav_url", "webdav_username"):
         if key in normalized:
@@ -189,7 +192,7 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         from backend.services.webdav_client import validate_webdav_url
 
         try:
-            allow_private = bool(normalized.get("webdav_skip_ssl_verify"))
+            allow_private = bool(normalized.get("webdav_allow_private"))
             normalized["webdav_url"] = validate_webdav_url(
                 normalized["webdav_url"], allow_private=allow_private
             )
@@ -1356,6 +1359,7 @@ class GlobalSettingsMixin:
             "webdav_password": None,
             "webdav_remote_dir": "tg-signpulse-backups",
             "webdav_skip_ssl_verify": False,
+            "webdav_allow_private": False,
             "require_proxy_for_telegram": False,
             "backup_target": "auto",
         }

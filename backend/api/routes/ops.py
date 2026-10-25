@@ -36,6 +36,11 @@ from backend.core.auth import get_current_user
 from backend.core.config import get_settings
 from backend.models.user import User
 from backend.scheduler.instance_lock import has_scheduler_lock
+from backend.services.backup_archive import DEFAULT_BACKUP_PATHS
+from backend.services.backup_manifest import (
+    build_backup_manifest,
+    external_backup_paths,
+)
 
 logger = logging.getLogger("backend.ops")
 
@@ -74,6 +79,7 @@ class BackupStatusResponse(BaseModel):
     backup_target: str = "auto"
     auto_backup_enabled: bool = False
     local_auto_backups: List[Dict[str, Any]] = Field(default_factory=list)
+    external_paths: List[str] = Field(default_factory=list)
 
 
 # 完整备份包含的路径（不含初始密码文件，降低误传风险）
@@ -87,16 +93,147 @@ def _extract_webdav_proxy(cfg: Dict[str, Any]) -> Optional[str]:
     )
 
 
-BACKUP_ARCHIVE_PATHS = (
-    "db.sqlite",
-    "db.sqlite-wal",
-    "db.sqlite-shm",
-    "sessions",
-    ".signer",
-    ".global_settings.json",
-    ".openai_config.json",
-    ".telegram_api.json",
-)
+BACKUP_ARCHIVE_PATHS = DEFAULT_BACKUP_PATHS
+
+_restore_maintenance = False
+_active_restore_requests = 0
+
+
+def restore_in_progress() -> bool:
+    return _restore_maintenance
+
+
+def _ensure_single_process_restore() -> None:
+    """Online restore supports the default single-process server deployment."""
+    for variable in ("WEB_CONCURRENCY", "UVICORN_WORKERS"):
+        try:
+            workers = int(os.getenv(variable, "1"))
+        except ValueError:
+            workers = 0
+        if workers != 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Online restore requires a single server process; set WEB_CONCURRENCY and UVICORN_WORKERS to 1 and restart before restoring",
+            )
+
+
+def track_restore_request(delta: int) -> None:
+    global _active_restore_requests
+    _active_restore_requests += delta
+
+
+async def _stop_restore_services() -> None:
+    """Quiesce every in-process producer before replacing its backing files."""
+    import backend.scheduler as jobs
+    from backend.core.database import get_engine
+    from backend.services.chatops_bot import get_chatops_worker
+    from backend.services.keyword_monitor import get_keyword_monitor_service
+    from backend.services.semantic.runtime import get_active_semantic_runtime
+    from backend.services.sign_tasks import get_sign_task_service
+    from tg_signer.core import client as clients
+    from tg_signer.core.plugin_host import cleanup_all_worker_processes
+
+    signs = get_sign_task_service()
+    signs.begin_shutdown()
+    if jobs.scheduler is not None and jobs.scheduler.running:
+        jobs.scheduler.pause()
+    await get_chatops_worker().stop()
+    await get_keyword_monitor_service().stop()
+    await signs.drain_background_runs(timeout=15)
+    # APScheduler's interval jobs (keepalive, auto backup) also hold data handles.
+    pending = set()
+    if jobs.scheduler is not None:
+        for executor in jobs.scheduler._executors.values():
+            pending.update(getattr(executor, "_pending_futures", set()))
+    if pending:
+        await asyncio.wait_for(
+            asyncio.gather(*pending, return_exceptions=True), timeout=30
+        )
+    semantic = get_active_semantic_runtime()
+    if semantic is not None:
+        await semantic.close()
+    for key, client in list(clients._CLIENT_INSTANCES.items()):
+        await clients._safe_close_client(client, timeout=5)
+        clients.invalidate_cached_client(key)
+        clients._CLIENT_INSTANCES.pop(key, None)
+    cleanup_all_worker_processes()
+    get_engine().dispose()
+
+
+async def _start_restore_services() -> None:
+    """Reopen storage and check local health before resuming producers."""
+    from sqlalchemy import text
+
+    import backend.scheduler as jobs
+    from backend.core.database import get_engine
+    from backend.services.chatops_bot import get_chatops_worker
+    from backend.services.config import get_config_service
+    from backend.services.keyword_monitor import get_keyword_monitor_service
+    from backend.services.semantic.runtime import get_active_semantic_runtime
+    from backend.services.sign_tasks import get_sign_task_service
+    from backend.services.telegram import get_telegram_service
+
+    engine = get_engine()
+    engine.dispose()
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+    get_config_service()._global_settings_cache().clear()
+    get_sign_task_service().invalidate_tasks_cache()
+    get_telegram_service()._accounts_cache = None
+    semantic = get_active_semantic_runtime()
+    if semantic is not None:
+        semantic._generation = -1
+        semantic.start_workers()
+    await jobs.sync_jobs()
+    await get_keyword_monitor_service().restart_from_tasks()
+    get_sign_task_service()._draining = False
+    get_chatops_worker().start()
+    if jobs.scheduler is not None and jobs.scheduler.running:
+        jobs.scheduler.resume()
+
+
+async def _activate_staged_restore(data_dir: Path, staging_dir: Path) -> None:
+    global _restore_maintenance
+    _ensure_single_process_restore()
+    old = data_dir.parent / f".{data_dir.name}.restore-old-{uuid.uuid4().hex}"
+    failed = data_dir.parent / f".{data_dir.name}.restore-failed-{uuid.uuid4().hex}"
+    moved = False
+    healthy = True
+    _restore_maintenance = True
+    try:
+        # The restoring request itself occupies one slot; let existing API work finish.
+        deadline = asyncio.get_running_loop().time() + 30
+        while _active_restore_requests > 1:
+            if asyncio.get_running_loop().time() >= deadline:
+                raise RuntimeError(
+                    "Timed out waiting for active requests before restore"
+                )
+            await asyncio.sleep(0.05)
+        healthy = False
+        await _stop_restore_services()
+        data_dir.rename(old)
+        moved = True
+        staging_dir.rename(data_dir)
+        await _start_restore_services()
+        healthy = True
+    except BaseException:
+        if moved:
+            # Stop any services that partially reopened against the new directory.
+            await _stop_restore_services()
+            if data_dir.exists():
+                data_dir.rename(failed)
+            old.rename(data_dir)
+        if not healthy:
+            await _start_restore_services()
+            healthy = True
+        raise
+    else:
+        shutil.rmtree(old, ignore_errors=True)
+    finally:
+        # If rollback itself fails, retain both directories and keep maintenance on.
+        if healthy:
+            _restore_maintenance = False
+
 
 BACKUP_STATUS_PATHS = (
     "db.sqlite",
@@ -251,7 +388,7 @@ def backup_status(current_user: User = Depends(get_current_user)):
 
     settings = get_settings()
     data_dir = Path(settings.resolve_base_dir())
-    recommended = list(BACKUP_STATUS_PATHS)
+    recommended = [entry.relative_path for entry in build_backup_manifest(data_dir)]
     entries: List[Dict[str, Any]] = []
     total = 0
     for rel in recommended:
@@ -334,6 +471,7 @@ def backup_status(current_user: User = Depends(get_current_user)):
         backup_target=normalized_target,
         auto_backup_enabled=auto_backup_enabled,
         local_auto_backups=local_auto,
+        external_paths=external_backup_paths(data_dir),
     )
 
 
@@ -443,7 +581,6 @@ async def export_backup_archive(
             create_backup_tarball,
             data_dir,
             archive_path,
-            BACKUP_ARCHIVE_PATHS,
             **tar_kwargs,
         )
         if not archive_path.exists() or archive_path.stat().st_size == 0:
@@ -465,6 +602,7 @@ async def export_backup_archive(
                     local_path=archive_path,
                     proxy=wd_proxy,
                     skip_ssl_verify=skip_ssl,
+                    allow_private=bool(cfg.get("webdav_allow_private")),
                 )
             except ValueError as exc:
                 raise HTTPException(
@@ -486,6 +624,7 @@ async def export_backup_archive(
                 "remote_url": result.get("remote_url"),
                 "filename": result.get("filename"),
                 "size_bytes": result.get("size_bytes"),
+                "external_paths": external_backup_paths(data_dir),
             }
 
         # 回退为本地下载
@@ -498,7 +637,8 @@ async def export_backup_archive(
             filename=archive_path.name,
             media_type=media_type,
             headers={
-                "Content-Disposition": f'attachment; filename="{archive_path.name}"'
+                "Content-Disposition": f'attachment; filename="{archive_path.name}"',
+                "X-Backup-External-Paths": ",".join(external_backup_paths(data_dir)),
             },
             background=BackgroundTask(_cleanup),
         )
@@ -526,7 +666,8 @@ async def import_backup_archive(
     password: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
 ):
-    """上传 .spbak（加密）或 .tar.gz 归档并恢复到数据目录。"""
+    """上传归档并恢复数据；在线恢复仅支持默认的单进程服务部署。"""
+    _ensure_single_process_restore()
     from backend.services.backup_archive import extract_backup_archive
     from backend.services.backup_crypto import (
         MAX_EXTRACT_BYTES,
@@ -552,7 +693,6 @@ async def import_backup_archive(
             prefix=f".{data_dir.name}.restore-staging-", dir=data_dir.parent
         )
     )
-    old_data_dir: Optional[Path] = None
     switched = False
     try:
         total_bytes = 0
@@ -587,24 +727,24 @@ async def import_backup_archive(
                 detail="备份归档未包含任何可恢复的文件，已取消导入以避免清空现有数据",
             )
 
+        from backend.services.backup_manifest import validate_backup_manifest
+
+        await asyncio.to_thread(validate_backup_manifest, tmp_file, staging_dir)
+
+        # Authentication's dependency may still own a checked-out SQLite handle.
+        # Release it before disposing pools and renaming its backing directory.
+        from sqlalchemy.orm import object_session
+
+        auth_session = object_session(current_user)
+        if auth_session is not None:
+            auth_session.close()
+
         restore_lock = FileLock(str(data_dir.parent / f".{data_dir.name}.restore.lock"))
         try:
             restore_lock.acquire(timeout=0)
             try:
-                old_data_dir = (
-                    data_dir.parent / f".{data_dir.name}.restore-old-{uuid.uuid4().hex}"
-                )
-                if data_dir.exists():
-                    data_dir.rename(old_data_dir)
-                try:
-                    staging_dir.rename(data_dir)
-                    switched = True
-                except Exception:
-                    if old_data_dir.exists() and not data_dir.exists():
-                        old_data_dir.rename(data_dir)
-                    raise
-                if old_data_dir.exists():
-                    shutil.rmtree(old_data_dir, ignore_errors=True)
+                await _activate_staged_restore(data_dir, staging_dir)
+                switched = True
             finally:
                 restore_lock.release()
         except Timeout as exc:
@@ -638,8 +778,6 @@ async def import_backup_archive(
         shutil.rmtree(tmp_dir, ignore_errors=True)
         if not switched:
             shutil.rmtree(staging_dir, ignore_errors=True)
-        if old_data_dir and old_data_dir.exists():
-            shutil.rmtree(old_data_dir, ignore_errors=True)
 
 
 class WebDavTestResponse(BaseModel):
@@ -665,6 +803,7 @@ def test_webdav_backup(current_user: User = Depends(get_current_user)):
             remote_dir=str(cfg.get("webdav_remote_dir") or "tg-signpulse-backups"),
             proxy=wd_proxy,
             skip_ssl_verify=skip_ssl,
+            allow_private=bool(cfg.get("webdav_allow_private")),
         )
         return WebDavTestResponse(**result)
     except ValueError as exc:
@@ -713,6 +852,7 @@ def list_webdav_backup_files(current_user: User = Depends(get_current_user)):
             limit=20,
             proxy=wd_proxy,
             skip_ssl_verify=skip_ssl,
+            allow_private=bool(cfg.get("webdav_allow_private")),
         )
         files = [WebDavFileEntry(**f) for f in (result.get("files") or [])]
         return WebDavListResponse(
@@ -775,6 +915,7 @@ def download_webdav_backup_file(
             filename=safe_name,
             proxy=wd_proxy,
             skip_ssl_verify=skip_ssl,
+            allow_private=bool(cfg.get("webdav_allow_private")),
         )
         first = next(stream)
 

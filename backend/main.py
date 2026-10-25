@@ -255,6 +255,23 @@ def _safe_request_context(request: Request) -> dict[str, str]:
     return {"client": client, "query": f" ?{'&'.join(parts)}"}
 
 
+@app.middleware("http")
+async def restore_maintenance_gate(request: Request, call_next):
+    from backend.api.routes.ops import restore_in_progress, track_restore_request
+
+    if restore_in_progress():
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Backup restore maintenance in progress"},
+            headers={"Retry-After": "5"},
+        )
+    track_restore_request(1)
+    try:
+        return await call_next(request)
+    finally:
+        track_restore_request(-1)
+
+
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(RateLimitMiddleware)

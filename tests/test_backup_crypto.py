@@ -267,7 +267,11 @@ def test_ops_export_and_import_api_roundtrip(client, tmp_path, isolated_env):
     settings = get_settings()
     data_dir = Path(settings.resolve_base_dir())
     data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / "db.sqlite").write_text("api integration test content")
+    import sqlite3
+
+    with sqlite3.connect(data_dir / "db.sqlite") as conn:
+        conn.execute("CREATE TABLE backup_test(value TEXT)")
+        conn.execute("INSERT INTO backup_test VALUES ('api integration test content')")
 
     headers = _auth_headers()
 
@@ -293,4 +297,8 @@ def test_ops_export_and_import_api_roundtrip(client, tmp_path, isolated_env):
     body = import_resp.json()
     assert body["success"] is True
     assert (data_dir / "db.sqlite").exists()
-    assert (data_dir / "db.sqlite").read_text() == "api integration test content"
+    with sqlite3.connect(data_dir / "db.sqlite") as conn:
+        assert (
+            conn.execute("SELECT value FROM backup_test").fetchone()[0]
+            == "api integration test content"
+        )
