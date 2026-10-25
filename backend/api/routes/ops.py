@@ -47,6 +47,27 @@ logger = logging.getLogger("backend.ops")
 router = APIRouter()
 
 
+@router.get("/runbooks/diagnosis")
+def runbook_diagnosis(
+    account_name: str, task_name: str, current_user=Depends(get_current_user)
+):
+    from backend.services.ops_runbooks import get_runbook_diagnosis
+
+    return get_runbook_diagnosis(account_name, task_name)
+
+
+@router.post("/runbooks/action")
+def runbook_action(payload: dict, current_user=Depends(get_current_user)):
+    from backend.services.ops_runbooks import apply_runbook_action
+
+    return apply_runbook_action(
+        str(payload.get("action_id") or ""),
+        account_name=str(payload.get("account_name") or ""),
+        task_name=str(payload.get("task_name") or ""),
+        dry_run=bool(payload.get("dry_run", True)),
+    )
+
+
 class ScheduledJobOut(BaseModel):
     id: str
     name: str = ""
