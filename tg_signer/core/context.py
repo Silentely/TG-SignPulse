@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,31 @@ _PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 def chat_scope_key(chat_id: int, thread_id: Optional[int] = None):
     """Keep ordinary chats on their historical key and isolate forum topics."""
     return chat_id if thread_id is None else (chat_id, thread_id)
+
+
+def get_chat_text(
+    context: Any, chat_id: int, thread_id: Optional[int], field: str
+) -> str:
+    """Read legacy text for plain chats and topic text for forum threads."""
+    if thread_id is None:
+        return getattr(context, field, "") or ""
+    values = getattr(context, f"topic_{field}", {})
+    return values.get((chat_id, thread_id), "") or ""
+
+
+def set_chat_text(
+    context: Any, chat_id: int, thread_id: Optional[int], field: str, value: str
+) -> None:
+    """Write one chat scope without changing output from another topic."""
+    if thread_id is None:
+        setattr(context, field, value)
+        return
+    topic_field = f"topic_{field}"
+    values = getattr(context, topic_field, None)
+    if values is None:
+        values = {}
+        setattr(context, topic_field, values)
+    values[(chat_id, thread_id)] = value
 
 
 class UserSignerWorkerContext(BaseModel):

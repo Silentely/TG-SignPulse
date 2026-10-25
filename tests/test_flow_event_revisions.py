@@ -1,16 +1,24 @@
 import asyncio
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tg_signer.config import ReplyByCalculationProblemAction, SendTextAction, SignChatV3
+from tg_signer.config import (
+    ReplyByCalculationProblemAction,
+    SendTextAction,
+    SignChatV3,
+    SupportAction,
+    WorkflowStepConfig,
+)
 from tg_signer.core.context import UserSignerWorkerContext
 from tg_signer.core.flow_compat import FlowCompatibilityBridge
 from tg_signer.core.flow_context import ScopedFlowContext
 from tg_signer.core.flow_engine import PulseFlowEngine
 from tg_signer.core.flow_event_bus import TelegramEventBus, TelegramMessageEvent
 from tg_signer.core.flow_models import NodeStatus, WaitEventNode
+from tg_signer.core.runtime import UserSigner
 from tg_signer.core.signer_matchers import SignerMatchersMixin
 from tg_signer.core.signer_runner import SignerRunnerMixin
 from tg_signer.semantic import runtime_port
@@ -374,6 +382,69 @@ async def test_pulseflow_failure_keeps_topic_received_text_scoped(monkeypatch):
     assert runner.context.topic_last_received_text[(123, 1)] == "topic failure"
     assert runner.context.last_output == "legacy"
     assert runner.context.last_received_text == "legacy"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("engine", ["classic", "workflow"])
+async def test_legacy_threaded_flow_reads_and_writes_only_its_topic(engine):
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "account"
+    signer.app = SimpleNamespace(get_chat=AsyncMock())
+    signer.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    signer.context.last_output = "legacy output"
+    signer.context.last_received_text = "legacy text"
+    signer.context.topic_last_output[(123, 2)] = "other topic"
+    signer.log = MagicMock()
+    seen = []
+
+    async def wait_for(chat, action, next_action=None):
+        seen.append(action.text)
+        if len(seen) == 1:
+            signer.context.topic_last_received_text[(123, 1)] = "topic reply"
+        return True
+
+    signer.wait_for = wait_for
+    if engine == "classic":
+        chat = SignChatV3(
+            chat_id=123,
+            message_thread_id=1,
+            execution_engine="v3",
+            action_interval=0,
+            actions=[
+                SendTextAction(text="/start", skip_if_matched="legacy"),
+                SendTextAction(text="{{prev.output}}|{{last_message}}"),
+            ],
+        )
+    else:
+        chat = SignChatV3(
+            chat_id=123,
+            message_thread_id=1,
+            execution_engine="v3",
+            action_interval=0,
+            initial_step_id="first",
+            steps=[
+                WorkflowStepConfig(
+                    step_id="first",
+                    action_type=SupportAction.SEND_TEXT,
+                    config={"text": "/start", "skip_if_matched": "legacy"},
+                    next_step_id="second",
+                ),
+                WorkflowStepConfig(
+                    step_id="second",
+                    action_type=SupportAction.SEND_TEXT,
+                    config={"text": "{{prev.output}}|{{last_message}}"},
+                    next_step_id="COMPLETE",
+                ),
+            ],
+        )
+
+    await signer.sign_a_chat(chat)
+
+    assert seen == ["/start", "/start|topic reply"]
+    assert signer.context.topic_last_output[(123, 1)] == "/start|topic reply"
+    assert signer.context.topic_last_output[(123, 2)] == "other topic"
+    assert signer.context.last_output == "legacy output"
+    assert signer.context.last_received_text == "legacy text"
 
 
 class _FakeBridgeChat:

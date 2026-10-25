@@ -33,7 +33,7 @@ from tg_signer.config import (
 )
 from tg_signer.context_vars import task_retry_count_var
 from tg_signer.core.client import Client, get_now
-from tg_signer.core.context import chat_scope_key
+from tg_signer.core.context import chat_scope_key, get_chat_text, set_chat_text
 from tg_signer.core.flow_adapter import TelegramNodeExecutor
 from tg_signer.core.template import render_template, render_template_recursive
 from tg_signer.log_utils import safe_text_preview
@@ -290,8 +290,20 @@ class SignerRunnerMixin:
                     else:
                         self.context.chat_messages[scope_key] = {}
                     self.context.step_outputs = {}
-                    self.context.last_output = ""
-                    self.context.last_received_text = ""
+                    set_chat_text(
+                        self.context,
+                        chat.chat_id,
+                        chat.message_thread_id,
+                        "last_output",
+                        "",
+                    )
+                    set_chat_text(
+                        self.context,
+                        chat.chat_id,
+                        chat.message_thread_id,
+                        "last_received_text",
+                        "",
+                    )
                 self.context.stop_after_current_action = False
                 self.context.stop_reason = None
                 self.context.last_callback_answer = None
@@ -302,9 +314,18 @@ class SignerRunnerMixin:
                     if getattr(action, "skip_if_matched", None):
                         skip_pat = str(action.skip_if_matched).strip()
                         match_src = str(
-                            getattr(self.context, "last_output", "")
-                            or getattr(self.context, "last_received_text", "")
-                            or ""
+                            get_chat_text(
+                                self.context,
+                                chat.chat_id,
+                                chat.message_thread_id,
+                                "last_output",
+                            )
+                            or get_chat_text(
+                                self.context,
+                                chat.chat_id,
+                                chat.message_thread_id,
+                                "last_received_text",
+                            )
                         )
                         matched = False
                         if skip_pat and match_src:
@@ -337,12 +358,26 @@ class SignerRunnerMixin:
                             "name": getattr(chat, "name", ""),
                         },
                         "step": getattr(self.context, "step_outputs", {}),
-                        "prev_output": getattr(self.context, "last_output", "") or "",
+                        "prev_output": get_chat_text(
+                            self.context,
+                            chat.chat_id,
+                            chat.message_thread_id,
+                            "last_output",
+                        ),
                         "prev": {
-                            "output": getattr(self.context, "last_output", "") or ""
+                            "output": get_chat_text(
+                                self.context,
+                                chat.chat_id,
+                                chat.message_thread_id,
+                                "last_output",
+                            )
                         },
-                        "last_message": getattr(self.context, "last_received_text", "")
-                        or "",
+                        "last_message": get_chat_text(
+                            self.context,
+                            chat.chat_id,
+                            chat.message_thread_id,
+                            "last_received_text",
+                        ),
                     }
 
                     exec_action = action
@@ -464,7 +499,13 @@ class SignerRunnerMixin:
                             self.context.step_outputs = {}
                         self.context.step_outputs[index] = {"output": out_val}
                         self.context.step_outputs[str(index)] = {"output": out_val}
-                        self.context.last_output = out_val
+                        set_chat_text(
+                            self.context,
+                            chat.chat_id,
+                            chat.message_thread_id,
+                            "last_output",
+                            out_val,
+                        )
                         if self.context.stop_after_current_action:
                             stop_reason = (self.context.stop_reason or "").strip()
                             self.log(
@@ -607,8 +648,16 @@ class SignerRunnerMixin:
         else:
             self.context.chat_messages[scope_key] = {}
         self.context.step_outputs = {}
-        self.context.last_output = ""
-        self.context.last_received_text = ""
+        set_chat_text(
+            self.context, chat.chat_id, chat.message_thread_id, "last_output", ""
+        )
+        set_chat_text(
+            self.context,
+            chat.chat_id,
+            chat.message_thread_id,
+            "last_received_text",
+            "",
+        )
         self.context.stop_after_current_action = False
         self.context.stop_reason = None
         self.context.last_callback_answer = None
@@ -627,9 +676,18 @@ class SignerRunnerMixin:
             if getattr(action, "skip_if_matched", None):
                 skip_pat = str(action.skip_if_matched).strip()
                 match_src = str(
-                    getattr(self.context, "last_output", "")
-                    or getattr(self.context, "last_received_text", "")
-                    or ""
+                    get_chat_text(
+                        self.context,
+                        chat.chat_id,
+                        chat.message_thread_id,
+                        "last_output",
+                    )
+                    or get_chat_text(
+                        self.context,
+                        chat.chat_id,
+                        chat.message_thread_id,
+                        "last_received_text",
+                    )
                 )
                 matched = False
                 if skip_pat and match_src:
@@ -661,9 +719,23 @@ class SignerRunnerMixin:
                     "name": getattr(chat, "name", ""),
                 },
                 "step": getattr(self.context, "step_outputs", {}),
-                "prev_output": getattr(self.context, "last_output", "") or "",
-                "prev": {"output": getattr(self.context, "last_output", "") or ""},
-                "last_message": getattr(self.context, "last_received_text", "") or "",
+                "prev_output": get_chat_text(
+                    self.context, chat.chat_id, chat.message_thread_id, "last_output"
+                ),
+                "prev": {
+                    "output": get_chat_text(
+                        self.context,
+                        chat.chat_id,
+                        chat.message_thread_id,
+                        "last_output",
+                    )
+                },
+                "last_message": get_chat_text(
+                    self.context,
+                    chat.chat_id,
+                    chat.message_thread_id,
+                    "last_received_text",
+                ),
             }
 
             exec_action = action
@@ -791,7 +863,13 @@ class SignerRunnerMixin:
                 self.context.step_outputs[step.step_id] = {"output": out_val}
                 self.context.step_outputs[step_index] = {"output": out_val}
                 self.context.step_outputs[str(step_index)] = {"output": out_val}
-                self.context.last_output = out_val
+                set_chat_text(
+                    self.context,
+                    chat.chat_id,
+                    chat.message_thread_id,
+                    "last_output",
+                    out_val,
+                )
 
                 if self.context.stop_after_current_action:
                     stop_reason = (self.context.stop_reason or "").strip()
