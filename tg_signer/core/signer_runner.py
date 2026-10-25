@@ -73,7 +73,10 @@ class _CutoverNodeExecutor(TelegramNodeExecutor):
         )
         next_id = getattr(node, "next_node_id", None)
         graph = self.compat.graph
-        explicit_successor = bool(graph and next_id in graph.nodes)
+        next_node = graph.nodes.get(next_id) if graph and next_id else None
+        explicit_successor = bool(
+            next_node is not None and not next_node.metadata.get("raw_action")
+        )
         raw_action = node.metadata.get("raw_action")
         explicit_stop = getattr(raw_action, "stop_flow_on_terminal", False) is True
         if explicit_successor and not explicit_stop:
@@ -903,6 +906,10 @@ class SignerRunnerMixin:
                             step_failed = True
                             result = None
                         break
+
+                if self.context.stop_after_current_action:
+                    ctx.current_step_id = "COMPLETE"
+                    return True
 
                 if result is False and getattr(action, "continue_on_error", False):
                     self.log(

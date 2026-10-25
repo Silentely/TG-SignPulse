@@ -173,7 +173,7 @@ class ProxyPluginContext:
         self.identity = PluginExecutionIdentity(
             **(identity or {"chat_id": chat_id, "thread_id": message_thread_id})
         )
-        self.context_version = context_version
+        self.context_version = context_version if context_version in {1, 2} else 1
         self.storage_prefix = storage_prefix
         storage_ns = f"{chat_id}:{plugin_name}" if plugin_name else str(chat_id)
         global_ns = f"global:{plugin_name}" if plugin_name else "global"

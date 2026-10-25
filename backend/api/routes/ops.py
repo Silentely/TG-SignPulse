@@ -602,6 +602,7 @@ async def export_backup_archive(
             create_backup_tarball,
             data_dir,
             archive_path,
+            BACKUP_ARCHIVE_PATHS,
             **tar_kwargs,
         )
         if not archive_path.exists() or archive_path.stat().st_size == 0:

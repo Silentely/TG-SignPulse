@@ -215,7 +215,7 @@ class PluginContext:
                 chat_id=self.chat_id, thread_id=self.message_thread_id
             )
         if self.context_version not in {1, 2}:
-            raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
+            self.context_version = 1
 
     def storage_for(self, scope: str) -> PluginStorageClient:
         if scope not in self._scoped_storage:

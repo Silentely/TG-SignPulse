@@ -8,7 +8,20 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 
 def serialize_plugin_identity(identity: Any) -> Optional[Dict[str, Any]]:
-    return asdict(identity) if identity is not None else None
+    if identity is None:
+        return None
+    if isinstance(identity, dict):
+        return dict(identity)
+    if hasattr(identity, "__dataclass_fields__"):
+        return asdict(identity)
+    return {
+        key: getattr(identity, key)
+        for key in (
+            "account_id", "task_id", "run_id", "step_id", "chat_id",
+            "thread_id", "event_id", "event_revision",
+        )
+        if hasattr(identity, key)
+    }
 
 
 def serialize_message_for_worker(msg: Any) -> Optional[Dict[str, Any]]:
