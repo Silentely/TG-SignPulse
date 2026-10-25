@@ -47,6 +47,25 @@ def test_v2_storage_is_account_scoped_and_legacy_namespace_is_unchanged():
         a.storage_for("arbitrary:namespace")
 
 
+@pytest.mark.asyncio
+async def test_v2_context_lazily_migrates_legacy_chat_storage(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path))
+    from tg_signer.core.plugin_storage import PluginStore
+
+    store = PluginStore()
+    store.set("123:demo", "count", 7)
+    context = plugins.PluginContext(
+        app=None,
+        chat_id=123,
+        plugin_name="demo",
+        identity=identity(),
+        context_version=2,
+    )
+
+    assert await context.storage.get("count") == 7
+    assert store.get(context.storage.namespace, "count") == 7
+
+
 def test_parameter_resolver_applies_required_defaults_and_rejects_invalid_enum():
     meta = SimpleNamespace(
         context_version=2,

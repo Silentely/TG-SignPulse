@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -42,19 +43,43 @@ class PluginStorageClient:
         namespace: str,
         backend: Optional[Union[PluginStore, PluginStorageBackend]] = None,
         store: Optional[PluginStore] = None,
+        legacy_namespaces: Optional[List[str]] = None,
     ):
         self.namespace = namespace
         self._store = store or backend or PluginStore()
         self._backend = self._store
+        self.legacy_namespaces = [
+            value for value in (legacy_namespaces or []) if value and value != namespace
+        ]
+        self._migration_lock = threading.Lock()
+
+    def _migrate_key(self, key: str, default: Any = None) -> Any:
+        marker = object()
+        value = self._store.get(self.namespace, key, marker)
+        if value is not marker:
+            return value
+        for legacy in self.legacy_namespaces:
+            value = self._store.get(legacy, key, marker)
+            if value is not marker:
+                self._store.set(self.namespace, key, value)
+                return value
+        return default
+
+    def _migrate_all(self, prefix: str = "") -> Dict[str, Any]:
+        values = self._store.get_all(self.namespace, prefix)
+        for legacy in self.legacy_namespaces:
+            for key, value in self._store.get_all(legacy, prefix).items():
+                if key not in values:
+                    values[key] = value
+                    self._store.set(self.namespace, key, value)
+        return values
 
     async def get(self, key: str, default: Any = None) -> Any:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, self._store.get, self.namespace, key, default
-            )
+            return await loop.run_in_executor(None, self._migrate_key, key, default)
         except RuntimeError:
-            return self._store.get(self.namespace, key, default)
+            return self._migrate_key(key, default)
 
     async def set(
         self, key: str, value: Any, ttl: Optional[Union[int, float]] = None
@@ -80,43 +105,56 @@ class PluginStorageClient:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None,
-                self._store.increment,
-                self.namespace,
-                key,
-                step,
-                default,
-                ttl,
+                None, self._increment_migrating, key, step, default, ttl
             )
         except RuntimeError:
+            return self._increment_migrating(key, step, default, ttl)
+
+    def _increment_migrating(
+        self, key: str, amount: int, default: int, ttl: Optional[Union[int, float]]
+    ) -> Optional[int]:
+        with self._migration_lock:
+            current = self._migrate_key(key, default)
+            if current != default:
+                self._store.set(self.namespace, key, current)
             return self._store.increment(
-                self.namespace, key, amount=step, default=default, ttl=ttl
+                self.namespace, key, amount=amount, default=default, ttl=ttl
             )
 
     async def delete(self, key: str) -> bool:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, self._store.delete, self.namespace, key
-            )
+            return await loop.run_in_executor(None, self._delete_all, key)
         except RuntimeError:
-            return self._store.delete(self.namespace, key)
+            return self._delete_all(key)
+
+    def _delete_all(self, key: str) -> bool:
+        deleted = self._store.delete(self.namespace, key)
+        for legacy in self.legacy_namespaces:
+            deleted = self._store.delete(legacy, key) or deleted
+        return deleted
 
     async def clear(self) -> int:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._store.clear, self.namespace)
+            return await loop.run_in_executor(None, self._clear_all)
         except RuntimeError:
-            return self._store.clear(self.namespace)
+            return self._clear_all()
+
+    def _clear_all(self) -> int:
+        deleted = self._store.clear(self.namespace)
+        for legacy in self.legacy_namespaces:
+            deleted += self._store.clear(legacy)
+        return deleted
 
     async def keys(self, prefix: str = "") -> List[str]:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._store.list_keys, self.namespace, prefix
+                None, lambda: sorted(self._migrate_all(prefix))
             )
         except RuntimeError:
-            return self._store.list_keys(self.namespace, prefix)
+            return sorted(self._migrate_all(prefix))
 
     async def list_keys(self, prefix: str = "") -> List[str]:
         return await self.keys(prefix=prefix)
@@ -125,10 +163,10 @@ class PluginStorageClient:
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
-                None, self._store.mget, self.namespace, keys
+                None, lambda: {key: self._migrate_key(key) for key in keys}
             )
         except RuntimeError:
-            return self._store.mget(self.namespace, keys)
+            return {key: self._migrate_key(key) for key in keys}
 
     async def mset(
         self, mapping: Dict[str, Any], ttl: Optional[Union[int, float]] = None
@@ -144,20 +182,20 @@ class PluginStorageClient:
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, self._store.get_all, self.namespace, prefix
-            )
+            return await loop.run_in_executor(None, self._migrate_all, prefix)
         except RuntimeError:
-            return self._store.get_all(self.namespace, prefix)
+            return self._migrate_all(prefix)
 
     async def get_all_records(self) -> List[Dict[str, Any]]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, self._store.get_all_records, self.namespace
-            )
+            return await loop.run_in_executor(None, self._migrate_all_records)
         except RuntimeError:
-            return self._store.get_all_records(self.namespace)
+            return self._migrate_all_records()
+
+    def _migrate_all_records(self) -> List[Dict[str, Any]]:
+        self._migrate_all()
+        return self._store.get_all_records(self.namespace)
 
 
 @dataclass(frozen=True)
@@ -222,7 +260,16 @@ class PluginContext:
             namespace = self.storage_prefix + plugin_storage_namespace(
                 self.plugin_name, self.identity, scope
             )
-            self._scoped_storage[scope] = PluginStorageClient(namespace=namespace)
+            legacy_namespaces = []
+            if self.context_version == 2 and scope == "chat":
+                legacy_namespaces.append(
+                    f"{self.chat_id}:{self.plugin_name}"
+                    if self.plugin_name
+                    else str(self.chat_id)
+                )
+            self._scoped_storage[scope] = PluginStorageClient(
+                namespace=namespace, legacy_namespaces=legacy_namespaces
+            )
         return self._scoped_storage[scope]
 
     @property
