@@ -1478,6 +1478,10 @@ class SignTaskService(SignTaskCrudMixin):
                     else 2.0
                 ),
             )
+            from tg_signer.semantic.models import config_revision
+
+            normalized["revision"] = config_revision(config)
+            normalized["execution_engine"] = config.get("execution_engine")
             if return_raw:
                 return normalized, config
             return normalized

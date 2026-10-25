@@ -29,6 +29,7 @@ from backend.services.stream_tickets import (
     PURPOSE_TASK_RUN_WS,
     get_stream_ticket_store,
 )
+from backend.services.task_config_io import TaskConfigConflict
 from tg_signer.config import WorkflowConfigError
 
 router = APIRouter()
@@ -43,10 +44,10 @@ async def _safe_background_sync() -> None:
     await sync_jobs_and_restart_monitors(context="任务变更")
 
 
-def _model_dump(model: BaseModel) -> Dict[str, Any]:
+def _model_dump(model: BaseModel, **kwargs) -> Dict[str, Any]:
     from backend.core.pydantic_compat import model_dump
 
-    return model_dump(model)
+    return model_dump(model, **kwargs)
 
 
 def _resolve_effective_account(account_name: Optional[str]) -> Optional[str]:
@@ -145,6 +146,8 @@ class SignTaskCreate(BaseModel):
 
 
 class SignTaskUpdate(BaseModel):
+    revision: Optional[str] = None
+    field_mask: Optional[List[str]] = None
     account_names: Optional[List[str]] = Field(None, description="Associated accounts")
     sign_at: Optional[str] = Field(None, description="Schedule cron")
     chats: Optional[List[ChatConfig]] = Field(None, description="Chat configs")
@@ -213,6 +216,7 @@ class ActiveRunsResponse(BaseModel):
 
 
 class SignTaskOut(BaseModel):
+    revision: Optional[str] = None
     name: str
     account_name: str = ""
     account_names: List[str] = Field(default_factory=list)
@@ -486,7 +490,10 @@ def update_sign_task(
             )
 
         chats_dict = (
-            [_model_dump(chat) for chat in payload.chats]
+            [
+                _model_dump(chat, exclude_unset=payload.field_mask is not None)
+                for chat in payload.chats
+            ]
             if payload.chats is not None
             else None
         )
@@ -496,6 +503,8 @@ def update_sign_task(
             account_names=payload.account_names,
             sign_at=payload.sign_at,
             chats=chats_dict,
+            field_mask=payload.field_mask,
+            revision=payload.revision,
             random_seconds=payload.random_seconds,
             jitter_seconds=payload.jitter_seconds,
             sign_interval=payload.sign_interval,
@@ -525,6 +534,8 @@ def update_sign_task(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except TaskConfigConflict as e:
+        raise HTTPException(status_code=409, detail="TASK_CONFIG_CHANGED") from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

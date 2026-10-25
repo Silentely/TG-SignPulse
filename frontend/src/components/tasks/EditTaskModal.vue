@@ -27,14 +27,18 @@ watch(() => props.isOpen, (val) => {
     notifyOnFailure.value = props.task.notify_on_failure ?? true
     notifyOnSuccess.value = props.task.notify_on_success ?? true
   }
-})
+}, { immediate: true })
 
 const handleSave = async () => {
   const token = getAuthToken()
   if (!token || !props.task) return
+  if (!taskFormRef.value?.validateForSubmit()) return
 
   // 命令式取最新 payload（TaskForm 已去除 update:payload 双通道，保存路径直接读取）
-  const body = taskFormRef.value?.buildPayload?.() as UpdateSignTaskRequest | undefined
+  const body = taskFormRef.value.buildUpdatePatch() as UpdateSignTaskRequest
+  const notifications: UpdateSignTaskRequest = {}
+  if (notifyOnFailure.value !== (props.task.notify_on_failure ?? true)) notifications.notify_on_failure = notifyOnFailure.value
+  if (notifyOnSuccess.value !== (props.task.notify_on_success ?? true)) notifications.notify_on_success = notifyOnSuccess.value
 
   loading.value = true
   error.value = ''
@@ -46,8 +50,8 @@ const handleSave = async () => {
       props.task.name,
       {
         ...body,
-        notify_on_failure: notifyOnFailure.value,
-        notify_on_success: notifyOnSuccess.value,
+        ...notifications,
+        field_mask: [...(body.field_mask || []), ...Object.keys(notifications)],
       },
       accountName || undefined,
     )

@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-vue-next'
 import { listAccounts, getAccountChats, searchAccountChats } from '../../lib/api'
 import { getAuthToken } from '../../lib/api/core'
 import { useLatestResponseGuard } from '../../lib/latest-response'
-import type { SignTask, AccountInfo, ChatInfo } from '../../lib/api'
+import type { SignTask, AccountInfo, ChatInfo, CreateSignTaskRequest, UpdateSignTaskRequest, SignTaskChat } from '../../lib/api'
 import CustomSelect from '../CustomSelect.vue'
 import MultiSelect from '../MultiSelect.vue'
 import TaskFormTargetSection from './TaskFormTargetSection.vue'
@@ -17,7 +17,7 @@ import type { TaskActionItem, RawTaskAction } from '../../lib/types'
 import { getErrorCode, getLocalizedErrorMessage } from '../../lib/types'
 import { notifyApiError } from '../../lib/notify'
 import { parseActions as parseActionsUtil, parseStepsToActions, nextActionId } from '../../lib/task-form-utils'
-import { buildTaskFormPayload } from '../../lib/task-form-payload'
+import { buildTaskFormPayload, buildTaskMetadataPatch, buildTargetFlowPatch, taskTargetKey } from '../../lib/task-form-payload'
 import { devLog } from '../../lib/devLog'
 
 const { t } = useI18n()
@@ -71,6 +71,42 @@ const targetChats = ref<TargetChatDraft[]>([
 ])
 const activeChatIndex = ref(0)
 const activeChat = computed(() => targetChats.value[activeChatIndex.value] || targetChats.value[0])
+const editingExisting = computed(() => Boolean(props.initialTask && props.lockTaskName))
+const draftReady = ref(false)
+let initialDraft: CreateSignTaskRequest | undefined
+const originalTargets = new Map<number, SignTaskChat>()
+const initialTargets = new Map<number, TargetChatDraft>()
+const flowDrafts = new Map<number, Partial<SignTaskChat>>()
+const flowEditorEnabled = ref(false)
+const activeRawTarget = computed(() => activeChat.value && originalTargets.get(activeChat.value.id))
+const canEditTargetFlow = computed(() => {
+  const raw = activeRawTarget.value
+  return raw && !raw.steps && !raw.flow_graph && Boolean(raw.actions)
+})
+const beginTargetFlowEdit = () => {
+  if (!canEditTargetFlow.value || !activeChat.value) return
+  flowEditorEnabled.value = false
+  const saved = flowDrafts.get(activeChat.value.id)
+  const rawActions = (saved?.actions || activeRawTarget.value?.actions || []) as RawTaskAction[]
+  const listener = rawActions.find(action => action.action === 8)
+  if (listener) {
+    listenerKeywords.value = Array.isArray(listener.keywords) ? listener.keywords.join('\n') : ''
+    listenerMatchMode.value = listener.match_mode || 'contains'
+    listenerPushChannel.value = listener.push_channel || 'continue'
+    listenerForwardChatId.value = String(listener.forward_chat_id || '')
+    listenerForwardThreadId.value = String(listener.forward_message_thread_id || '')
+    listenerBarkUrl.value = listener.bark_url || ''
+    listenerCustomUrl.value = listener.custom_url || ''
+    listenerServerChanKey.value = listener.server_chan_send_key || ''
+    listenerIgnoreSelf.value = listener.ignore_self !== false
+    listenerTimeWindowEnabled.value = Boolean(listener.active_time_start && listener.active_time_end)
+    listenerActiveTimeStart.value = listener.active_time_start || '09:00'
+    listenerActiveTimeEnd.value = listener.active_time_end || '19:00'
+  }
+  actions.value = parseActionsUtil(listener?.continue_actions || rawActions)
+  flowEditorEnabled.value = true
+}
+watch(activeChatIndex, () => { flowEditorEnabled.value = false }, { flush: 'sync' })
 const selectedChatId = computed({
   get: () => activeChat.value?.chatId ?? 0,
   set: (v: number) => { if (activeChat.value) activeChat.value.chatId = v },
@@ -196,7 +232,7 @@ const loadAccounts = async () => {
         : []
       nextTaskOnSuccess.value = props.initialTask.next_task_on_success || ''
       nextTaskDelaySeconds.value = props.initialTask.next_task_delay_seconds ?? 2
-      executionEngine.value = props.initialTask.execution_engine || props.initialTask.chats?.[0]?.execution_engine || ""
+      executionEngine.value = props.initialTask.execution_engine || ""
       showAdvanced.value = shouldAutoExpandAdvanced()
       scheduleMode.value = props.initialTask.execution_mode === 'listen' ? 'listen' : 'scheduled'
       if (props.initialTask.execution_mode === 'range') timeRange.value = props.initialTask.range_start + '-' + props.initialTask.range_end
@@ -218,6 +254,10 @@ const loadAccounts = async () => {
           senderFilter: chat.sender_filter || '',
           sourceAccount: chat.source_account || selectedAccounts.value[0] || accounts.value[0]?.name || '',
         }))
+        targetChats.value.forEach((draft, index) => {
+          originalTargets.set(draft.id, JSON.parse(JSON.stringify(props.initialTask!.chats[index])))
+          initialTargets.set(draft.id, { ...draft })
+        })
         activeChatIndex.value = 0
         const primary = props.initialTask.chats[0]
         const la = primary.actions?.find((a: RawTaskAction) => a.action === 8)
@@ -262,6 +302,8 @@ const loadAccounts = async () => {
         targetChats.value[0].sourceAccount = selectedAccounts.value[0] || ''
       }
     }
+    initialDraft = JSON.parse(JSON.stringify(buildPayload()))
+    draftReady.value = true
     if (selectedAccount.value) loadChats(selectedAccount.value)
   } catch (e: unknown) {
     devLog.error(getLocalizedErrorMessage(e, t))
@@ -461,11 +503,63 @@ const buildPayload = () => {
     executionEngine: executionEngine.value,
   })
 }
+const saveActiveFlowDraft = () => {
+  if (!flowEditorEnabled.value || !activeChat.value) return
+  const chat = buildPayload().chats[0]
+  if (chat) flowDrafts.set(activeChat.value.id, {
+    ...(chat.actions ? { actions: chat.actions } : {}),
+    ...(chat.steps ? { steps: chat.steps } : {}),
+    ...(chat.flow_graph ? { flow_graph: chat.flow_graph } : {}),
+  })
+}
+watch(actions, saveActiveFlowDraft, { deep: true, flush: 'sync' })
+watch([listenerKeywords, listenerMatchMode, listenerPushChannel, listenerForwardChatId,
+  listenerForwardThreadId, listenerBarkUrl, listenerCustomUrl, listenerServerChanKey,
+  listenerIgnoreSelf, listenerTimeWindowEnabled, listenerActiveTimeStart, listenerActiveTimeEnd],
+saveActiveFlowDraft, { flush: 'sync' })
+
+const buildMetadataPatch = (): UpdateSignTaskRequest => {
+  if (!props.initialTask || !initialDraft || !draftReady.value) throw new Error('Task draft is still loading')
+  return buildTaskMetadataPatch(props.initialTask, buildPayload(), initialDraft)
+}
+const buildFlowPatch = (targetKey: string): UpdateSignTaskRequest | null => {
+  if (!props.initialTask) return null
+  const entry = [...originalTargets.entries()].find(([, chat]) => taskTargetKey(chat) === targetKey)
+  const flow = entry && flowDrafts.get(entry[0])
+  return flow ? buildTargetFlowPatch(props.initialTask, targetKey, flow) : null
+}
+const buildUpdatePatch = (): UpdateSignTaskRequest => {
+  const patch = buildMetadataPatch()
+  const chats = targetChats.value.map((draft, index) => {
+    const raw = originalTargets.get(draft.id)
+    const initial = initialTargets.get(draft.id)
+    if (!raw || !initial) return buildPayload().chats[index]!
+    const updated = { ...raw }
+    if (draft.chatId !== initial.chatId) updated.chat_id = draft.chatId
+    if (draft.chatName !== initial.chatName) updated.name = draft.chatName
+    if (draft.messageThreadId !== initial.messageThreadId) updated.message_thread_id = draft.messageThreadId ? Number(draft.messageThreadId) : undefined
+    if (draft.senderFilter !== initial.senderFilter) updated.sender_filter = draft.senderFilter.trim() || undefined
+    if (draft.sourceAccount !== initial.sourceAccount) updated.source_account = draft.sourceAccount || undefined
+    const flow = flowDrafts.get(draft.id)
+    if (flow) {
+      for (const key of ['actions', 'steps', 'flow_graph', 'initial_step_id'] as const) delete updated[key]
+      Object.assign(updated, flow)
+    }
+    return updated
+  })
+  if (JSON.stringify(chats) !== JSON.stringify(props.initialTask!.chats)) {
+    patch.chats = chats
+    patch.field_mask!.push('chats')
+  }
+  return patch
+}
 /** 供父组件提交前触发；返回是否通过 */
 const validateForSubmit = (): boolean => {
+  if (!draftReady.value) return false
+  syncTagsFromInput()
   validateTaskName()
   validateTimeRange()
-  return !taskNameError.value && !timeRangeError.value
+  return !taskNameError.value && !timeRangeError.value && !tagsError.value
 }
 
 /** 定时模式时间范围格式校验：HH:MM 或 HH:MM-HH:MM；监听模式不校验 */
@@ -479,7 +573,7 @@ const validateTimeRange = () => {
     ? ''
     : t('taskForm.timeRangeInvalid')
 }
-defineExpose({ buildPayload, createMode, validateForSubmit })
+defineExpose({ buildPayload, buildMetadataPatch, buildFlowPatch, buildUpdatePatch, createMode, validateForSubmit })
 onMounted(() => { loadAccounts() })
 </script>
 <template>
@@ -640,9 +734,14 @@ onMounted(() => { loadAccounts() })
       @toggle-bulk-chat="toggleBulkChat"
       @apply-bulk-picked="applyBulkPickedChats"
     />
+    <div v-if="editingExisting" class="ui-alert-info" data-testid="preserved-flow-summary">
+      <p>{{ t('taskForm.preservedFlowSummary', { target: activeRawTarget?.name || activeRawTarget?.chat_id || '' }) }}</p>
+      <p v-if="activeRawTarget?.steps || activeRawTarget?.flow_graph">{{ t('taskForm.advancedFlowPreserved') }}</p>
+      <button v-if="canEditTargetFlow && !flowEditorEnabled" type="button" class="ui-btn-secondary mt-2" @click="beginTargetFlowEdit">{{ t('taskForm.editTargetFlow') }}</button>
+    </div>
     <!-- 03 关键词监听（仅 listen） -->
     <TaskFormListenSection
-      v-if="scheduleMode === 'listen'"
+      v-if="scheduleMode === 'listen' && (!editingExisting || flowEditorEnabled)"
       :keywords="listenerKeywords"
       :match-mode="listenerMatchMode"
       :push-channel="listenerPushChannel"
@@ -670,7 +769,7 @@ onMounted(() => { loadAccounts() })
     />
     <!-- 动作序列 -->
     <TaskFormActionsSection
-      v-if="scheduleMode === 'scheduled' || listenerPushChannel === 'continue'"
+      v-if="(!editingExisting || flowEditorEnabled) && (scheduleMode === 'scheduled' || listenerPushChannel === 'continue')"
       :actions="actions"
       :step-num="scheduleMode === 'listen' ? '04' : '03'"
       :allow-custom-plugin="true"

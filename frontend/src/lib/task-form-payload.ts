@@ -2,9 +2,56 @@
  * TaskForm payload 纯函数：从 UI 草稿构造 Create/Update 请求体。
  * 与 Vue 组件解耦，便于单测与复用。
  */
-import type { CreateSignTaskRequest } from './api'
+import type { CreateSignTaskRequest, SignTask, SignTaskChat, UpdateSignTaskRequest } from './api'
 import type { BuiltAction, RawTaskAction, TaskActionItem } from './types'
 import { buildActions, actionsToFlowSteps } from './task-form-utils'
+
+/** Only form-owned metadata is eligible for this patch. Flow and runtime defaults
+ * must never leak into a metadata save. Compare against the initialized draft,
+ * since older configs may omit defaults that the form displays. */
+const metadataFields = [
+  'account_names', 'sign_at', 'execution_mode', 'range_start', 'range_end',
+  'retry_count', 'tags', 'adaptive_schedule_enabled', 'adaptive_schedule_patterns',
+  'adaptive_schedule_padding_seconds', 'next_task_on_success',
+  'next_task_delay_seconds', 'execution_engine',
+] as const
+
+export function buildTaskMetadataPatch(
+  original: SignTask,
+  draft: Partial<CreateSignTaskRequest>,
+  initialDraft: Partial<CreateSignTaskRequest> = original,
+): UpdateSignTaskRequest {
+  const patch: UpdateSignTaskRequest = { revision: original.revision, field_mask: [] }
+  for (const field of metadataFields) {
+    if (draft[field] !== undefined && JSON.stringify(draft[field]) !== JSON.stringify(initialDraft[field])) {
+      Object.assign(patch, { [field]: draft[field] })
+      patch.field_mask!.push(field)
+    }
+  }
+  return patch
+}
+
+export function taskTargetKey(chat: Pick<SignTaskChat, 'chat_id' | 'message_thread_id'>): string {
+  return `${chat.chat_id}:${chat.message_thread_id ?? ''}`
+}
+
+export function buildTargetFlowPatch(
+  original: SignTask,
+  targetKey: string,
+  flow: Partial<Pick<SignTaskChat, 'actions' | 'steps' | 'flow_graph' | 'initial_step_id'>>,
+): UpdateSignTaskRequest | null {
+  if (!original.chats.some(chat => taskTargetKey(chat) === targetKey)) return null
+  return {
+    revision: original.revision,
+    field_mask: ['chats'],
+    chats: original.chats.map(chat => {
+      if (taskTargetKey(chat) !== targetKey) return JSON.parse(JSON.stringify(chat))
+      const updated = { ...chat }
+      for (const key of ['actions', 'steps', 'flow_graph', 'initial_step_id'] as const) delete updated[key]
+      return { ...updated, ...flow }
+    }),
+  }
+}
 
 export type TargetChatDraftLike = {
   chatId: number

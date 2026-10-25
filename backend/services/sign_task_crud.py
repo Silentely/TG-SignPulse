@@ -613,6 +613,67 @@ class SignTaskCrudMixin:
         )
 
     def update_task(
+        self, task_name: str, *args, field_mask=None, revision=None, **kwargs
+    ):
+        """Apply masked edits under the same locks as the revision comparison."""
+        from backend.services.sign_task_config_build import _DEFAULT_TASK_FIELDS
+        from backend.services.task_config_io import (
+            TaskConfigConflict,
+            locked_task_paths,
+        )
+        from tg_signer.semantic.models import config_revision
+
+        task_name = validate_storage_name(task_name, field_name="task_name")
+        if kwargs.get("account_name") == "*":
+            kwargs["account_name"] = None
+        if field_mask is not None:
+            allowed = set(_DEFAULT_TASK_FIELDS) | {"account_names"}
+            if not set(field_mask) <= allowed:
+                raise ValueError("TASK_UPDATE_INVALID_FIELD_MASK")
+            if not revision:
+                raise ValueError("TASK_UPDATE_REVISION_REQUIRED")
+            if args:
+                raise ValueError("Masked updates require named arguments")
+            for field in field_mask:
+                if field not in kwargs or kwargs[field] is None:
+                    raise ValueError(f"TASK_UPDATE_MASK_VALUE_REQUIRED: {field}")
+            kwargs = {
+                key: value
+                for key, value in kwargs.items()
+                if key in field_mask or key == "account_name"
+            }
+
+        account = kwargs.get("account_name")
+        related = self._find_related_task_infos(task_name, account)
+        paths = [
+            self._resolve_task_dir(task_name, item.get("account_name")) / "config.json"
+            for item in related
+        ]
+        if kwargs.get("account_names") is not None:
+            targets = self._expand_account_names(
+                self._normalize_account_names(kwargs["account_names"])
+            )
+            paths.extend(
+                self.signs_dir / target / task_name / "config.json"
+                for target in targets
+            )
+        with locked_task_paths(paths):
+            if revision is not None:
+                primary_dir = self._resolve_task_dir(task_name, account)
+                if primary_dir is None:
+                    raise TaskConfigConflict("TASK_CONFIG_CHANGED")
+                primary = primary_dir / "config.json"
+                current = read_json_safe(primary)
+                if (
+                    not isinstance(current, dict)
+                    or config_revision(current) != revision
+                ):
+                    raise TaskConfigConflict("TASK_CONFIG_CHANGED")
+            return self._update_task_impl(
+                task_name, *args, _field_mask=field_mask, **kwargs
+            )
+
+    def _update_task_impl(
         self,
         task_name: str,
         sign_at: Optional[str] = None,
@@ -636,6 +697,7 @@ class SignTaskCrudMixin:
         next_task_on_success: Optional[str] = None,
         next_task_delay_seconds: Optional[float] = None,
         execution_engine: Optional[str] = None,
+        _field_mask: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
         task_name = validate_storage_name(task_name, field_name="task_name")
@@ -656,6 +718,11 @@ class SignTaskCrudMixin:
         related_tasks = self._find_related_task_infos(task_name, account_name)
         if not existing or not related_tasks:
             raise ValueError(f"任务 {task_name} 不存在")
+
+        source_dir = self._resolve_task_dir(task_name, account_name)
+        source_config = (
+            read_json_safe(source_dir / "config.json", default={}) if source_dir else {}
+        )
 
         warnings: list[str] = []
         existing_accounts = self._normalize_account_names(
@@ -796,6 +863,17 @@ class SignTaskCrudMixin:
 
             # 读-改-写全程持路径锁，避免与其他写路径交叉造成丢失更新
             with path_write_lock(desired_dir / "config.json"):
+                previous = read_json_safe(desired_dir / "config.json", default={})
+                if isinstance(previous, dict):
+                    if _field_mask is not None and previous:
+                        config = {
+                            **previous,
+                            **{key: config[key] for key in _field_mask},
+                        }
+                        if "account_names" in _field_mask:
+                            config["task_group_id"] = next_group_id
+                    else:
+                        config = {**(previous or source_config), **config}
                 write_json_atomic(desired_dir / "config.json", config)
                 # 更新覆盖了删除语义：该账号副本被显式重写，允许后续通配扩展
                 self.clear_wildcard_removed(current_account, task_name)

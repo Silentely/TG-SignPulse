@@ -37,6 +37,7 @@ export interface ActiveRunSummary {
 }
 
 export interface SignTask {
+  revision?: string;
   name: string;
   account_name: string;
   account_names?: string[];
@@ -90,6 +91,9 @@ export interface CreateSignTaskRequest {
 }
 
 export interface UpdateSignTaskRequest {
+  revision?: string;
+  field_mask?: string[];
+  execution_engine?: string | null;
   account_names?: string[];
   sign_at?: string;
   chats?: SignTaskChat[];
