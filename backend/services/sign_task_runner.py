@@ -739,6 +739,8 @@ async def _runner_send_notifications(
                 failure_category = FailureCategory.TIMEOUT.value
             _set_ctx(state, "failure_category", failure_category)
         await send_failure_notification(
+            run_id=state.get("run_id"),
+            aggregate_status=state.get("aggregate_status", ""),
             account_name=state["account_name"],
             task_name=state["task_name"],
             message=state.get("error_msg", "") or state.get("last_reply", ""),
@@ -750,6 +752,8 @@ async def _runner_send_notifications(
         )
     elif success and state.get("task_notify_on_success", True):
         await send_success_notification(
+            run_id=state.get("run_id"),
+            aggregate_status=state.get("aggregate_status", ""),
             account_name=state["account_name"],
             task_name=state["task_name"],
             message=str(state.get("last_reply", "") or ""),

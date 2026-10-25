@@ -227,6 +227,8 @@ async def send_failure_notification(
     last_target_message: Optional[str] = None,
     flow_logs: Optional[List[str]] = None,
     failure_category: Optional[str] = None,
+    run_id: str | None = None,
+    aggregate_status: str = "failure",
 ) -> None:
     try:
         from backend.services.config import get_config_service
@@ -241,7 +243,7 @@ async def send_failure_notification(
             build_html_notification,
             is_in_quiet_hours,
             sanitize_push_error,
-            send_telegram_bot_message,
+            send_outbox_telegram_message,
         )
 
         if is_in_quiet_hours(cfg):
@@ -274,7 +276,12 @@ async def send_failure_notification(
                 fields=fields,
                 footer=f"建议: {advice}",
             )
-            await send_telegram_bot_message(
+            await send_outbox_telegram_message(
+                event_type="task_failure",
+                account_name=account_name,
+                task_name=task_name,
+                run_id=run_id,
+                aggregate_status=aggregate_status,
                 bot_token=bot_token,
                 chat_id=chat_id,
                 text=text,
@@ -364,7 +371,12 @@ async def send_failure_notification(
             footer="\n".join(footer_parts),
         )
 
-        await send_telegram_bot_message(
+        await send_outbox_telegram_message(
+            event_type="task_failure",
+            account_name=account_name,
+            task_name=task_name,
+            run_id=run_id,
+            aggregate_status=aggregate_status,
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
@@ -385,6 +397,8 @@ async def send_success_notification(
     account_name: str,
     task_name: str,
     message: str = "",
+    run_id: str | None = None,
+    aggregate_status: str = "success",
 ) -> None:
     try:
         from backend.services.config import get_config_service
@@ -399,6 +413,11 @@ async def send_success_notification(
             account_name=account_name,
             task_name=task_name,
             message=message or "",
+            **(
+                {"run_id": run_id, "aggregate_status": aggregate_status}
+                if run_id is not None
+                else {}
+            ),
         )
     except Exception as e:
         logger.warning(

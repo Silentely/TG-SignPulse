@@ -324,8 +324,8 @@ async def send_telegram_bot_message(
         proxy_url = format_proxy_url(effective_proxy)
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    # 网络层抖动（连接/DNS/超时）与 5xx 瞬时故障重试一次，提升通知到达率；
-    # 4xx 属于请求本身问题（参数/权限），重试无意义，直接抛出
+    # Retry once only when connection establishment/pool acquisition failed.
+    # A timeout after sending or HTTP 5xx can follow remote acceptance.
     last_exc: Optional[Exception] = None
     for attempt in (1, 2):
         try:
@@ -342,9 +342,10 @@ async def send_telegram_bot_message(
                     pass
             return
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
-            if (
-                isinstance(exc, httpx.HTTPStatusError)
-                and exc.response.status_code < 500
+            # Only a connection/pool failure proves no request was accepted.
+            # Read/write failures and HTTP 5xx are ambiguous and must not replay.
+            if not isinstance(
+                exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
             ):
                 raise
             last_exc = exc
@@ -379,10 +380,10 @@ async def _http_post_retry_once(
     timeout: float = 10.0,
     method: str = "POST",
 ) -> httpx.Response:
-    """HTTP 推送统一重试封装：瞬时故障（连接/DNS/超时）与 5xx 重试一次，4xx 直抛。
+    """Retry once only before sending: connect/pool failures.
 
-    与 send_telegram_bot_message 同一重试语义，供 bark / 自定义推送等
-    非 Telegram 通道复用，保证各通道抖动下的到达率一致。
+    HTTP 5xx and read/write failures have unknown delivery and are never replayed.
+    The historical helper name and signature remain compatible.
     """
     _validate_push_target_url(url)
     last_exc: Optional[Exception] = None
@@ -396,9 +397,10 @@ async def _http_post_retry_once(
             response.raise_for_status()
             return response
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
-            if (
-                isinstance(exc, httpx.HTTPStatusError)
-                and exc.response.status_code < 500
+            # Only a connection/pool failure proves no request was accepted.
+            # Read/write failures and HTTP 5xx are ambiguous and must not replay.
+            if not isinstance(
+                exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
             ):
                 raise
             last_exc = exc
@@ -550,12 +552,73 @@ async def send_login_notification(
         logger.warning("Telegram 登录通知发送失败: %s", sanitize_push_error(exc))
 
 
+async def send_outbox_telegram_message(
+    *,
+    event_type: str,
+    account_name: str = "",
+    task_name: str = "",
+    run_id: str | None = None,
+    aggregate_status: str = "",
+    **message_kwargs: Any,
+) -> str:
+    """Record one run/event/channel receipt while keeping message bodies ephemeral.
+
+    Legacy callers without a run ID receive a fresh event identity. Callers that
+    retry the same event must pass its original run ID for durable deduplication.
+    """
+    from uuid import uuid4
+
+    from backend.services.notification_outbox import (
+        NotificationDeliveryError,
+        NotificationOutbox,
+        make_notification_envelope,
+    )
+
+    envelope = make_notification_envelope(
+        event_type=event_type,
+        account_name=account_name,
+        task_name=task_name,
+        run_id=run_id or str(uuid4()),
+        aggregate_status=aggregate_status,
+        payload={
+            key: value for key, value in message_kwargs.items() if key != "bot_token"
+        },
+    )
+    box = NotificationOutbox()
+    # Destinations are hashed so changing a recipient is a separate channel,
+    # without storing chat IDs or credentials in the outbox.
+    import hashlib
+    import json
+
+    target = json.dumps(
+        [message_kwargs.get("chat_id"), message_kwargs.get("message_thread_id")]
+    )
+    channel = "telegram:" + hashlib.sha256(target.encode()).hexdigest()[:24]
+    box.enqueue_notification(envelope, channel)
+    state = await box.deliver_notification(
+        envelope.notification_id,
+        channel,
+        lambda: send_telegram_bot_message(**message_kwargs),
+    )
+    if state != "sent":
+        logger.warning(
+            "Notification %s channel=%s delivery=%s",
+            envelope.notification_id,
+            channel,
+            state,
+        )
+        raise NotificationDeliveryError(envelope.notification_id, state)
+    return state
+
+
 async def send_task_success_notification(
     settings: Dict[str, Any],
     *,
     account_name: str,
     task_name: str,
     message: str = "",
+    run_id: str | None = None,
+    aggregate_status: str = "success",
 ) -> None:
     """任务成功时的 Bot 通知。"""
     if not settings.get("telegram_bot_notify_enabled"):
@@ -579,7 +642,12 @@ async def send_task_success_notification(
         title=f"✅ {account_name} · {task_name} 执行成功",
         fields=fields,
     )
-    await send_telegram_bot_message(
+    await send_outbox_telegram_message(
+        event_type="task_success",
+        account_name=account_name,
+        task_name=task_name,
+        run_id=run_id,
+        aggregate_status=aggregate_status,
         bot_token=bot_token,
         chat_id=chat_id,
         text=text,
@@ -593,6 +661,7 @@ async def send_auto_backup_failure_notification(
     *,
     error: str,
     detail: str = "",
+    run_id: str | None = None,
 ) -> None:
     """自动备份失败时的 Bot 通知（打包失败或 WebDAV 上传失败）。
 
@@ -619,7 +688,10 @@ async def send_auto_backup_failure_notification(
         fields=fields,
     )
     try:
-        await send_telegram_bot_message(
+        await send_outbox_telegram_message(
+            event_type="backup_failure",
+            run_id=run_id,
+            aggregate_status="failure",
             bot_token=bot_token,
             chat_id=chat_id,
             text=text,
