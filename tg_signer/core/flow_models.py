@@ -70,6 +70,19 @@ class ParallelMode(str, Enum):
     ALL_SETTLED = "all_settled"
 
 
+class BranchStatus(str, Enum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+class VariableConflictPolicy(str, Enum):
+    FAIL = "fail"
+    FIRST_WRITER = "first_writer"
+    LAST_WRITER = "last_writer"
+    COLLECT = "collect"
+
+
 class TerminalPolicy(str, Enum):
     IGNORE = "ignore"
     STOP_FLOW = "stop_flow"
@@ -259,6 +272,7 @@ class ParallelNode(BaseFlowNode):
     mode: ParallelMode = ParallelMode.ALL
     max_concurrency: Optional[int] = None
     join_strategy: str = "merge"
+    variable_conflict_policy: VariableConflictPolicy = VariableConflictPolicy.FAIL
 
 
 NODE_TYPE_MAP: Dict[NodeType, type[BaseFlowNode]] = {
@@ -339,6 +353,7 @@ class ExecutionGraph(BaseModel):
                     and "branches" in node_kwargs
                     and isinstance(node_kwargs["branches"], list)
                 ):
+                    node_kwargs.setdefault("variable_conflict_policy", "last_writer")
                     node_kwargs["branches"] = [
                         cls.from_dict(b) if isinstance(b, dict) else b
                         for b in node_kwargs["branches"]

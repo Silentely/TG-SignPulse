@@ -492,6 +492,11 @@ class PulseFlowEngine:
             if unknown_operation
             else ("confirmed" if is_success else "failed")
         )
+        if is_success and any(
+            so.details.get("business_status") == "partial"
+            for so in ctx.step_outcomes.values()
+        ):
+            res["business_status"] = "partial"
         res["operation_receipts"] = [
             {
                 "operation_id": r.operation_id,
@@ -729,6 +734,7 @@ class PulseFlowEngine:
         results = await asyncio.gather(*branch_coros, return_exceptions=True)
 
         merged_vars: Dict[str, Any] = {}
+        written_values: Dict[str, list[Any]] = {}
         succeeded_count = 0
         failed_count = 0
 
@@ -740,7 +746,10 @@ class PulseFlowEngine:
             if branch_res.get("status") == "success":
                 succeeded_count += 1
                 if node.join_strategy == "merge":
-                    merged_vars.update(branch_ctx.vars)
+                    for key, value in branch_ctx.vars.items():
+                        if key in ctx.vars and value == ctx.vars[key]:
+                            continue
+                        written_values.setdefault(key, []).append(value)
             else:
                 failed_count += 1
 
@@ -753,6 +762,22 @@ class PulseFlowEngine:
             # ALL_SETTLED reports completion of every branch, including failures.
             is_overall_success = True
 
+        conflicts = [
+            k
+            for k, values in written_values.items()
+            if any(v != values[0] for v in values[1:])
+        ]
+        policy = node.variable_conflict_policy.value
+        for key, values in written_values.items():
+            if policy == "collect" and key in conflicts:
+                merged_vars[key] = values
+            elif policy == "first_writer":
+                merged_vars[key] = values[0]
+            else:
+                merged_vars[key] = values[-1]
+        if conflicts and policy == "fail":
+            is_overall_success = False
+            merged_vars = {}
         if is_overall_success and node.join_strategy == "merge":
             ctx.vars.update(merged_vars)
 
@@ -784,7 +809,14 @@ class PulseFlowEngine:
             ),
             extracted_vars=merged_vars,
             updates_last_output=False,
-            details={"branches": branch_details},
+            details={
+                "branches": branch_details,
+                "execution_status": "completed",
+                "business_status": "partial"
+                if failed_count and succeeded_count
+                else ("failed" if failed_count else "confirmed"),
+                "variable_conflicts": conflicts,
+            },
         )
 
     def _run_extractor_node(

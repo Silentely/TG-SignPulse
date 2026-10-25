@@ -1291,6 +1291,14 @@ class SignerRunnerMixin:
                 )
                 try:
                     flow_res = await engine.run(graph, ctx, executor, event_bus=bus)
+                    self.context.business_status = flow_res.get(
+                        "business_status", "not_evaluated"
+                    )
+                    self.context.flow_trace = flow_res.get("trace", [])
+                    self.context.flow_metrics = flow_res.get("metrics", {})
+                    self.context.operation_receipts = flow_res.get(
+                        "operation_receipts", []
+                    )
                     if flow_res.get("status") == "success":
                         dur = flow_res.get("duration_ms", 0.0)
                         steps = flow_res.get("steps", 0)

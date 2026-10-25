@@ -826,6 +826,12 @@ async def _runner_trigger_chained_task(
 ) -> None:
     """若任务成功且配置了同一账号下的级联任务（next_task_on_success），发起联动执行。
     内置环路循环检测与最大执行深度保护。"""
+    signer_context = getattr(state.get("signer"), "context", None)
+    business_status = state.get("aggregate_status") or getattr(
+        signer_context, "business_status", None
+    )
+    if business_status in {"partial", "unknown", "failed", "needs_review"}:
+        return
     task_cfg = state.get("task_cfg") or {}
     raw_task_cfg = state.get("raw_task_cfg") or {}
     next_task_name = task_cfg.get("next_task_on_success") or raw_task_cfg.get(
