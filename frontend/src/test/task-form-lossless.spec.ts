@@ -34,6 +34,21 @@ describe('lossless task updates', () => {
     expect(original).toEqual(before)
   })
 
+  it('emits explicit nulls when clearing a task chain field', () => {
+    const chained = { ...original, next_task_on_success: 'later', next_task_delay_seconds: 10 } as SignTask
+    const patch = buildTaskMetadataPatch(
+      chained,
+      { next_task_on_success: null, next_task_delay_seconds: null },
+      { next_task_on_success: 'later', next_task_delay_seconds: 10 },
+    )
+    expect(patch).toEqual({
+      revision: 'rev1',
+      field_mask: ['next_task_on_success', 'next_task_delay_seconds'],
+      next_task_on_success: null,
+      next_task_delay_seconds: null,
+    })
+  })
+
   it('updates only the explicitly edited target and retains its unknown fields and interval', () => {
     const patch = buildTargetFlowPatch(original, '1:', { actions: [{ action: 1, text: 'changed' }] })!
     expect(patch.field_mask).toEqual(['chats'])

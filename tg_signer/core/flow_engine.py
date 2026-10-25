@@ -791,6 +791,7 @@ class PulseFlowEngine:
             ctx.vars.update(merged_vars)
 
         branch_details = []
+        branch_unknown = False
         for index, result in enumerate(results):
             if isinstance(result, Exception):
                 branch_details.append(
@@ -798,6 +799,13 @@ class PulseFlowEngine:
                 )
                 continue
             branch_res, _branch_ctx = result
+            branch_receipts = list(_branch_ctx.operation_receipts)
+            branch_unknown = branch_unknown or any(
+                receipt.state.value == "unknown" for receipt in branch_receipts
+            )
+            for receipt in branch_receipts:
+                receipt.operation_id = f"{node.id}.branch{index}.{receipt.operation_id}"
+                ctx.operation_receipts.append(receipt)
             branch_details.append(
                 {
                     "branch_index": index,
@@ -806,6 +814,19 @@ class PulseFlowEngine:
                     "trace": branch_res.get("trace", []),
                     "metrics": branch_res.get("metrics", {}),
                     "error": branch_res.get("error"),
+                    "business_status": branch_res.get("business_status"),
+                    "operation_receipts": [
+                        {
+                            "operation_id": receipt.operation_id,
+                            "node_id": receipt.node_id,
+                            "attempt": receipt.attempt,
+                            "kind": receipt.kind,
+                            "state": receipt.state.value,
+                            "remote_id": receipt.remote_id,
+                            "evidence": receipt.evidence,
+                        }
+                        for receipt in branch_receipts
+                    ],
                 }
             )
 
@@ -821,9 +842,15 @@ class PulseFlowEngine:
             details={
                 "branches": branch_details,
                 "execution_status": "completed",
-                "business_status": "partial"
-                if failed_count and succeeded_count
-                else ("failed" if failed_count else "confirmed"),
+                "business_status": (
+                    "unknown"
+                    if branch_unknown
+                    else (
+                        "partial"
+                        if failed_count and succeeded_count
+                        else ("failed" if failed_count else "confirmed")
+                    )
+                ),
                 "variable_conflicts": conflicts,
             },
         )
@@ -1037,7 +1064,7 @@ class PulseFlowEngine:
 
         def _delivery_gap() -> StepOutcome | None:
             stats = bus.get_delivery_stats(queue)
-            if not stats.dropped_events:
+            if not stats.dropped_events and not stats.history_evicted_events:
                 return None
             message = "消息事件传递存在缺口，无法确认机器人回复结果"
             _log_msg(message, level="WARNING")
@@ -1052,6 +1079,7 @@ class PulseFlowEngine:
                     "result": "unknown",
                     "event_gap": {
                         "dropped_events": stats.dropped_events,
+                        "history_evicted_events": stats.history_evicted_events,
                         "oldest_dropped_at": stats.oldest_dropped_at,
                         "newest_dropped_at": stats.newest_dropped_at,
                     },

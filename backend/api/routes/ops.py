@@ -284,6 +284,48 @@ class MemoryStatsResponse(BaseModel):
     stats: Dict[str, Any] = Field(default_factory=dict)
 
 
+class NotificationReconcileRequest(BaseModel):
+    channel: str = Field(..., min_length=1, max_length=64)
+    confirmed_not_delivered: bool = False
+    confirmed_delivered: bool = False
+
+
+@router.get("/notifications/outbox")
+def list_notification_outbox(
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.notification_outbox import NotificationOutbox
+
+    return {"records": NotificationOutbox().list_records(limit=limit)}
+
+
+@router.post("/notifications/outbox/{notification_id}/reconcile")
+def reconcile_notification_outbox(
+    notification_id: str,
+    payload: NotificationReconcileRequest,
+    current_user: User = Depends(get_current_user),
+):
+    from backend.services.notification_outbox import NotificationOutbox
+
+    try:
+        NotificationOutbox().reconcile_notification(
+            notification_id,
+            payload.channel,
+            confirmed_not_delivered=payload.confirmed_not_delivered,
+            confirmed_delivered=payload.confirmed_delivered,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="NOTIFICATION_NOT_FOUND") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "notification_id": notification_id,
+        "channel": payload.channel,
+    }
+
+
 def _human_size(num: int) -> str:
     if num is None or num < 0:
         return "0 B"

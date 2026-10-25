@@ -634,8 +634,11 @@ class SignTaskCrudMixin:
                 raise ValueError("TASK_UPDATE_REVISION_REQUIRED")
             if args:
                 raise ValueError("Masked updates require named arguments")
+            nullable_fields = {"next_task_on_success", "next_task_delay_seconds"}
             for field in field_mask:
-                if field not in kwargs or kwargs[field] is None:
+                if field not in kwargs or (
+                    kwargs[field] is None and field not in nullable_fields
+                ):
                     raise ValueError(f"TASK_UPDATE_MASK_VALUE_REQUIRED: {field}")
             kwargs = {
                 key: value
@@ -788,6 +791,14 @@ class SignTaskCrudMixin:
             next_task_delay_seconds=next_task_delay_seconds,
             execution_engine=execution_engine,
         )
+        if _field_mask:
+            if "next_task_on_success" in _field_mask and next_task_on_success is None:
+                fields["next_task_on_success"] = ""
+            if (
+                "next_task_delay_seconds" in _field_mask
+                and next_task_delay_seconds is None
+            ):
+                fields["next_task_delay_seconds"] = 2.0
         next_sign_at = fields["sign_at"]
         next_random_seconds = fields["random_seconds"]
         next_jitter_seconds = fields["jitter_seconds"]

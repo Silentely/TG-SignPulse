@@ -16,6 +16,7 @@ logger = logging.getLogger("tg_signer.flow_event_bus")
 @dataclass(frozen=True)
 class EventDeliveryStats:
     dropped_events: int = 0
+    history_evicted_events: int = 0
     oldest_dropped_at: float | None = None
     newest_dropped_at: float | None = None
 
@@ -91,6 +92,7 @@ class TelegramEventBus:
         self._queue_size = queue_size
         self._max_history_keys = max_history_keys
         self._history_last_published: dict[tuple, float] = {}
+        self._history_evictions: dict[tuple, int] = {}
         self._delivery_stats: WeakKeyDictionary = WeakKeyDictionary()
 
     def get_delivery_stats(self, queue: asyncio.Queue) -> EventDeliveryStats:
@@ -100,6 +102,7 @@ class TelegramEventBus:
         stats = self.get_delivery_stats(queue)
         self._delivery_stats[queue] = EventDeliveryStats(
             dropped_events=stats.dropped_events + 1,
+            history_evicted_events=stats.history_evicted_events,
             oldest_dropped_at=min(stats.oldest_dropped_at, event.occurred_at)
             if stats.oldest_dropped_at is not None
             else event.occurred_at,
@@ -120,6 +123,7 @@ class TelegramEventBus:
             if expired or len(self._history_buffers) > self._max_history_keys:
                 self._history_buffers.pop(key, None)
                 self._history_last_published.pop(key, None)
+                self._history_evictions.pop(key, None)
                 removed += 1
         return removed
 
@@ -134,6 +138,11 @@ class TelegramEventBus:
         key = (_normalize_chat_id(chat_id), message_thread_id)
         queue: asyncio.Queue = asyncio.Queue(maxsize=self._queue_size)
         self._subscribers.setdefault(key, []).append(queue)
+        history_evictions = self._history_evictions.get(key, 0)
+        if history_evictions:
+            self._delivery_stats[queue] = EventDeliveryStats(
+                history_evicted_events=history_evictions
+            )
 
         def _matches_type(ev_type: str) -> bool:
             if not event_type or event_type.upper() in {"ANY", "ALL"}:
@@ -211,6 +220,11 @@ class TelegramEventBus:
                 for e in buf[-self._buffer_size :]
                 if now - e.occurred_at <= self._buffer_ttl
             ]
+            evicted = max(0, len(buf) - self._buffer_size)
+            if evicted:
+                self._history_evictions[key] = (
+                    self._history_evictions.get(key, 0) + evicted
+                )
 
             for q in self._subscribers.get(key, []):
                 try:
@@ -226,6 +240,7 @@ class TelegramEventBus:
             self._subscribers.clear()
             self._history_buffers.clear()
             self._history_last_published.clear()
+            self._history_evictions.clear()
             self._delivery_stats.clear()
         else:
             to_del_sub = [
@@ -241,6 +256,7 @@ class TelegramEventBus:
             for k in to_del_buf:
                 self._history_buffers.pop(k, None)
                 self._history_last_published.pop(k, None)
+                self._history_evictions.pop(k, None)
 
     def get_history(
         self,

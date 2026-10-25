@@ -1003,23 +1003,33 @@ async def _do_install_market_plugin(
             async with httpx.AsyncClient(
                 timeout=25.0, follow_redirects=False, trust_env=False
             ) as client:
+                request_kwargs = {"headers": {"Host": host_header}}
                 if parsed_url.scheme == "https":
-                    resp = await client.get(
-                        request_url,
-                        headers={"Host": host_header},
-                        extensions={"sni_hostname": hostname},
-                    )
-                else:
-                    resp = await client.get(request_url, headers={"Host": host_header})
-            if resp.status_code != 200:
-                raise HTTPException(
-                    status_code=400, detail=f"下载插件包失败: HTTP {resp.status_code}"
-                )
-            if len(resp.content) > 10 * 1024 * 1024:
-                raise HTTPException(
-                    status_code=413, detail="插件安装包大小超过 10MB 限制"
-                )
-            archive_bytes = resp.content
+                    request_kwargs["extensions"] = {"sni_hostname": hostname}
+                async with client.stream("GET", request_url, **request_kwargs) as resp:
+                    if resp.status_code != 200:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"下载插件包失败: HTTP {resp.status_code}",
+                        )
+                    max_bytes = 10 * 1024 * 1024
+                    content_length = resp.headers.get("content-length")
+                    if content_length and int(content_length) > max_bytes:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="插件安装包大小超过 10MB 限制",
+                        )
+                    chunks: list[bytes] = []
+                    total_bytes = 0
+                    async for chunk in resp.aiter_bytes():
+                        total_bytes += len(chunk)
+                        if total_bytes > max_bytes:
+                            raise HTTPException(
+                                status_code=413,
+                                detail="插件安装包大小超过 10MB 限制",
+                            )
+                        chunks.append(chunk)
+                    archive_bytes = b"".join(chunks)
         except HTTPException:
             raise
         except Exception as exc:
