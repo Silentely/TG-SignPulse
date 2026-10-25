@@ -429,6 +429,29 @@ async def _runner_execute_with_retry(
                 raise
 
     _set_ctx(state, "success", True)
+    rows = getattr(getattr(signer, "context", None), "target_results", None)
+    if isinstance(rows, list):
+        aggregate = getattr(signer.context, "aggregate_status", "not_evaluated")
+        _set_ctx(state, "targets", rows)
+        _set_ctx(state, "aggregate_status", aggregate)
+        _set_ctx(
+            state,
+            "unknown_side_effects",
+            [r for r in rows if r.get("business_status") == "unknown"],
+        )
+        if aggregate in {"partial", "unknown", "failed", "needs_review"}:
+            _set_ctx(state, "success", False)
+            _set_ctx(
+                state,
+                "error_msg",
+                f"Task result: {aggregate}; targets requiring attention: "
+                + ", ".join(
+                    r["chat_id"]
+                    for r in rows
+                    if r["business_status"]
+                    in {"unknown", "failed", "partial", "needs_review"}
+                ),
+            )
     svc._append_active_log(task_key, "任务执行完成")
     # 增加缓冲时间，防止同账号连续执行任务时 Session 文件锁尚未完全释放
     await asyncio.sleep(POST_RUN_LOCK_BUFFER_SECONDS)
@@ -669,6 +692,13 @@ async def _runner_save_run_info(state: TaskExecutionContext | Dict[str, Any]) ->
             workflow_path = list(wf_path)
             _set_ctx(state, "workflow_path", workflow_path)
 
+    details = {}
+    if state.get("targets"):
+        details = {
+            "aggregate_status": state.get("aggregate_status", "not_evaluated"),
+            "targets": state.get("targets", []),
+            "unknown_side_effects": state.get("unknown_side_effects", []),
+        }
     svc._save_run_info(
         state["task_name"],
         state.get("success", False),
@@ -676,6 +706,7 @@ async def _runner_save_run_info(state: TaskExecutionContext | Dict[str, Any]) ->
         state["account_name"],
         flow_logs=state.get("final_logs", []),
         workflow_path=workflow_path,
+        **details,
     )
 
 
@@ -931,6 +962,20 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
     """统一收尾：更新时间、解析回复、补抓消息、持久化、通知、清理。"""
     svc: SignTaskService = state["svc"]
     account_name = state["account_name"]
+    signer_context = getattr(state.get("signer"), "context", None)
+    target_rows = getattr(signer_context, "target_results", None)
+    if isinstance(target_rows, list):
+        _set_ctx(state, "targets", target_rows)
+        _set_ctx(
+            state,
+            "aggregate_status",
+            getattr(signer_context, "aggregate_status", "not_evaluated"),
+        )
+        _set_ctx(
+            state,
+            "unknown_side_effects",
+            [row for row in target_rows if row.get("business_status") == "unknown"],
+        )
     task_key = state["task_key"]
     tg_logger = state.get("tg_logger")
     log_handler = state.get("log_handler")
@@ -1204,6 +1249,9 @@ async def execute_sign_task(
         "timed_out": ctx.timed_out,
         "failure_category": ctx.failure_category,
         "workflow_path": ctx.workflow_path,
+        "aggregate_status": ctx.aggregate_status,
+        "targets": ctx.targets,
+        "unknown_side_effects": ctx.unknown_side_effects,
         # 收尾阶段的结构化异常，供调用方写入运行记录便于面板排障
         "persistence_error": ctx.persistence_error,
         "notification_error": ctx.notification_error,

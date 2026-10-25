@@ -910,6 +910,7 @@ class SignTaskService(SignTaskCrudMixin):
         account_name: str = "",
         flow_logs: Optional[List[str]] = None,
         workflow_path: Optional[List[str]] = None,
+        **result_details: Any,
     ) -> Dict[str, Any]:
         """保存任务执行历史并同步任务配置与内存缓存。"""
         entry_payload = {
@@ -917,6 +918,7 @@ class SignTaskService(SignTaskCrudMixin):
             "message": message,
             "flow_logs": flow_logs,
             "workflow_path": workflow_path,
+            **result_details,
         }
         run_entry = self.history_store.record_run(
             account=account_name,

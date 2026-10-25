@@ -22,6 +22,8 @@ const props = withDefaults(
     showCopy?: boolean
     /** 无内容时的回退文案 */
     emptyText?: string
+    aggregateStatus?: string
+    targets?: Array<{chat_id: string; business_status: string; thread_id?: number | null}>
   }>(),
   {
     lines: () => [],
@@ -108,6 +110,14 @@ function lineTone(text: string): string {
 
 <template>
   <div class="space-y-3 font-sans">
+    <div v-if="aggregateStatus" role="status" class="text-sm">
+      {{ aggregateStatus }}
+      <ul v-if="targets?.length">
+        <li v-for="target in targets" :key="`${target.chat_id}:${target.thread_id}`">
+          {{ target.chat_id }} · {{ target.business_status }}
+        </li>
+      </ul>
+    </div>
     <!-- 最后返回 -->
     <div v-if="lastTargetItems.length > 0">
       <div class="flex items-center justify-between mb-1.5">

@@ -177,6 +177,12 @@ class SignTaskHistoryStore:
         )
         run_entry["created_at"] = created_at
         run_entry["task_name"] = task
+        run_entry["aggregate_status"] = entry.get(
+            "aggregate_status", "legacy_aggregate"
+        )
+        for field_name in ("targets", "unknown_side_effects"):
+            if field_name in entry:
+                run_entry[field_name] = entry[field_name]
 
         # 若存在旧编码历史文件，先合并迁移到当前规范路径
         migrate_legacy_history_file(

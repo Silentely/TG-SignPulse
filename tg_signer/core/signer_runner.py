@@ -619,16 +619,46 @@ class SignerRunnerMixin:
                 num_of_dialogs, only_once=only_once, force_rerun=force_rerun
             )
 
-    async def _run_config_chats(self, config) -> int:
-        success_count = 0
+    async def _run_config_chats(self, config) -> list[dict]:
+        from tg_signer.core.run_results import aggregate_target_status
+
+        targets = []
         last_chat_error = None
         for chat in config.chats:
+            self.context.business_status = "not_evaluated"
+            self.context.operation_receipts = []
             self.context.sign_chats[chat.chat_id].append(chat)
+            target = {
+                "account_name": getattr(self, "_account", ""),
+                "chat_id": str(chat.chat_id),
+                "thread_id": chat.message_thread_id,
+                "execution_status": "completed",
+                "business_status": "not_evaluated",
+                "failure_category": None,
+                "evidence": [],
+                "retry_safe": False,
+            }
             try:
                 await self.sign_a_chat(chat)
-                success_count += 1
+                status = getattr(self.context, "business_status", "not_evaluated")
+                target["business_status"] = (
+                    status if isinstance(status, str) else "not_evaluated"
+                )
+                target["evidence"] = getattr(self.context, "operation_receipts", [])
             except Exception as exc:
                 last_chat_error = exc
+                unknown = (
+                    getattr(exc, "non_retryable", False)
+                    or self.context.business_status == "unknown"
+                )
+                target.update(
+                    execution_status="failed",
+                    business_status="unknown" if unknown else "failed",
+                    failure_category=getattr(exc, "failure_code", None)
+                    or "target_failed",
+                    retry_safe=not unknown,
+                    error=str(exc),
+                )
                 self.log(
                     f"签到失败: {exc} (chat_id={chat.chat_id})",
                     level="WARNING",
@@ -640,6 +670,7 @@ class SignerRunnerMixin:
                 )
                 continue
             finally:
+                targets.append(target)
                 # Always clear chat messages to prevent memory accumulation
                 self.context.chat_messages[
                     chat_scope_key(chat.chat_id, chat.message_thread_id)
@@ -649,7 +680,10 @@ class SignerRunnerMixin:
 
         if last_chat_error is not None:
             self.context.last_chat_error = last_chat_error
-        return success_count
+        self.context.target_results = targets
+        self.context.aggregate_status = aggregate_target_status(targets)
+        self.context.business_status = self.context.aggregate_status
+        return targets
 
     async def _run_workflow_chat(self, chat: SignChatV3):
         self.log(
@@ -966,14 +1000,29 @@ class SignerRunnerMixin:
         edited_handler_ref = None
 
         async def sign_once():
-            success_count = await self._run_config_chats(config)
+            target_results = await self._run_config_chats(config)
+            success_count = sum(
+                r["execution_status"] == "completed" for r in target_results
+            )
             if success_count == 0 and len(config.chats) > 0:
                 last_chat_err = getattr(self.context, "last_chat_error", None)
                 if last_chat_err:
                     raise RuntimeError(f"{last_chat_err}")
                 raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
 
-            sign_record[str(now.date())] = now.isoformat()
+            completed_targets = sign_record.setdefault("targets", {})
+            for row in target_results:
+                if row["business_status"] in {"confirmed", "already_done"}:
+                    completed_targets[f"{row['chat_id']}:{row['thread_id']}"] = (
+                        now.isoformat()
+                    )
+            if all(
+                r["execution_status"] == "completed"
+                and r["business_status"]
+                not in {"partial", "unknown", "failed", "needs_review"}
+                for r in target_results
+            ):
+                sign_record[str(now.date())] = now.isoformat()
             try:
                 from tg_signer.atomic_io import write_json_atomic
 

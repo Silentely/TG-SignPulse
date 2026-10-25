@@ -48,6 +48,10 @@ def build_history_list_item(
     }
     if "workflow_path" in item:
         res["workflow_path"] = item.get("workflow_path")
+    res["aggregate_status"] = item.get("aggregate_status", "legacy_aggregate")
+    for field_name in ("targets", "unknown_side_effects"):
+        if field_name in item:
+            res[field_name] = item[field_name]
     return res
 
 

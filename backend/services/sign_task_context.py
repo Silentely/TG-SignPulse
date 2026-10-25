@@ -102,6 +102,9 @@ class TaskExecutionContext:
     persistence_error: Optional[Dict[str, Any]] = None
     notification_error: Optional[Dict[str, Any]] = None
     workflow_path: Optional[List[str]] = None
+    aggregate_status: str = "not_evaluated"
+    targets: List[Dict[str, Any]] = field(default_factory=list)
+    unknown_side_effects: List[Dict[str, Any]] = field(default_factory=list)
 
     def transition_to(self, target: TaskPhase) -> None:
         """Advance the execution context state machine to target phase.

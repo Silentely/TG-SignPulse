@@ -8,6 +8,11 @@ import type { SignTaskHistoryItem } from '../../lib/api'
 import { useI18n } from '../../composables/useI18n'
 import { formatPhaseDetail, stateLabel } from '../../lib/run-status'
 
+type TargetHistory = SignTaskHistoryItem & {
+  aggregate_status?: string
+  targets?: Array<{chat_id: string; business_status: string; thread_id?: number | null}>
+}
+
 const { t } = useI18n()
 
 defineProps<{
@@ -20,7 +25,7 @@ defineProps<{
   liveStatusToneClass: string
   realtimeLogs: string[]
   loading: boolean
-  logs: SignTaskHistoryItem[]
+  logs: TargetHistory[]
   expandedIdx: number | null
   formatDate: (dateStr: string) => string
 }>()
@@ -132,6 +137,8 @@ const extractPluginFromLog = (log: SignTaskHistoryItem): { pluginName?: string; 
 
       <div v-if="expandedIdx === idx" class="mt-2">
         <FlowLogViewer
+          :aggregate-status="log.aggregate_status"
+          :targets="log.targets"
           :lines="log.flow_logs || (log.message || log.summary ? [String(log.message || log.summary)] : [])"
           :last-target-message="log.last_target_message || log.bot_message"
           :truncated="!!log.flow_truncated"

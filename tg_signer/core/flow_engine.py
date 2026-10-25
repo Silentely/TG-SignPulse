@@ -490,7 +490,16 @@ class PulseFlowEngine:
         res["business_status"] = (
             "unknown"
             if unknown_operation
-            else ("confirmed" if is_success else "failed")
+            else (
+                "confirmed"
+                if is_success
+                and any(
+                    isinstance(graph.nodes.get(so.node_id), WaitEventNode)
+                    and so.status == NodeStatus.SUCCESS
+                    for so in ctx.step_outcomes.values()
+                )
+                else ("not_evaluated" if is_success else "failed")
+            )
         )
         if is_success and any(
             so.details.get("business_status") == "partial"
