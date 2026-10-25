@@ -177,6 +177,14 @@ class BaseUserWorker(Generic[ConfigT]):
         operation: str,
         max_retries: int = 4,
     ):
+        from tg_signer.core.operation_receipts import (
+            OperationAttemptState,
+            current_operation,
+        )
+
+        receipt = current_operation.get()
+        if receipt is not None and receipt.state == OperationAttemptState.ATTEMPTED:
+            max_retries = 1
         return await call_with_retry(
             callback,
             operation=operation,
@@ -362,6 +370,9 @@ class BaseUserWorker(Generic[ConfigT]):
         :param kwargs:
         :return:
         """
+        from tg_signer.core.operation_receipts import mark_operation_attempted
+
+        mark_operation_attempted()
         message = await self._call_with_retry(
             lambda: self.app.send_message(chat_id, text, **kwargs),
             operation=f"发送消息到 {chat_id}",
@@ -408,6 +419,9 @@ class BaseUserWorker(Generic[ConfigT]):
                 f"骰子表情不合法，应为以下之一: {', '.join(DICE_EMOJIS)}",
                 level="WARNING",
             )
+        from tg_signer.core.operation_receipts import mark_operation_attempted
+
+        mark_operation_attempted()
         message = await self._call_with_retry(
             lambda: self.app.send_dice(chat_id, emoji, **kwargs),
             operation=f"发送骰子到 {chat_id}",

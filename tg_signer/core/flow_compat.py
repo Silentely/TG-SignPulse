@@ -204,7 +204,7 @@ class FlowCompatibilityBridge:
         next_node = self.graph.nodes.get(node.next_node_id)
         if next_node is None:
             return None
-        return next_node.metadata.get("raw_action")
+        return next_node.metadata.get("raw_action") or next_node
 
     def output_text(self, res: Any = None, action: Any = None) -> str:
         """多重来源回填 Telegram 输出文本，确保动作响应不丢失、状态跟得上更新。"""

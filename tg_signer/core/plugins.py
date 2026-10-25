@@ -245,6 +245,9 @@ class PluginContext:
 
     def _mark_side_effect(self) -> None:
         """标记当前插件操作已产生外部网络/消息持久化副作用。"""
+        from tg_signer.core.operation_receipts import mark_operation_attempted
+
+        mark_operation_attempted()
         target = getattr(self, "runner", None) or self.logger
         if target is not None:
             runner_ctx = getattr(target, "context", None)

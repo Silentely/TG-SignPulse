@@ -184,7 +184,49 @@ class TelegramNodeExecutor:
     ) -> StepOutcome:
         """线程/协程安全执行，确保状态锁在异常或取消时 100% 释放。"""
         async with self._runner_state_lock:
-            return await self._call_unlocked(node, context)
+            from tg_signer.core.operation_receipts import (
+                OperationAttemptState,
+                UnknownOperationResult,
+                current_operation,
+            )
+
+            attempt = 1 + sum(r.node_id == node.id for r in context.operation_receipts)
+            receipt = context.begin_operation(
+                f"{node.id}:{attempt}", node.id, attempt, "telegram"
+            )
+            runner_ctx = self.compat.runner_context
+            previous_side_effect = (
+                getattr(runner_ctx, "pulseflow_side_effect_started", False) is True
+            )
+            if runner_ctx is not None:
+                runner_ctx.pulseflow_side_effect_started = False
+            token = current_operation.set(receipt)
+            try:
+                result = await self._call_unlocked(node, context)
+                if receipt.state == OperationAttemptState.ATTEMPTED:
+                    context.mark_operation_confirmed(
+                        receipt.operation_id, {"node_id": node.id}
+                    )
+                return result
+            except BaseException as exc:
+                legacy_mark = (
+                    getattr(runner_ctx, "pulseflow_side_effect_started", False) is True
+                )
+                if legacy_mark or receipt.state != OperationAttemptState.NOT_STARTED:
+                    receipt.state = OperationAttemptState.UNKNOWN
+                    raise UnknownOperationResult(
+                        f"External operation result is unknown; automatic replay stopped: {exc}"
+                    ) from exc
+                raise
+            finally:
+                if runner_ctx is not None:
+                    runner_ctx.pulseflow_side_effect_started = (
+                        previous_side_effect
+                        or getattr(runner_ctx, "pulseflow_side_effect_started", False)
+                        is True
+                        or receipt.state != OperationAttemptState.NOT_STARTED
+                    )
+                current_operation.reset(token)
 
     async def _call_unlocked(
         self, node: BaseFlowNode, context: ScopedFlowContext

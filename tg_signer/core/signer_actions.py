@@ -1545,6 +1545,14 @@ class SignerActionsMixin:
             read_positive_float_env("TG_SIGNER_CALLBACK_TIMEOUT", 5.0, 1.0),
         )
         max_retries = read_positive_int_env("TG_SIGNER_CALLBACK_MAX_RETRIES", 2, 1)
+        from tg_signer.core.operation_receipts import (
+            current_operation,
+            mark_operation_attempted,
+        )
+
+        if current_operation.get() is not None:
+            max_retries = 1
+        mark_operation_attempted()
         if hasattr(self, "context"):
             self.context.last_callback_unconfirmed = False
 

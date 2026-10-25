@@ -5,6 +5,7 @@ import re
 from typing import Any, Dict, Optional
 
 from tg_signer.core.flow_models import StepOutcome, redact_sensitive_value
+from tg_signer.core.operation_receipts import OperationAttemptState, OperationReceipt
 from tg_signer.core.template import render_template
 
 
@@ -75,6 +76,44 @@ class ScopedFlowContext:
         self.step_history: list[StepOutcome] = []
         self.last_output: str = ""
         self.topic_last_outputs: Dict[tuple[int, int], str] = {}
+        self.operation_receipts: list[OperationReceipt] = []
+
+    def begin_operation(
+        self, operation_id: str, node_id: str, attempt: int, kind: str
+    ) -> OperationReceipt:
+        receipt = OperationReceipt(operation_id, node_id, attempt, kind)
+        self.operation_receipts.append(receipt)
+        return receipt
+
+    def get_operation_receipt(self, operation_id: str) -> Optional[OperationReceipt]:
+        return next(
+            (
+                r
+                for r in reversed(self.operation_receipts)
+                if r.operation_id == operation_id
+            ),
+            None,
+        )
+
+    def mark_operation_attempted(
+        self, operation_id: str, remote_id: Optional[str] = None
+    ) -> OperationReceipt:
+        receipt = self.get_operation_receipt(operation_id)
+        if receipt is None:
+            raise KeyError(operation_id)
+        receipt.state = OperationAttemptState.ATTEMPTED
+        receipt.remote_id = remote_id
+        return receipt
+
+    def mark_operation_confirmed(
+        self, operation_id: str, evidence: dict[str, Any]
+    ) -> OperationReceipt:
+        receipt = self.get_operation_receipt(operation_id)
+        if receipt is None:
+            raise KeyError(operation_id)
+        receipt.state = OperationAttemptState.CONFIRMED
+        receipt.evidence = dict(evidence)
+        return receipt
 
     def set_last_output(
         self,

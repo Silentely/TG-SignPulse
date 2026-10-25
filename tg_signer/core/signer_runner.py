@@ -71,6 +71,14 @@ class _CutoverNodeExecutor(TelegramNodeExecutor):
             bool(getattr(self.runner.context, "stop_after_current_action", False))
             or outcome.matched_terminal
         )
+        next_id = getattr(node, "next_node_id", None)
+        graph = self.compat.graph
+        explicit_successor = bool(graph and next_id in graph.nodes)
+        raw_action = node.metadata.get("raw_action")
+        explicit_stop = getattr(raw_action, "stop_flow_on_terminal", False) is True
+        if explicit_successor and not explicit_stop:
+            self.runner.context.stop_after_current_action = False
+            return outcome
         if stop_signal:
             self.runner.context.stop_after_current_action = False
             from tg_signer.core.flow_models import (

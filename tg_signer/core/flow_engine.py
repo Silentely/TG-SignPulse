@@ -481,6 +481,29 @@ class PulseFlowEngine:
             "trace": self._build_trace(executed_path, ctx),
             "metrics": self._calculate_metrics(executed_path, ctx, total_duration),
         }
+        from tg_signer.core.operation_receipts import OperationAttemptState
+
+        receipts = getattr(ctx, "operation_receipts", [])
+        unknown_operation = any(
+            r.state == OperationAttemptState.UNKNOWN for r in receipts
+        )
+        res["business_status"] = (
+            "unknown"
+            if unknown_operation
+            else ("confirmed" if is_success else "failed")
+        )
+        res["operation_receipts"] = [
+            {
+                "operation_id": r.operation_id,
+                "node_id": r.node_id,
+                "attempt": r.attempt,
+                "kind": r.kind,
+                "state": r.state.value,
+                "remote_id": r.remote_id,
+                "evidence": r.evidence,
+            }
+            for r in receipts
+        ]
         if not is_success:
             if not last_failure_error:
                 last_failure_error = (
