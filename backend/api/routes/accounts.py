@@ -8,9 +8,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 
 from backend.api.routes.accounts_helpers import (
     build_status_check_error_item,
@@ -60,6 +61,11 @@ from backend.api.routes.accounts_schemas import (
 from backend.core.auth import get_current_user
 from backend.core.rate_limit import compose_rate_limit_key, get_rate_limiter
 from backend.models.user import User
+from backend.services.account_lifecycle import (
+    AccountChangePlan,
+    apply_account_change_plan,
+    build_account_change_plan,
+)
 from backend.services.telegram import get_telegram_service
 from backend.utils.account_locks import AccountLockTimeout
 from backend.utils.names import validate_storage_name
@@ -690,6 +696,68 @@ def get_recent_account_logs(
 
     history = get_sign_task_service().get_recent_history_logs(limit=limit)
     return [_build_history_log_item(item, idx) for idx, item in enumerate(history)]
+
+
+class AccountLifecyclePreviewRequest(BaseModel):
+    operation: Literal["delete", "rename"]
+    new_name: str | None = None
+    history_policy: Literal["retain", "delete"] = "retain"
+
+
+class AccountLifecycleApplyRequest(BaseModel):
+    plan: AccountChangePlan
+
+
+def _lifecycle_http_error(exc: ValueError) -> HTTPException:
+    detail = str(exc)
+    code = (
+        409
+        if detail.startswith(
+            ("ACCOUNT_BUSY", "ACCOUNT_PLAN_STALE", "ACCOUNT_ALREADY_EXISTS")
+        )
+        else 404
+        if detail == "ACCOUNT_NOT_FOUND"
+        else 400
+    )
+    return HTTPException(status_code=code, detail=detail)
+
+
+@router.post("/{account_name}/lifecycle/preview")
+async def preview_account_lifecycle(
+    account_name: str,
+    request: AccountLifecyclePreviewRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Resolve every affected resource without changing account state."""
+    try:
+        return (
+            await build_account_change_plan(
+                account_name,
+                request.operation,
+                request.new_name,
+                request.history_policy,
+            )
+        ).to_dict()
+    except ValueError as exc:
+        raise _lifecycle_http_error(exc) from exc
+
+
+@router.post("/{account_name}/lifecycle/apply")
+async def apply_account_lifecycle(
+    account_name: str,
+    request: AccountLifecycleApplyRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Revalidate the reviewed plan before applying the transaction."""
+    try:
+        if (
+            validate_storage_name(account_name, field_name="account_name")
+            != request.plan.old_name
+        ):
+            raise ValueError("Account path does not match plan")
+        return await apply_account_change_plan(request.plan)
+    except ValueError as exc:
+        raise _lifecycle_http_error(exc) from exc
 
 
 @router.delete("/{account_name}", response_model=DeleteAccountResponse)

@@ -13,7 +13,6 @@ from backend.services.sign_task_chats import is_invalid_session_error
 from backend.services.telegram.sessions import (
     _login_sessions,
     _qr_login_sessions,
-    _release_login_session,
 )
 from backend.utils.account_locks import (
     AccountLockTimeout,
@@ -23,8 +22,6 @@ from backend.utils.names import natural_sort_key, validate_storage_name
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.storage import move_storage_path
 from backend.utils.tg_session import (
-    delete_account_session_string,
-    delete_session_string_file,
     get_account_profile,
     get_account_session_string,
     get_account_status,
@@ -33,7 +30,6 @@ from backend.utils.tg_session import (
     list_account_names,
     load_account_session_string,
     load_session_string_file,
-    rename_account_entry,
     set_account_status,
 )
 from backend.utils.time import utc_now_iso_z
@@ -825,169 +821,38 @@ class TelegramAccountsMixin:
             }
 
     async def delete_account(self, account_name: str) -> bool:
-        """
-        删除账号（删除 session 文件）
-
-        Args:
-            account_name: 账号名称
-
-        Returns:
-            是否成功删除
-        """
-        # 确保释放资源
-        account_name = self._normalize_account_name(account_name)
-        from tg_signer.core import close_client_by_name
-
-        # 尝试关闭 active client
-        try:
-            await close_client_by_name(account_name, workdir=self.session_dir)
-        except Exception as e:
-            logger.debug("关闭 Account Client 失败: %s", e)
-
-        session_file = self.session_dir / f"{account_name}.session"
-        journal_file = self.session_dir / f"{account_name}.session-journal"
-        shm_file = self.session_dir / f"{account_name}.session-shm"
-        wal_file = self.session_dir / f"{account_name}.session-wal"
-        session_string_file = self.session_dir / f"{account_name}.session_string"
-
-        has_session_file = (
-            session_file.exists()
-            or journal_file.exists()
-            or shm_file.exists()
-            or wal_file.exists()
+        """Delete the account and runnable resources, retaining history by default."""
+        from backend.services.account_lifecycle import (
+            apply_account_change_plan,
+            build_account_change_plan,
         )
-        # session_string 判定必须与当前会话模式解耦：模式切换后遗留的
-        # .session_string 文件与 accounts.json 条目同样需要可被清理
-        has_session_string = bool(
-            get_account_session_string(account_name)
-            or load_session_string_file(self.session_dir, account_name)
-        )
-        has_session_string_file = session_string_file.exists()
-        account_in_store = account_name in list_account_names()
 
-        if not (
-            has_session_file
-            or has_session_string
-            or has_session_string_file
-            or account_in_store
-        ):
-            return False
-
-        # 删除 sqlite 相关的 session 文件
-        for f in (session_file, journal_file, shm_file, wal_file):
-            try:
-                if f.exists():
-                    f.unlink()
-            except Exception as e:
-                logger.warning("删除 session 文件 %s 失败: %s", f, e)
-
-        # 删除 session_string 相关存储（含仅存在于账号库中的条目，
-        # 否则备注/代理/标签/设备画像会永久残留）
-        if has_session_string or account_in_store or has_session_string_file:
-            try:
-                delete_account_session_string(account_name)
-            except Exception as e:
-                logger.warning("从 accounts.json 删除 %s 失败: %s", account_name, e)
         try:
-            delete_session_string_file(self.session_dir, account_name)
-        except Exception as e:
-            logger.warning("删除 session_string 文件 %s 失败: %s", account_name, e)
-
-        # 清理该账号的登录中会话：账号删除后残留的登录轮询/QR 会话
-        # 会让该账号继续出现在账号列表中，并在重建同名账号时继承旧登录状态
-        for store in (_login_sessions, _qr_login_sessions):
-            stale = [
-                key
-                for key, value in list(store.items())
-                if str((value or {}).get("account_name") or "").strip().lower()
-                == account_name.lower()
-            ]
-            for key in stale:
-                val = store.pop(key, None)
-                if val:
-                    try:
-                        await _release_login_session(val)
-                    except Exception as e:
-                        logger.debug("释放待清理登录会话失败: %s", e)
-
-        # 使缓存失效
-        self._accounts_cache = None
-
+            plan = await build_account_change_plan(
+                account_name, "delete", telegram_service=self
+            )
+        except ValueError as exc:
+            if str(exc) == "ACCOUNT_NOT_FOUND":
+                return False
+            raise
+        await apply_account_change_plan(plan, telegram_service=self)
         return True
 
     async def rename_account(self, old_name: str, new_name: str) -> str:
-        """
-        重命名账号（迁移 session 文件、profiles、签到任务引用、以及活跃 Client）。
-        """
+        """Rename all account resources or restore their original state."""
+        from backend.services.account_lifecycle import (
+            apply_account_change_plan,
+            build_account_change_plan,
+        )
+
         old_name = self._normalize_account_name(old_name)
         new_name = self._normalize_account_name(new_name)
-
         if old_name == new_name:
             return new_name
-
-        if not self.account_exists(old_name):
-            raise ValueError(f"Account {old_name} not found")
-
-        if self.account_exists(new_name):
-            raise ValueError(f"Account {new_name} already exists")
-
-        from backend.utils.account_locks import acquire_multi_account_locks
-        from tg_signer.core import close_client_by_name
-
-        async with acquire_multi_account_locks([old_name, new_name]):
-            # 重命名前先关闭并释放活跃 Client 句柄
-            try:
-                await close_client_by_name(old_name, workdir=self.session_dir)
-            except Exception as e:
-                logger.warning("关闭旧账号 Client 句柄失败: %s", e)
-
-            self._rename_pending_login_records(old_name, new_name)
-
-            # 迁移 accounts.json 中的 profile 数据
-            rename_account_entry(old_name, new_name)
-
-            # 迁移文件
-            for ext in (
-                ".session",
-                ".session-journal",
-                ".session-shm",
-                ".session-wal",
-                ".session_string",
-            ):
-                src = self.session_dir / f"{old_name}{ext}"
-                dst = self.session_dir / f"{new_name}{ext}"
-                self._move_path(src, dst)
-
-            # 联动迁移签到任务引用
-            try:
-                from backend.services.sign_tasks import get_sign_task_service
-
-                get_sign_task_service().rename_account_references(old_name, new_name)
-            except Exception as e:
-                logger.warning("迁移账号签到任务引用失败: %s", e)
-
-            try:
-                settings = get_settings()
-                avatar_dir = settings.resolve_workdir() / "avatars"
-                for ext in (".jpg", ".no_avatar"):
-                    old_av = avatar_dir / f"{old_name}{ext}"
-                    new_av = avatar_dir / f"{new_name}{ext}"
-                    if old_av.exists():
-                        self._move_path(old_av, new_av)
-            except Exception:
-                pass
-
-            # 刷新缓存
-            self._accounts_cache = None
-
-            # 改名后触发调度器同步与监听重启
-            try:
-                from backend.scheduler import get_scheduler
-
-                await get_scheduler().sync_jobs()
-            except Exception as e:
-                logger.warning("改名后触发调度器同步失败: %s", e)
-
+        plan = await build_account_change_plan(
+            old_name, "rename", new_name, telegram_service=self
+        )
+        await apply_account_change_plan(plan, telegram_service=self)
         return new_name
 
     async def import_session(

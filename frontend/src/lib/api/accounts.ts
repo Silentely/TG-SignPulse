@@ -478,3 +478,37 @@ export const listForumTopics = (
     token,
     MEDIUM_TIMEOUT_MS,
   );
+
+export interface AccountChangePlan {
+  operation: 'delete' | 'rename';
+  old_name: string;
+  new_name: string | null;
+  affected_tasks: { name: string; path: string; owned: boolean }[];
+  affected_jobs: string[];
+  affected_monitors: string[];
+  history_policy: 'retain' | 'delete';
+  history_paths: string[];
+  plugin_namespaces: string[];
+  reversible_steps: string[];
+  warnings: string[];
+  revision: string;
+}
+
+export const previewAccountChange = (
+  token: string,
+  accountName: string,
+  operation: 'delete' | 'rename',
+  newName?: string,
+  historyPolicy: 'retain' | 'delete' = 'retain',
+) => request<AccountChangePlan>(
+  `/accounts/${encodeURIComponent(accountName)}/lifecycle/preview`,
+  { method: 'POST', body: JSON.stringify({ operation, new_name: newName, history_policy: historyPolicy }) },
+  token,
+);
+
+export const applyAccountChange = (token: string, plan: AccountChangePlan) =>
+  request<{ success: boolean; account_name: string; history_policy: string }>(
+    `/accounts/${encodeURIComponent(plan.old_name)}/lifecycle/apply`,
+    { method: 'POST', body: JSON.stringify({ plan }) },
+    token,
+  );

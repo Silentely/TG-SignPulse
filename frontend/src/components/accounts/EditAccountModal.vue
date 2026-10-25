@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import Modal from '../Modal.vue'
+import AccountImpactModal from './AccountImpactModal.vue'
+import { previewAccountChange, applyAccountChange, type AccountChangePlan } from '../../lib/api/accounts'
 import { updateAccount } from '../../lib/api'
 import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
@@ -43,15 +45,27 @@ watch(() => props.isOpen, (val) => {
   }
 })
 
-const handleSave = async () => {
+const renamePlan = ref<AccountChangePlan | null>(null)
+const handleSave = async (confirmed = false) => {
   const token = getAuthToken()
   if (!token || !props.account) return
 
   loading.value = true
   error.value = ''
   try {
-    await updateAccount(token, props.account.name, {
-      new_account_name: form.value.new_account_name || null,
+    let accountName = props.account.name
+    if (form.value.new_account_name && form.value.new_account_name !== accountName) {
+      if (!confirmed) {
+        renamePlan.value = await previewAccountChange(token, accountName, 'rename', form.value.new_account_name)
+        return
+      }
+      if (!renamePlan.value) return
+      accountName = (await applyAccountChange(token, renamePlan.value)).account_name
+      renamePlan.value = null
+      emit('success')
+    }
+    await updateAccount(token, accountName, {
+      new_account_name: null,
       remark: form.value.remark || null,
       proxy: form.value.proxy || null
     })
@@ -67,6 +81,7 @@ const handleSave = async () => {
 </script>
 
 <template>
+  <AccountImpactModal :isOpen="!!renamePlan" :plan="renamePlan" :loading="loading" :error="error" @close="renamePlan = null" @apply="handleSave(true)" />
   <Modal :isOpen="isOpen" @close="$emit('close')" @closed="$emit('closed')" :title="t('editAccount.title')">
     <div class="space-y-4">
       <div v-if="error" class="ui-alert-error" role="alert">
@@ -128,7 +143,7 @@ const handleSave = async () => {
         type="button"
         class="ui-btn-primary !px-4 !py-2"
         :disabled="loading"
-        @click="handleSave"
+        @click="handleSave()"
       >
         {{ loading ? t('editAccount.saving') : t('editAccount.saveChanges') }}
       </button>

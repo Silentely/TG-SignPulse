@@ -3,17 +3,17 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X, Users } from 'lucide-vue-next'
 import {
-  deleteAccount,
   fetchAccountAvatar,
 } from '../lib/api'
 import { getAuthToken } from '../lib/api/core'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
-import { useConfirm } from '../composables/useConfirm'
 import { useAccountsStore } from '../stores/accounts'
 import { useAccountBatchCheck } from '../composables/useAccountBatchCheck'
 import type { AccountUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
+import AccountImpactModal from '../components/accounts/AccountImpactModal.vue'
+import { previewAccountChange, applyAccountChange, type AccountChangePlan } from '../lib/api/accounts'
 import AddAccountModal from '../components/accounts/AddAccountModal.vue'
 import EditAccountModal from '../components/accounts/EditAccountModal.vue'
 import DeviceManagerModal from '../components/accounts/DeviceManagerModal.vue'
@@ -32,7 +32,6 @@ import {
 const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
-const { confirm } = useConfirm()
 const accountsStore = useAccountsStore()
 const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
@@ -131,21 +130,29 @@ onUnmounted(() => {
   avatarCache.release()
 })
 
+const changePlan = ref<AccountChangePlan | null>(null)
+const changeLoading = ref(false)
+const changeError = ref('')
 const handleDelete = async (name: string) => {
-  const ok = await confirm({
-    title: t('common.dangerConfirm'),
-    message: t('accounts.deleteConfirm', { name }),
-    confirmText: t('common.delete'),
-    danger: true,
-  })
-  if (!ok) return
-  const token = getAuthToken()
   try {
-    await deleteAccount(token, name)
+    changeError.value = ''
+    changePlan.value = await previewAccountChange(getAuthToken(), name, 'delete')
+  } catch (e: unknown) {
+    notifyApiError(e, 'accounts.deleteFailed')
+  }
+}
+const applyDelete = async () => {
+  if (!changePlan.value) return
+  changeLoading.value = true
+  try {
+    await applyAccountChange(getAuthToken(), changePlan.value)
+    changePlan.value = null
     toast.success(t('accounts.deleteSuccess'))
     await loadAccounts()
   } catch (e: unknown) {
-    notifyApiError(e, 'accounts.deleteFailed')
+    changeError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    changeLoading.value = false
   }
 }
 
@@ -471,6 +478,7 @@ const goTasks = (name: string) => {
     </div>
 
     <!-- Modals -->
+    <AccountImpactModal :isOpen="!!changePlan" :plan="changePlan" :loading="changeLoading" :error="changeError" @close="changePlan = null" @apply="applyDelete" />
     <AddAccountModal :isOpen="showAddModal" :initialMethod="initialMethod" :initialAccountName="initialAccountName" @close="showAddModal = false" @success="loadAccounts" />
     <EditAccountModal v-if="editingAccount" :isOpen="showEditModal" :account="editingAccount" @close="showEditModal = false" @closed="onEditModalClosed" @success="loadAccounts" @relogin="handleRelogin" />
     <DeviceManagerModal :isOpen="showDeviceModal" :accountName="deviceAccountName" @close="showDeviceModal = false" />
