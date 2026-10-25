@@ -17,6 +17,33 @@ from backend.utils.task_logs import extract_last_target_message
 router = APIRouter()
 
 
+@router.get("/artifacts/{run_id}")
+def get_run_artifact(run_id: str, current_user: User = Depends(get_current_user)):
+    from backend.services.run_artifacts import load_run_artifact
+
+    try:
+        artifact = load_run_artifact(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="RUN_ARTIFACT_NOT_FOUND")
+    return artifact
+
+
+@router.post("/replay")
+async def replay_run_fixture(
+    payload: dict, current_user: User = Depends(get_current_user)
+):
+    from backend.services.replay_fixtures import replay_fixture
+    from tg_signer.core.flow_models import ExecutionGraph
+
+    try:
+        graph = ExecutionGraph.compile(payload["graph"])
+        return await replay_fixture(payload["fixture"], graph)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 class LoginLogItem(BaseModel):
     id: int
     username: str

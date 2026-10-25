@@ -698,6 +698,7 @@ async def _runner_save_run_info(state: TaskExecutionContext | Dict[str, Any]) ->
             "aggregate_status": state.get("aggregate_status", "not_evaluated"),
             "targets": state.get("targets", []),
             "unknown_side_effects": state.get("unknown_side_effects", []),
+            "artifact_id": state.get("artifact_id"),
         }
     svc._save_run_info(
         state["task_name"],
@@ -1102,6 +1103,40 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
                         exc_info=True,
                     )
     finally:
+        try:
+            from backend.services.run_artifacts import record_run_artifact
+            from tg_signer.semantic.models import config_revision
+
+            signer_context = getattr(state.get("signer"), "context", None)
+            raw_config = state.get("raw_task_cfg") or {}
+            artifact_id = record_run_artifact(
+                run_id=str(
+                    state.get("run_id")
+                    or f"{state.get('account_name', '')}-{state.get('task_name', '')}-{int(time.time() * 1000)}"
+                ),
+                config_revision=config_revision(raw_config),
+                graph_revision=config_revision(raw_config),
+                terminal_status=(
+                    "cancelled"
+                    if state.get("cancelled")
+                    else "timeout"
+                    if state.get("timed_out")
+                    else state.get("aggregate_status", "not_evaluated")
+                ),
+                node_outcomes=getattr(signer_context, "flow_trace", [])
+                if isinstance(getattr(signer_context, "flow_trace", []), list)
+                else [],
+                events=getattr(signer_context, "observed_events", [])
+                if isinstance(getattr(signer_context, "observed_events", []), list)
+                else [],
+                receipts=getattr(signer_context, "operation_receipts", [])
+                if isinstance(getattr(signer_context, "operation_receipts", []), list)
+                else [],
+                targets=state.get("targets", []),
+            )
+            _set_ctx(state, "artifact_id", artifact_id)
+        except Exception:
+            _service_logger.exception("Failed to persist run artifact")
         # 先调度清理再停止客户端：清理注册是同步的，若放在 stop() 之后，
         # stop() 抛出 CancelledError（BaseException）时本次运行的日志将永不回收。
         await _runner_schedule_cleanup(state)
