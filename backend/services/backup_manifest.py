@@ -186,6 +186,18 @@ def validate_backup_manifest(archive_path: Path, data_dir: Path) -> dict[str, An
         }
         if described != actual:
             raise ValueError("Backup manifest contains unlisted files")
+        if not any(
+            entry.get("kind") == "sqlite" or entry.get("path") == "db.sqlite"
+            for entry in report.get("files", [])
+            if isinstance(entry, dict)
+        ):
+            raise ValueError("Backup manifest is missing a required SQLite database")
+    elif not (root / "db.sqlite").is_file():
+        # A legacy archive is accepted for compatibility, but it must still be
+        # recognizably a TG-SignPulse backup.  Accepting an arbitrary tarball
+        # would allow restore to replace the live data directory with an empty
+        # freshly-initialized database.
+        raise ValueError("Legacy backup is missing db.sqlite")
     for path in root.rglob("*"):
         if not path.is_file() or path == manifest_path:
             continue

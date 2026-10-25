@@ -144,6 +144,7 @@ export interface GlobalSettings {
   webdav_password_set?: boolean;
   webdav_remote_dir?: string | null;
   webdav_skip_ssl_verify?: boolean;
+  webdav_allow_private?: boolean;
 }
 
 export const getGlobalSettings = (token: string) =>

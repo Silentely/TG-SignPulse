@@ -262,11 +262,14 @@ class PluginProcessHost:
             return
         grants = set(getattr(meta, "permissions", []) or [])
         if method.startswith("storage_"):
-            required = (
-                "global_storage"
-                if params.get("is_global") or params.get("scope") == "global"
-                else "storage"
-            )
+            scope = params.get("scope")
+            # The dispatcher gives an explicit scope precedence over the
+            # legacy is_global flag. Keep authorization aligned with that
+            # routing decision so a global grant cannot reach account/task/chat
+            # storage by combining both parameters.
+            required = "global_storage" if scope == "global" else "storage"
+            if params.get("is_global") and scope in (None, "global"):
+                required = "global_storage"
         elif method == "click":
             required = "buttons"
         elif method == "react":

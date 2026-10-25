@@ -7,6 +7,7 @@ chat/plugin namespaces have no account owner and are deliberately retained.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import hashlib
 import json
@@ -319,7 +320,8 @@ async def apply_account_change_plan(
         try:
             if scheduler is not None:
                 for job_id in fresh.affected_jobs:
-                    scheduler.remove_job(job_id)
+                    with contextlib.suppress(Exception):
+                        scheduler.remove_job(job_id)
             await monitor.stop()
             await close_client_by_name(plan.old_name, workdir=telegram.session_dir)
             _assert_idle(tasks, plan.old_name)

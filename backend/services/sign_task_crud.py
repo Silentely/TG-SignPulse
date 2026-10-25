@@ -645,10 +645,11 @@ class SignTaskCrudMixin:
 
         account = kwargs.get("account_name")
         related = self._find_related_task_infos(task_name, account)
-        paths = [
-            self._resolve_task_dir(task_name, item.get("account_name")) / "config.json"
-            for item in related
-        ]
+        paths = []
+        for item in related:
+            task_dir = self._resolve_task_dir(task_name, item.get("account_name"))
+            if task_dir is not None:
+                paths.append(task_dir / "config.json")
         if kwargs.get("account_names") is not None:
             targets = self._expand_account_names(
                 self._normalize_account_names(kwargs["account_names"])

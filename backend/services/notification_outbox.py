@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -21,6 +22,8 @@ from typing import Any, Awaitable, Callable, Literal
 import httpx
 
 from backend.core.config import get_settings
+
+logger = logging.getLogger("backend.notification_outbox")
 
 DeliveryState = Literal["pending", "sent", "unknown", "failed"]
 
@@ -150,10 +153,16 @@ class NotificationOutbox:
                 "DELETE FROM notification_outbox WHERE state IN ('sent','failed') AND updated_at < ?",
                 (now - self.retention_seconds,),
             )
-            if (
-                db.execute("SELECT count(*) FROM notification_outbox").fetchone()[0]
-                >= self.max_records
-            ):
+            current_count = db.execute(
+                "SELECT count(*) FROM notification_outbox"
+            ).fetchone()[0]
+            if current_count >= int(self.max_records * 0.8):
+                logger.warning(
+                    "Notification outbox is %d/%d full; reconcile unresolved records",
+                    current_count,
+                    self.max_records,
+                )
+            if current_count >= self.max_records:
                 raise RuntimeError(
                     "Notification outbox capacity reached; reconcile unresolved records or wait for retention"
                 )

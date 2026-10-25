@@ -42,6 +42,7 @@ export type SettingsFormState = {
   webdavPassword: string
   webdavRemoteDir: string
   webdavSkipSslVerify: boolean
+  webdavAllowPrivate?: boolean
   backupTarget: 'auto' | 'webdav'
   executionEngine?: string
 }
@@ -156,6 +157,7 @@ export function buildBackupPayload(s: SettingsFormState) {
     ...(s.webdavPassword ? { webdav_password: s.webdavPassword } : {}),
     webdav_remote_dir: s.webdavRemoteDir || 'tg-signpulse-backups',
     webdav_skip_ssl_verify: s.webdavSkipSslVerify,
+    webdav_allow_private: !!s.webdavAllowPrivate,
     backup_target: s.backupTarget || 'auto',
   }
 }
@@ -324,6 +326,7 @@ export function applyGlobalSettingsToForm(
     webdav_password_set?: boolean
     webdav_remote_dir?: string | null
     webdav_skip_ssl_verify?: boolean
+    webdav_allow_private?: boolean
     backup_target?: string | null
     execution_engine?: string | null
   },
@@ -367,6 +370,7 @@ export function applyGlobalSettingsToForm(
   s.webdavPassword = ''
   s.webdavRemoteDir = res.webdav_remote_dir || 'tg-signpulse-backups'
   s.webdavSkipSslVerify = !!res.webdav_skip_ssl_verify
+  s.webdavAllowPrivate = !!res.webdav_allow_private
   const bt = res.backup_target
   s.backupTarget = bt === 'webdav' ? 'webdav' : 'auto'
   return {

@@ -109,6 +109,15 @@ def test_manifest_rejects_invalid_version_and_missing_required_file(tmp_path):
         validate_backup_manifest(tmp_path / "unused", tmp_path)
 
 
+def test_legacy_archive_without_database_is_rejected(tmp_path):
+    from backend.services.backup_manifest import validate_backup_manifest
+
+    (tmp_path / "notes.txt").write_text("not a backup")
+
+    with pytest.raises(ValueError, match="db.sqlite"):
+        validate_backup_manifest(tmp_path / "unused", tmp_path)
+
+
 def test_manual_and_auto_share_manifest():
     from backend.api.routes.ops import BACKUP_ARCHIVE_PATHS
     from backend.services.backup_archive import DEFAULT_BACKUP_PATHS
@@ -258,6 +267,8 @@ def test_restore_validates_session_encryption_key(tmp_path, monkeypatch):
     from tg_signer.security import encrypt_secret
 
     monkeypatch.setenv("APP_SECRET_KEY", "original-key")
+    with sqlite3.connect(tmp_path / "db.sqlite") as conn:
+        conn.execute("CREATE TABLE marker(value TEXT)")
     (tmp_path / "account.session_string").write_text(encrypt_secret("session"))
     monkeypatch.setenv("APP_SECRET_KEY", "different-key")
     with pytest.raises(ValueError, match="decrypt|APP_SECRET_KEY"):

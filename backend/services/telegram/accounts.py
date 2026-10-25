@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ from backend.services.sign_task_chats import is_invalid_session_error
 from backend.services.telegram.sessions import (
     _login_sessions,
     _qr_login_sessions,
+    _release_login_session,
 )
 from backend.utils.account_locks import (
     AccountLockTimeout,
@@ -22,6 +24,8 @@ from backend.utils.names import natural_sort_key, validate_storage_name
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.storage import move_storage_path
 from backend.utils.tg_session import (
+    delete_account_session_string,
+    delete_session_string_file,
     get_account_profile,
     get_account_session_string,
     get_account_status,
@@ -821,21 +825,54 @@ class TelegramAccountsMixin:
             }
 
     async def delete_account(self, account_name: str) -> bool:
-        """Delete the account and runnable resources, retaining history by default."""
-        from backend.services.account_lifecycle import (
-            apply_account_change_plan,
-            build_account_change_plan,
-        )
+        """Delete only Telegram session material for legacy API compatibility."""
+        account_name = self._normalize_account_name(account_name)
+        from tg_signer.core import close_client_by_name
 
         try:
-            plan = await build_account_change_plan(
-                account_name, "delete", telegram_service=self
+            await close_client_by_name(account_name, workdir=self.session_dir)
+        except Exception as exc:
+            logger.debug("关闭 Account Client 失败: %s", exc)
+
+        session_files = [
+            self.session_dir / f"{account_name}{suffix}"
+            for suffix in (
+                ".session",
+                ".session-journal",
+                ".session-shm",
+                ".session-wal",
             )
-        except ValueError as exc:
-            if str(exc) == "ACCOUNT_NOT_FOUND":
-                return False
-            raise
-        await apply_account_change_plan(plan, telegram_service=self)
+        ]
+        session_string_file = self.session_dir / f"{account_name}.session_string"
+        has_session = any(path.exists() for path in session_files)
+        has_session_string = bool(
+            get_account_session_string(account_name)
+            or load_session_string_file(self.session_dir, account_name)
+            or session_string_file.exists()
+        )
+        account_in_store = account_name in list_account_names()
+        if not (has_session or has_session_string or account_in_store):
+            return False
+
+        for path in session_files:
+            with contextlib.suppress(OSError):
+                path.unlink(missing_ok=True)
+        if has_session_string or account_in_store:
+            with contextlib.suppress(Exception):
+                delete_account_session_string(account_name)
+        with contextlib.suppress(Exception):
+            delete_session_string_file(self.session_dir, account_name)
+
+        for store in (_login_sessions, _qr_login_sessions):
+            for key, value in list(store.items()):
+                if (
+                    str((value or {}).get("account_name") or "").strip().lower()
+                    != account_name.lower()
+                ):
+                    continue
+                store.pop(key, None)
+                await _release_login_session(value)
+        self._accounts_cache = None
         return True
 
     async def rename_account(self, old_name: str, new_name: str) -> str:

@@ -1256,7 +1256,9 @@
     "engineSourceCanary": "灰度分流",
     "engineSourceDefault": "系统默认",
     "webdavSkipSslVerify": "跳过 SSL 证书校验",
-    "webdavSkipSslVerifyDesc": "忽略 SSL 证书有效性并允许私有/内网地址（适用于内网自建 NAS、自签名证书或服务商证书临时异常场景）"
+    "webdavSkipSslVerifyDesc": "忽略 SSL 证书有效性，但不会允许访问私有或内网地址。",
+    "webdavAllowPrivate": "允许内网 WebDAV 地址",
+    "webdavAllowPrivateDesc": "允许连接内网 WebDAV。仅在使用可信 NAS 或内部服务时开启。"
   },
   "profile": {
     "title": "个人中心",

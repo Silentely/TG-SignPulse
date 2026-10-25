@@ -178,7 +178,8 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
         val = normalized["webdav_skip_ssl_verify"]
         normalized["webdav_skip_ssl_verify"] = bool(val) if val is not None else False
 
-    if "webdav_allow_private" in normalized:
+    allow_private_explicit = "webdav_allow_private" in normalized
+    if allow_private_explicit:
         normalized["webdav_allow_private"] = bool(normalized["webdav_allow_private"])
 
     # WebDAV 地址/用户名：去空白，空值归一为 None
@@ -197,7 +198,19 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
                 normalized["webdav_url"], allow_private=allow_private
             )
         except ValueError as exc:
-            raise ValueError(f"WebDAV 地址不被允许: {exc}") from exc
+            # Before the private-address policy was split from TLS verification,
+            # existing NAS configurations used skip_ssl_verify as their only
+            # opt-in. Preserve those deployments once, unless the caller has
+            # explicitly supplied the new private-address flag.
+            if not allow_private_explicit and bool(
+                normalized.get("webdav_skip_ssl_verify")
+            ):
+                normalized["webdav_allow_private"] = True
+                normalized["webdav_url"] = validate_webdav_url(
+                    normalized["webdav_url"], allow_private=True
+                )
+            else:
+                raise ValueError(f"WebDAV 地址不被允许: {exc}") from exc
 
     # 全局代理：None 表示显式清除，空串表示不修改，非空则去空白后写入。
     if "global_proxy" in normalized:

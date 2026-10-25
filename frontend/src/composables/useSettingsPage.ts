@@ -78,6 +78,7 @@ export function useSettingsPage() {
     webdavPassword: '',
     webdavRemoteDir: 'tg-signpulse-backups',
     webdavSkipSslVerify: false,
+    webdavAllowPrivate: false,
     backupTarget: 'auto',
     executionEngine: 'v3',
   })

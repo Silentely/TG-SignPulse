@@ -208,7 +208,17 @@ class TelegramNodeExecutor:
                         receipt.operation_id, {"node_id": node.id}
                     )
                 return result
-            except BaseException as exc:
+            except asyncio.CancelledError:
+                # Cancellation is control flow, not a business failure. Keep an
+                # in-flight external operation unknown, then preserve the
+                # cancellation signal so the runner can unwind and clean up.
+                legacy_mark = (
+                    getattr(runner_ctx, "pulseflow_side_effect_started", False) is True
+                )
+                if legacy_mark or receipt.state != OperationAttemptState.NOT_STARTED:
+                    receipt.state = OperationAttemptState.UNKNOWN
+                raise
+            except Exception as exc:
                 legacy_mark = (
                     getattr(runner_ctx, "pulseflow_side_effect_started", False) is True
                 )

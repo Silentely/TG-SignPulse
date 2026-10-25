@@ -1256,7 +1256,9 @@
     "engineSourceCanary": "Canary Rollout",
     "engineSourceDefault": "Default",
     "webdavSkipSslVerify": "Skip SSL Verification",
-    "webdavSkipSslVerifyDesc": "Ignore SSL certificate validity and allow private/intranet addresses (useful for local NAS, self-signed certificates, or temporary upstream certificate issues)"
+    "webdavSkipSslVerifyDesc": "Ignore SSL certificate validity. This does not allow private or intranet addresses.",
+    "webdavAllowPrivate": "Allow private WebDAV address",
+    "webdavAllowPrivateDesc": "Allow WebDAV targets on a private network. Enable only for a trusted NAS or internal service."
   },
   "profile": {
     "title": "Profile",

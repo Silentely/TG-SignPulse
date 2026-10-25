@@ -18,6 +18,17 @@ from backend.services.config_mixins import (
 )
 
 
+def test_legacy_webdav_skip_ssl_migrates_private_address_opt_in():
+    normalized = normalize_global_settings(
+        {
+            "webdav_url": "http://127.0.0.1:8080/dav",
+            "webdav_skip_ssl_verify": True,
+        }
+    )
+
+    assert normalized["webdav_allow_private"] is True
+
+
 class TestApplyGlobalSettingsToEnv:
     def test_maps_all_sync_keys(self, isolated_env: Path, monkeypatch):
         import os
