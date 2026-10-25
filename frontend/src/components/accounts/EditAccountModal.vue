@@ -34,6 +34,8 @@ const form = ref({
 const loading = ref(false)
 const error = ref('')
 
+const handleClosed = () => emit('closed')
+
 watch(() => props.isOpen, (val) => {
   if (val && props.account) {
     form.value = {
@@ -81,8 +83,8 @@ const handleSave = async (confirmed = false) => {
 </script>
 
 <template>
-  <AccountImpactModal :isOpen="!!renamePlan" :plan="renamePlan" :loading="loading" :error="error" @close="renamePlan = null" @apply="handleSave(true)" />
-  <Modal :isOpen="isOpen" @close="$emit('close')" @closed="$emit('closed')" :title="t('editAccount.title')">
+  <AccountImpactModal :isOpen="!!renamePlan" :plan="renamePlan" :loading="loading" :error="error" @close="renamePlan = null" @closed="handleClosed" @apply="handleSave(true)" />
+  <Modal :isOpen="isOpen" @close="$emit('close')" @closed="handleClosed" :title="t('editAccount.title')">
     <div class="space-y-4">
       <div v-if="error" class="ui-alert-error" role="alert">
         {{ error }}
