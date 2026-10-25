@@ -46,7 +46,8 @@ class DummySigner(SignerActionsMixin):
         return None
 
 
-def test_find_previous_photo_message_returns_nearest_same_chat_photo():
+@pytest.mark.parametrize("thread_id", [None, 7])
+def test_find_previous_photo_message_returns_nearest_same_chat_photo(thread_id):
     signer = DummySigner()
     bot_sender = SimpleNamespace(id=1001)
 
@@ -76,7 +77,13 @@ def test_find_previous_photo_message_returns_nearest_same_chat_photo():
     )
 
     messages = [photo_msg_1, None, photo_msg_2, button_msg]
-    found = signer._find_previous_photo_message(messages, button_msg)
+    for msg in (photo_msg_1, photo_msg_2, button_msg):
+        msg.message_thread_id = thread_id
+    scope_key = -100123 if thread_id is None else (-100123, thread_id)
+    signer.context.chat_messages[scope_key] = {
+        msg.id: msg for msg in messages if msg is not None
+    }
+    found = signer._find_previous_photo_message(None, button_msg)
     assert found is not None
     assert found.id == 102
     assert found.photo.file_id == "photo_file_2"
@@ -232,7 +239,10 @@ def test_find_previous_photo_skips_expired_images():
 
 
 @pytest.mark.asyncio
-async def test_choose_option_by_image_uses_previous_photo_and_current_buttons():
+@pytest.mark.parametrize("thread_id", [None, 7])
+async def test_choose_option_by_image_uses_previous_photo_and_current_buttons(
+    thread_id,
+):
     signer = DummySigner()
     chat_id = -100123
     bot_sender = SimpleNamespace(id=888)
@@ -266,7 +276,10 @@ async def test_choose_option_by_image_uses_previous_photo_and_current_buttons():
         ),
     )
 
-    signer.context.chat_messages[chat_id] = {
+    photo_msg.message_thread_id = thread_id
+    button_msg.message_thread_id = thread_id
+    scope_key = chat_id if thread_id is None else (chat_id, thread_id)
+    signer.context.chat_messages[scope_key] = {
         501: photo_msg,
         502: button_msg,
     }

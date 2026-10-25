@@ -984,14 +984,10 @@ class SignerRunnerMixin:
         message_thread_id = getattr(message, "message_thread_id", None) or getattr(
             message, "reply_to_top_message_id", None
         )
-        topic_matched = False
-        for chat in chats:
-            if (
-                chat.message_thread_id is None
-                or chat.message_thread_id == message_thread_id
-            ):
-                topic_matched = True
-                break
+        has_unthreaded_chat = any(chat.message_thread_id is None for chat in chats)
+        topic_matched = has_unthreaded_chat or any(
+            chat.message_thread_id == message_thread_id for chat in chats
+        )
         if not topic_matched:
             self.log(
                 f"忽略非目标话题消息: chat_id={message.chat.id}, thread_id={message_thread_id}",
@@ -999,20 +995,24 @@ class SignerRunnerMixin:
             )
             return
         scope_key = chat_scope_key(message.chat.id, message_thread_id)
-        chat_msgs = self.context.chat_messages.setdefault(scope_key, {})
-        chat_msgs[message.id] = message
-        # Bound message cache per chat to prevent memory growth
-        if len(chat_msgs) > 200:
-            oldest_keys = sorted(chat_msgs.keys())[:100]
-            for k in oldest_keys:
-                chat_msgs.pop(k, None)
+        cache_keys = {scope_key}
+        if has_unthreaded_chat:
+            cache_keys.add(message.chat.id)
+        for key in cache_keys:
+            chat_msgs = self.context.chat_messages.setdefault(key, {})
+            chat_msgs[message.id] = message
+            # Bound each cache independently to prevent memory growth.
+            if len(chat_msgs) > 200:
+                oldest_keys = sorted(chat_msgs.keys())[:100]
+                for k in oldest_keys:
+                    chat_msgs.pop(k, None)
         msg_text = (
             getattr(message, "text", None) or getattr(message, "caption", None) or ""
         )
         if msg_text:
-            if message_thread_id is None:
+            if message_thread_id is None or has_unthreaded_chat:
                 self.context.last_received_text = str(msg_text)
-            else:
+            if message_thread_id is not None:
                 self.context.topic_last_received_text[scope_key] = str(msg_text)
         bus = getattr(self, "_event_bus", None)
         if bus is not None:
@@ -1236,9 +1236,15 @@ class SignerRunnerMixin:
                             "等待期间未收到机器人的任何回复消息" not in err_str
                             and "未收到机器人的任何回复" not in err_str
                         ):
-                            self.context.last_received_text = ctx.last_output
+                            received_text = ctx.last_output
                         else:
-                            self.context.last_received_text = ""
+                            received_text = ""
+                        if chat.message_thread_id is None:
+                            self.context.last_received_text = received_text
+                        else:
+                            self.context.topic_last_received_text[scope_key] = (
+                                received_text
+                            )
                     err_detail = (
                         flow_res.get("error")
                         or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"

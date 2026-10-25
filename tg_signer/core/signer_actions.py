@@ -44,6 +44,7 @@ from tg_signer.core.client import (
     _is_callback_data_invalid,
     get_now,
 )
+from tg_signer.core.context import chat_scope_key
 from tg_signer.core.humanize import simulate_typing_action
 from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import PluginContext, PluginRegistry, PluginTimeoutError
@@ -728,13 +729,21 @@ class SignerActionsMixin:
         """
         if messages is None:
             chat_id = getattr(getattr(message, "chat", None), "id", None)
+            thread_id = getattr(message, "message_thread_id", None) or getattr(
+                message, "reply_to_top_message_id", None
+            )
             if (
                 hasattr(self, "context")
                 and hasattr(self.context, "chat_messages")
                 and chat_id is not None
             ):
                 messages_snapshot = list(
-                    (self.context.chat_messages.get(chat_id) or {}).values()
+                    (
+                        self.context.chat_messages.get(
+                            chat_scope_key(chat_id, thread_id)
+                        )
+                        or {}
+                    ).values()
                 )
             else:
                 messages_snapshot = []
@@ -844,6 +853,9 @@ class SignerActionsMixin:
         target_photo_msg = message if getattr(message, "photo", None) else None
         if target_photo_msg is None:
             chat_id = getattr(getattr(message, "chat", None), "id", None)
+            thread_id = getattr(message, "message_thread_id", None) or getattr(
+                message, "reply_to_top_message_id", None
+            )
             messages_snapshot: list[Any] = []
             if (
                 hasattr(self, "context")
@@ -851,7 +863,12 @@ class SignerActionsMixin:
                 and chat_id is not None
             ):
                 messages_snapshot = list(
-                    (self.context.chat_messages.get(chat_id) or {}).values()
+                    (
+                        self.context.chat_messages.get(
+                            chat_scope_key(chat_id, thread_id)
+                        )
+                        or {}
+                    ).values()
                 )
             target_photo_msg = self._find_previous_photo_message(
                 messages_snapshot, message
@@ -1226,9 +1243,7 @@ class SignerActionsMixin:
                 while time.perf_counter() - start < timeout:
                     messages_dict = (
                         self.context.chat_messages.get(
-                            chat.chat_id
-                            if chat.message_thread_id is None
-                            else (chat.chat_id, chat.message_thread_id)
+                            chat_scope_key(chat.chat_id, chat.message_thread_id)
                         )
                         or {}
                     )
@@ -1410,9 +1425,7 @@ class SignerActionsMixin:
             while time.perf_counter() - start < timeout:
                 await asyncio.sleep(0.3)
                 messages_dict = self.context.chat_messages.get(
-                    chat.chat_id
-                    if chat.message_thread_id is None
-                    else (chat.chat_id, chat.message_thread_id)
+                    chat_scope_key(chat.chat_id, chat.message_thread_id)
                 )
                 if not messages_dict:
                     continue

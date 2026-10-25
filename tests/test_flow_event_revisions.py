@@ -4,10 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 
+from tg_signer.config import ReplyByCalculationProblemAction, SendTextAction, SignChatV3
+from tg_signer.core.context import UserSignerWorkerContext
 from tg_signer.core.flow_compat import FlowCompatibilityBridge
 from tg_signer.core.flow_context import ScopedFlowContext
+from tg_signer.core.flow_engine import PulseFlowEngine
 from tg_signer.core.flow_event_bus import TelegramEventBus, TelegramMessageEvent
+from tg_signer.core.flow_models import NodeStatus, WaitEventNode
+from tg_signer.core.signer_matchers import SignerMatchersMixin
 from tg_signer.core.signer_runner import SignerRunnerMixin
+from tg_signer.semantic import runtime_port
 
 
 def make_event(text, buttons=(), thread_id=1):
@@ -91,6 +97,174 @@ async def test_runner_keeps_same_message_id_in_two_topics_separate():
     }
     assert len(bus.get_history(123, 1)) == 1
     assert len(bus.get_history(123, 2)) == 1
+
+
+@pytest.mark.asyncio
+async def test_matcher_snapshot_reads_only_selected_topic_cache():
+    async def empty_history(*args, **kwargs):
+        if False:
+            yield None
+
+    matcher = SignerMatchersMixin()
+    matcher.app = SimpleNamespace(get_chat_history=empty_history)
+    matcher.log = lambda *args, **kwargs: None
+    first = SimpleNamespace(
+        id=10,
+        message_thread_id=1,
+        text="one",
+        caption=None,
+        edit_date=None,
+        reply_markup=None,
+    )
+    second = SimpleNamespace(
+        id=20,
+        message_thread_id=2,
+        text="two",
+        caption=None,
+        edit_date=None,
+        reply_markup=None,
+    )
+    plain = SimpleNamespace(
+        id=30,
+        message_thread_id=None,
+        text="plain",
+        caption=None,
+        edit_date=None,
+        reply_markup=None,
+    )
+    matcher.context = SimpleNamespace(
+        chat_messages={(123, 1): {10: first}, (123, 2): {20: second}, 123: {30: plain}}
+    )
+
+    topic_state = await matcher._chat_state_snapshot(
+        SimpleNamespace(chat_id=123, message_thread_id=2), history_limit=5
+    )
+    plain_state = await matcher._chat_state_snapshot(
+        SimpleNamespace(chat_id=123, message_thread_id=None), history_limit=5
+    )
+
+    assert set(topic_state) == {20}
+    assert set(plain_state) == {30}
+
+
+@pytest.mark.asyncio
+async def test_matcher_candidate_and_waiters_read_topic_cache():
+    async def empty_history(*args, **kwargs):
+        if False:
+            yield None
+
+    matcher = SignerMatchersMixin()
+    matcher.app = SimpleNamespace(get_chat_history=empty_history)
+    matcher.log = lambda *args, **kwargs: None
+    matcher.context = SimpleNamespace(
+        chat_messages={
+            (123, 2): {
+                20: SimpleNamespace(
+                    id=20,
+                    message_thread_id=2,
+                    text="签到成功",
+                    caption=None,
+                    edit_date=None,
+                    reply_markup=None,
+                )
+            }
+        },
+        stop_reason=None,
+    )
+    chat = SimpleNamespace(chat_id=123, message_thread_id=2)
+    action = ReplyByCalculationProblemAction()
+
+    assert await matcher._chat_has_action_candidate(chat, action, history_limit=5)
+    assert await matcher._wait_for_next_action_candidate(
+        chat, action, {}, history_limit=5, timeout=0.01
+    )
+    assert await matcher._wait_for_terminal_success(
+        chat, {}, history_limit=5, timeout=0.01
+    )
+    assert matcher.context.stop_reason == "签到成功"
+
+
+@pytest.mark.asyncio
+async def test_unthreaded_config_receives_topic_reply_in_legacy_cache():
+    runner = SimpleNamespace(
+        context=SimpleNamespace(
+            sign_chats={123: [SimpleNamespace(message_thread_id=None)]},
+            chat_messages={},
+            topic_last_received_text={},
+            last_received_text="",
+        ),
+        _event_bus=None,
+        log=lambda *args, **kwargs: None,
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=123),
+        id=10,
+        message_thread_id=2,
+        text="topic reply",
+        caption=None,
+    )
+
+    await SignerRunnerMixin._on_message(runner, None, message)
+
+    assert runner.context.chat_messages[123][10] is message
+    assert runner.context.chat_messages[(123, 2)][10] is message
+    assert runner.context.last_received_text == "topic reply"
+
+
+@pytest.mark.asyncio
+async def test_observe_request_key_changes_for_message_edits(monkeypatch):
+    requests = []
+    runtime = SimpleNamespace(
+        enqueue_observation=lambda request, **kwargs: requests.append(request)
+    )
+    monkeypatch.setattr(runtime_port, "_SEMANTIC_RUNTIME_PROVIDER", lambda: runtime)
+    node = WaitEventNode(
+        id="wait",
+        event_type="EDITED_MESSAGE",
+        success_patterns=["ok"],
+        semantic_result={"mode": "observe", "goal": "confirmed"},
+        timeout_seconds=1,
+        metadata={"chat_id": 123, "message_thread_id": 1},
+    )
+
+    for text in ("ok first", "ok second"):
+        bus = TelegramEventBus()
+        event = make_event(text)
+        await bus.publish(event)
+        context = ScopedFlowContext(account={"name": "account"})
+        context.system["chat_id"] = 123
+        outcome = await PulseFlowEngine(bus)._run_wait_event_node(node, context, bus)
+        assert outcome.status == NodeStatus.SUCCESS
+        assert requests[-1].request_key.endswith(
+            f":{event.event_type}:{event.message_id}:{event.message_revision}"
+        )
+
+    assert requests[0].request_key != requests[1].request_key
+
+
+@pytest.mark.asyncio
+async def test_pulseflow_failure_keeps_topic_received_text_scoped(monkeypatch):
+    async def failed_run(self, graph, context, executor, **kwargs):
+        context.last_output = "topic failure"
+        return {"status": "failed", "error": "reply did not match", "steps": 1}
+
+    monkeypatch.setattr(PulseFlowEngine, "run", failed_run)
+    runner = SignerRunnerMixin()
+    runner.context = UserSignerWorkerContext(sign_chats={}, chat_messages={})
+    runner.context.last_output = "legacy"
+    runner.context.last_received_text = "legacy"
+    runner.log = lambda *args, **kwargs: None
+    chat = SignChatV3(
+        chat_id=123, message_thread_id=1, actions=[SendTextAction(text="/checkin")]
+    )
+
+    with pytest.raises(RuntimeError, match="reply did not match"):
+        await runner._run_pulseflow_chat(chat, engine_source="task")
+
+    assert runner.context.topic_last_output[(123, 1)] == "topic failure"
+    assert runner.context.topic_last_received_text[(123, 1)] == "topic failure"
+    assert runner.context.last_output == "legacy"
+    assert runner.context.last_received_text == "legacy"
 
 
 class _FakeBridgeChat:

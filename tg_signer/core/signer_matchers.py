@@ -32,6 +32,7 @@ from tg_signer.config import (
     SendTextAction,
     SignChatV3,
 )
+from tg_signer.core.context import chat_scope_key
 from tg_signer.core.plugins import PluginRegistry
 
 
@@ -256,7 +257,12 @@ class SignerMatchersMixin:
         history_limit: int,
     ) -> dict[int, tuple]:
         state: dict[int, tuple] = {}
-        messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+        messages_dict = (
+            self.context.chat_messages.get(
+                chat_scope_key(chat.chat_id, chat.message_thread_id)
+            )
+            or {}
+        )
         for message in messages_dict.values():
             if not self._message_matches_chat_thread(message, chat):
                 continue
@@ -335,7 +341,12 @@ class SignerMatchersMixin:
         *,
         history_limit: int,
     ) -> bool:
-        messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+        messages_dict = (
+            self.context.chat_messages.get(
+                chat_scope_key(chat.chat_id, chat.message_thread_id)
+            )
+            or {}
+        )
         for message in reversed(list(messages_dict.values())):
             if self._message_matches_chat_thread(message, chat) and (
                 self._message_supports_next_action(action, message)
@@ -377,7 +388,12 @@ class SignerMatchersMixin:
                 if before_state.get(message_id) != marker
             }
 
-            messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+            messages_dict = (
+                self.context.chat_messages.get(
+                    chat_scope_key(chat.chat_id, chat.message_thread_id)
+                )
+                or {}
+            )
             for message in messages_dict.values():
                 if (
                     self._message_matches_chat_thread(message, chat)
@@ -685,7 +701,12 @@ class SignerMatchersMixin:
                 if before_state.get(message_id) != marker
             }
 
-            messages_dict = self.context.chat_messages.get(chat.chat_id) or {}
+            messages_dict = (
+                self.context.chat_messages.get(
+                    chat_scope_key(chat.chat_id, chat.message_thread_id)
+                )
+                or {}
+            )
             for message in messages_dict.values():
                 if (
                     self._message_matches_chat_thread(message, chat)
