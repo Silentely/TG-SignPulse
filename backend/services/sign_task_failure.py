@@ -24,6 +24,9 @@ class FailureCategory(str, Enum):
     TARGET_NOT_FOUND = "target_not_found"
     NETWORK_PROXY = "network_proxy"
     TIMEOUT = "timeout"
+    REPLY_TIMEOUT = "reply_timeout"
+    RETRY_EXHAUSTED = "retry_exhausted"
+    OTHER = "other"
     STRONG_FAILURE = "strong_failure"
     TASK_LOOP_EXCEEDED = "task_loop_exceeded"
     SEMANTIC_REVIEW_REQUIRED = "semantic_review_required"
@@ -221,6 +224,24 @@ _CATEGORY_RULES: tuple[tuple[FailureCategory, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        FailureCategory.RETRY_EXHAUSTED,
+        (
+            "retry_exhausted",
+            "关键词要求重试",
+            "重试耗尽",
+            "已达重试上限",
+        ),
+    ),
+    (
+        FailureCategory.REPLY_TIMEOUT,
+        (
+            "reply_timeout",
+            "等待回复超时",
+            "等待机器人回复确认超时",
+            "等待机器人确认超时",
+        ),
+    ),
+    (
         FailureCategory.TIMEOUT,
         (
             "timeout",
@@ -316,6 +337,9 @@ _FAILURE_CATEGORY_LABELS = {
     FailureCategory.TARGET_NOT_FOUND: "目标未找到",
     FailureCategory.NETWORK_PROXY: "网络/代理",
     FailureCategory.TIMEOUT: "超时",
+    FailureCategory.REPLY_TIMEOUT: "等待回复超时",
+    FailureCategory.RETRY_EXHAUSTED: "关键词重试耗尽",
+    FailureCategory.OTHER: "其他",
     FailureCategory.STRONG_FAILURE: "业务失败",
     FailureCategory.TASK_LOOP_EXCEEDED: "工作流循环熔断",
     FailureCategory.UNKNOWN: "未知失败",

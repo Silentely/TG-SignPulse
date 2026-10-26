@@ -1434,6 +1434,7 @@ class SignerRunnerMixin:
                         or f"steps={flow_res.get('steps')}, path={flow_res.get('path')}"
                     )
                     failure_code = flow_res.get("failure_code")
+                    failure_cat = flow_res.get("failure_category")
                     is_non_retryable = flow_res.get("non_retryable", False)
                     if failure_code == "semantic_review_required":
                         from tg_signer.semantic.models import SemanticReviewRequired
@@ -1449,6 +1450,8 @@ class SignerRunnerMixin:
                         )
                         if is_non_retryable:
                             last_error.non_retryable = True
+                    if failure_cat:
+                        last_error.failure_category = failure_cat
 
                     if is_non_retryable or getattr(last_error, "non_retryable", False):
                         break
@@ -1481,6 +1484,7 @@ class SignerRunnerMixin:
             if not flow_succeeded:
                 if (
                     allow_fallback
+                    and not getattr(last_error, "non_retryable", False)
                     and not has_semantic
                     and not getattr(
                         self.context, "pulseflow_side_effect_started", False

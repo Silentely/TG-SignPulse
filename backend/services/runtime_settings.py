@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, Optional
 
 from tg_signer.utils import clamp
+
+DEFAULT_RETRY_KEYWORDS: tuple[str, ...] = (
+    "再试",
+    "重试",
+    "稍后",
+    "人数较多",
+    "繁忙",
+    "请 10 秒后",
+)
 
 
 def _global_settings() -> Dict[str, Any]:
@@ -64,6 +74,57 @@ def get_execution_timeout() -> int:
         min_v=30,
         max_v=3600,
     )
+
+
+def get_reply_timeout() -> int:
+    return resolve_int_setting(
+        _global_settings(),
+        "sign_task_reply_timeout",
+        "SIGN_TASK_REPLY_TIMEOUT",
+        90,
+        min_v=30,
+        max_v=3600,
+    )
+
+
+def get_retry_interval() -> int:
+    return resolve_int_setting(
+        _global_settings(),
+        "sign_task_retry_interval",
+        "SIGN_TASK_RETRY_INTERVAL",
+        10,
+        min_v=1,
+        max_v=300,
+    )
+
+
+def get_retry_max_attempts() -> int:
+    return resolve_int_setting(
+        _global_settings(),
+        "sign_task_retry_max_attempts",
+        "SIGN_TASK_RETRY_MAX_ATTEMPTS",
+        3,
+        min_v=0,
+        max_v=10,
+    )
+
+
+def get_retry_keywords() -> list[str]:
+    cfg = _global_settings()
+    raw = cfg.get("sign_task_retry_keywords")
+    if raw is None or str(raw).strip() == "":
+        env_raw = os.getenv("SIGN_TASK_RETRY_KEYWORDS")
+        raw = env_raw if env_raw is not None and str(env_raw).strip() != "" else None
+    if raw is not None:
+        if isinstance(raw, list):
+            kws = [str(k).strip() for k in raw if str(k).strip()]
+            if kws:
+                return kws
+        elif isinstance(raw, str):
+            kws = [k.strip() for k in re.split(r"[\n,]+", raw) if k.strip()]
+            if kws:
+                return kws
+    return list(DEFAULT_RETRY_KEYWORDS)
 
 
 def get_account_cooldown() -> int:

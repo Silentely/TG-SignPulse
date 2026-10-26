@@ -105,6 +105,9 @@ export interface TaskActionItem {
   reply_success_patterns?: string[];
   reply_failure_patterns?: string[];
   reply_timeout_seconds?: number;
+  reply_retry_keywords?: string[];
+  reply_retry_interval?: number;
+  reply_retry_max_attempts?: number;
   semantic_result?: Record<string, any>;
   semantic_button?: Record<string, any>;
   semantic_triage?: Record<string, any>;
@@ -142,6 +145,9 @@ export interface RawTaskAction {
   reply_success_patterns?: string[];
   reply_failure_patterns?: string[];
   reply_timeout_seconds?: number;
+  reply_retry_keywords?: string[];
+  reply_retry_interval?: number;
+  reply_retry_max_attempts?: number;
   semantic_result?: Record<string, any>;
   semantic_button?: Record<string, any>;
   semantic_triage?: Record<string, any>;
@@ -179,6 +185,9 @@ export interface BuiltAction {
   reply_success_patterns?: string[];
   reply_failure_patterns?: string[];
   reply_timeout_seconds?: number;
+  reply_retry_keywords?: string[];
+  reply_retry_interval?: number;
+  reply_retry_max_attempts?: number;
   semantic_result?: Record<string, any>;
   semantic_button?: Record<string, any>;
   semantic_triage?: Record<string, any>;

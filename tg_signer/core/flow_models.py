@@ -209,12 +209,17 @@ class ActionNode(BaseFlowNode):
 
 
 class WaitEventNode(BaseFlowNode):
+    timeout_seconds: float = 90.0
     node_type: NodeType = NodeType.WAIT_EVENT
     event_type: str = "NEW_MESSAGE"
     filter_patterns: List[str] = Field(default_factory=list)
     success_patterns: List[str] = Field(default_factory=list)
     failure_patterns: List[str] = Field(default_factory=list)
     semantic_result: Optional[Dict[str, Any]] = None
+    retry_keywords: List[str] = Field(default_factory=list)
+    retry_interval: float = 10.0
+    max_retries: int = 3
+    action_node_id: Optional[str] = None
 
     @validator(
         "filter_patterns", "success_patterns", "failure_patterns", each_item=True

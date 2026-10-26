@@ -15,6 +15,7 @@ from tg_signer.core.flow_event_bus import TelegramEventBus
 from tg_signer.core.flow_models import (
     TERMINAL_COMPLETE_ID,
     TERMINAL_FAIL_ID,
+    ActionNode,
     BaseFlowNode,
     ConditionNode,
     DelayNode,
@@ -33,6 +34,38 @@ from tg_signer.core.flow_models import (
 )
 
 logger = logging.getLogger("tg_signer.flow_engine")
+
+
+def normalize_text_for_matching(text: str) -> str:
+    """宽松匹配预处理：转小写，去除空白与中英文标点符号。"""
+    if not text:
+        return ""
+    text = text.lower()
+    text = re.sub(r"\s+", "", text)
+    import unicodedata
+
+    return "".join(
+        c for c in text if not unicodedata.category(c).startswith(("P", "S"))
+    )
+
+
+def matches_retry_keyword(text: str, keywords: Any) -> Optional[str]:
+    """检查文本是否命中重试关键词表（宽松包含匹配，忽略标点与大小写，优先匹配更长更具体的词）。"""
+    if not text or not keywords:
+        return None
+    norm_text = normalize_text_for_matching(text)
+    if not norm_text:
+        return None
+    sorted_kws = sorted(
+        [k for k in keywords if k and str(k).strip()],
+        key=lambda k: len(str(k)),
+        reverse=True,
+    )
+    for kw in sorted_kws:
+        norm_kw = normalize_text_for_matching(str(kw))
+        if norm_kw and norm_kw in norm_text:
+            return str(kw).strip()
+    return None
 
 
 def _redact_trace_text(value: str) -> str:
@@ -91,9 +124,13 @@ class PulseFlowEngine:
         on_step_finish: Optional[
             Callable[[BaseFlowNode, StepOutcome, ScopedFlowContext], Any]
         ] = None,
+        graph: Optional[ExecutionGraph] = None,
     ) -> StepOutcome:
         """派发单节点多态执行"""
-        if isinstance(node, ConditionNode):
+        if isinstance(node, ActionNode):
+            ctx.system["last_action_node"] = node
+            return await executor(node, ctx)
+        elif isinstance(node, ConditionNode):
             return self._run_condition_node(node, ctx)
         elif isinstance(node, ExtractorNode):
             return self._run_extractor_node(node, ctx)
@@ -119,7 +156,9 @@ class PulseFlowEngine:
             )
         elif isinstance(node, WaitEventNode):
             if bus is not None:
-                return await self._run_wait_event_node(node, ctx, bus)
+                return await self._run_wait_event_node(
+                    node, ctx, bus, executor=executor, graph=graph
+                )
             return StepOutcome(
                 node_id=node.id,
                 status=NodeStatus.FAILED,
@@ -152,6 +191,7 @@ class PulseFlowEngine:
         run_start = time.perf_counter()
         last_failure_error: Optional[str] = None
         last_failure_code: Optional[str] = None
+        last_failure_category: Optional[str] = None
         last_non_retryable: bool = False
         last_semantic_disposition: Optional[str] = None
 
@@ -258,12 +298,23 @@ class PulseFlowEngine:
                             if node.timeout_seconds and node.timeout_seconds > 0
                             else 25.0
                         )
-                        # 为 WaitEventNode 留出 3 秒缓冲区，确保内部超时先触发，完整输出未匹配回复等诊断日志
-                        wait_for_timeout = (
-                            timeout_sec + 3.0
-                            if isinstance(node, WaitEventNode)
-                            else timeout_sec
-                        )
+                        wait_for_timeout = timeout_sec
+                        if isinstance(node, WaitEventNode):
+                            action = graph.nodes.get(
+                                node.action_node_id
+                            ) or ctx.system.get("last_action_node")
+                            resend_timeout = (
+                                float(action.timeout_seconds or 25.0)
+                                if action
+                                else 25.0
+                            )
+                            # 每次重试均有独立回复窗口，另预留发送和间隔时间。
+                            wait_for_timeout = (
+                                timeout_sec * (1 + node.max_retries)
+                                + node.max_retries
+                                * (node.retry_interval + resend_timeout)
+                                + 3.0
+                            )
                         outcome = await asyncio.wait_for(
                             self._execute_node(
                                 node,
@@ -272,6 +323,7 @@ class PulseFlowEngine:
                                 bus,
                                 on_step_start,
                                 on_step_finish,
+                                graph=graph,
                             ),
                             timeout=wait_for_timeout,
                         )
@@ -358,6 +410,11 @@ class PulseFlowEngine:
                         last_non_retryable = nr or True
                         is_controlled = True
                 if outcome.details and isinstance(outcome.details, dict):
+                    f_cat = outcome.details.get("failure_category")
+                    if f_cat:
+                        last_failure_category = str(f_cat)
+                        if f_cat == "retry_exhausted":
+                            last_non_retryable = True
                     s_disp = outcome.details.get("semantic_disposition")
                     if s_disp in {"review", "stop"}:
                         last_semantic_disposition = s_disp
@@ -525,6 +582,7 @@ class PulseFlowEngine:
                 )
             res["error"] = _redact_trace_text(last_failure_error)
             res["failure_code"] = last_failure_code
+            res["failure_category"] = last_failure_category
             res["non_retryable"] = last_non_retryable
             res["semantic_disposition"] = last_semantic_disposition
         return res
@@ -967,7 +1025,14 @@ class PulseFlowEngine:
         )
 
     async def _run_wait_event_node(
-        self, node: WaitEventNode, ctx: ScopedFlowContext, bus: TelegramEventBus
+        self,
+        node: WaitEventNode,
+        ctx: ScopedFlowContext,
+        bus: TelegramEventBus,
+        executor: Optional[
+            Callable[[BaseFlowNode, ScopedFlowContext], Awaitable[StepOutcome]]
+        ] = None,
+        graph: Optional[ExecutionGraph] = None,
     ) -> StepOutcome:
         def _log_msg(msg: str, level: str = "INFO") -> None:
             log_fn = ctx.system.get("log")
@@ -1007,7 +1072,13 @@ class PulseFlowEngine:
             or ctx.system.get("last_action_started_at")
             or ctx.system.get("last_action_finished_at")
         )
-        timeout = float(node.timeout_seconds or 120.0)
+        timeout = float(node.timeout_seconds or 90.0)
+        retry_count = 0
+        max_retries = int(node.max_retries if node.max_retries is not None else 3)
+        retry_interval = float(
+            node.retry_interval if node.retry_interval is not None else 10.0
+        )
+        retry_keywords = getattr(node, "retry_keywords", None) or []
 
         node_desc = node.name or "等待机器人回复"
         _log_msg(f"步骤 [{node.id}] 开始执行：{node_desc}")
@@ -1051,7 +1122,13 @@ class PulseFlowEngine:
                 status=NodeStatus.TIMEOUT,
                 output_text=out_msg,
                 updates_last_output=bool(unmatched_replies),
-                details={"chat_id": chat_id, "unmatched_count": len(unmatched_replies)},
+                details={
+                    "chat_id": chat_id,
+                    "unmatched_count": len(unmatched_replies),
+                    "failure_category": "other"
+                    if unmatched_replies
+                    else "reply_timeout",
+                },
             )
 
         queue = bus.subscribe(
@@ -1205,7 +1282,90 @@ class PulseFlowEngine:
                     except Exception:
                         pass
 
-                # 7. failure_patterns 优先判定（防止误命中成功导致假阳性）
+                # 8. 关键词重试判定（宽松匹配「再试 / 重试 / 稍后 / 人数较多 / 繁忙 / 请 10 秒后」等）
+                matched_kw = matches_retry_keyword(text, retry_keywords)
+                if matched_kw:
+                    from datetime import datetime, timezone
+
+                    now_utc = datetime.now(timezone.utc).strftime(
+                        "%Y-%m-%d %H:%M:%S UTC"
+                    )
+                    clean_reply = text
+                    if retry_count < max_retries:
+                        remaining_retries = max_retries - (retry_count + 1)
+                        _log_msg(
+                            f"[{now_utc}] 收到机器人回复命中重试关键词「{matched_kw}」：{clean_reply}。"
+                            f"等待 {retry_interval:.1f} 秒后重试签到指令（第 {retry_count + 1}/{max_retries} 次重试，剩余 {remaining_retries} 次）",
+                            level="WARNING",
+                        )
+                        logger.info(
+                            f"WaitEventNode {node.id} 命中重试关键词「{matched_kw}」，将在 {retry_interval}s 后重试 (第 {retry_count + 1}/{max_retries} 次)"
+                        )
+                        await asyncio.sleep(retry_interval)
+                        action_node = (
+                            graph.nodes.get(node.action_node_id)
+                            if (graph and node.action_node_id)
+                            else None
+                        ) or ctx.system.get("last_action_node")
+                        if action_node is None or executor is None:
+                            return StepOutcome(
+                                node_id=node.id,
+                                status=NodeStatus.FAILED,
+                                output_text="命中重试关键词，但没有可重发的动作",
+                                details={**details, "failure_category": "other"},
+                            )
+                        # 更新水位线必须早于重发，保留发送期间到达的极速回复。
+                        since_ts = time.time()
+                        try:
+                            retry_outcome = await asyncio.wait_for(
+                                executor(action_node, ctx),
+                                timeout=float(action_node.timeout_seconds or 25.0),
+                            )
+                        except Exception as re_err:
+                            return StepOutcome(
+                                node_id=node.id,
+                                status=NodeStatus.FAILED,
+                                output_text=f"重新发送指令异常: {re_err}",
+                                error=re_err,
+                                details={**details, "failure_category": "other"},
+                            )
+                        if (
+                            retry_outcome is None
+                            or retry_outcome.status != NodeStatus.SUCCESS
+                        ):
+                            return StepOutcome(
+                                node_id=node.id,
+                                status=NodeStatus.FAILED,
+                                output_text=f"重新发送指令失败: {getattr(retry_outcome, 'output_text', '')}",
+                                details={**details, "failure_category": "other"},
+                            )
+                        retry_count += 1
+                        new_sent_id = ctx.system.get(
+                            "last_sent_message_id"
+                        ) or ctx.system.get("last_message_id")
+                        min_msg_id = new_sent_id
+                        deadline = time.perf_counter() + timeout
+                        unmatched_replies.clear()
+                        continue
+                    else:
+                        fail_msg = f"关键词要求重试，已重试 {retry_count} 次，最后一次返回：{clean_reply}"
+                        _log_msg(
+                            f"[{now_utc}] 步骤 [{node.id}] 执行失败: {fail_msg}",
+                            level="WARNING",
+                        )
+                        details["failure_category"] = "retry_exhausted"
+                        details["retry_count"] = retry_count
+                        details["max_retries"] = max_retries
+                        details["last_reply"] = clean_reply
+                        return StepOutcome(
+                            node_id=node.id,
+                            status=NodeStatus.FAILED,
+                            output_text=fail_msg,
+                            updates_last_output=True,
+                            details=details,
+                        )
+
+                # 9. failure_patterns 失败判定
                 if getattr(node, "failure_patterns", None):
                     for pattern in node.failure_patterns:
                         if self._compile_regex(pattern).search(text):
@@ -1221,8 +1381,7 @@ class PulseFlowEngine:
                                 updates_last_output=True,
                                 details=details,
                             )
-
-                # 8. success_patterns / filter_patterns 回退判定
+                # 7. success_patterns / filter_patterns 优先成功判定
                 success_rules = (
                     node.success_patterns
                     if getattr(node, "success_patterns", None)
@@ -1243,6 +1402,7 @@ class PulseFlowEngine:
                                 updates_last_output=True,
                                 details=details,
                             )
+
                     # 未命中任何成功规则，记录到未匹配列表并回显日志
                     _trigger_observe_if_configured("unmatched")
                     unmatched_replies.append(text)

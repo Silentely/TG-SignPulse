@@ -26,6 +26,9 @@ FAILURE_CATEGORY_ADVICE = {
     "target_not_found": "目标会话或消息未找到，请检查任务的目标会话配置",
     "network_proxy": "网络或代理连接异常，请检查代理配置与网络连通性",
     "timeout": "任务执行超时，可适当提高超时设置或拆分任务",
+    "reply_timeout": "等待机器人回复超时（期间未收到任何回复）。请确认目标机器人是否正常在线，或适当提高【回复等待超时】时间",
+    "other": "机器人已回复但结果未确认，或重发指令失败，请检查任务日志与匹配规则",
+    "retry_exhausted": "机器人回复提示稍后再试或繁忙，已自动重试至上限。建议增加重试次数上限或延长重试间隔",
     "strong_failure": "机器人回复疑似失败，请检查目标机器人当前状态",
 }
 
@@ -141,6 +144,10 @@ def is_bot_offline_timeout(
     返回 (is_offline, timeout_seconds_str)。
     """
     combined = (message or "") + " " + " ".join((flow_logs or [])[-15:])
+
+    # 若因关键词命中自动重试耗尽，属于明确响应但需稍后重试，绝非离线
+    if failure_category == "retry_exhausted" or "关键词要求重试" in combined:
+        return False, None
 
     # 若期间收到了机器人的回复（虽然未匹配成功关键词），属于规则未匹配，而非未响应离线
     if "期间收到机器人回复" in combined:
@@ -299,13 +306,18 @@ async def send_failure_notification(
 
         # 动态细化失败分类标签
         combined_err_context = (message or "") + " " + " ".join((flow_logs or [])[-10:])
-        category_label = _failure_category_label(failure_category)
-        if "未匹配" in combined_err_context:
+        if failure_category == "retry_exhausted":
+            category_label = "关键词重试耗尽"
+        elif failure_category == "reply_timeout":
+            category_label = "等待回复超时"
+        elif "未匹配" in combined_err_context:
             category_label = "关键词未匹配"
         elif "等待机器人" in combined_err_context and (
             "超时" in combined_err_context or failure_category == "timeout"
         ):
             category_label = "等待回复超时"
+        else:
+            category_label = _failure_category_label(failure_category)
         if category_label:
             fields.append(("失败分类", category_label))
 

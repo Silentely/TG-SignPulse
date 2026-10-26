@@ -115,6 +115,9 @@
       "target_not_found": "Target not found",
       "network_proxy": "Network/proxy",
       "timeout": "Timeout",
+      "reply_timeout": "Reply Timeout",
+      "retry_exhausted": "Retry Limit Reached",
+      "other": "Other",
       "strong_failure": "Business failure",
       "unknown": "Unknown failure",
       "semantic_review_required": "Semantic Review Required",
@@ -502,8 +505,14 @@
     "replySuccessPatternsPlaceholder": "e.g. 出席率\\s*成功",
     "replyFailurePatterns": "Failure Match Patterns (One regex per line)",
     "replyFailurePatternsPlaceholder": "e.g.\n出席率\\s*失败\n签到失败\n操作失败",
-    "replyTimeout": "Wait Timeout (seconds)",
-    "replyTimeoutPlaceholder": "Default 120"
+    "replyTimeout": "Reply Timeout (seconds)",
+    "replyTimeoutPlaceholder": "Default 90s, min 30s",
+    "replyRetryKeywords": "Retry Trigger Keywords (one per line)",
+    "replyRetryKeywordsPlaceholder": "Auto retry when matched, e.g. retry, later, busy",
+    "replyRetryInterval": "Retry Interval (seconds)",
+    "replyRetryIntervalPlaceholder": "Default 10s",
+    "replyRetryMaxAttempts": "Max Retry Attempts",
+    "replyRetryMaxAttemptsPlaceholder": "Default 3"
   },
   "taskModal": {
     "addTitle": "Add Task",

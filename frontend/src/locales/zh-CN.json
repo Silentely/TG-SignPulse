@@ -115,6 +115,9 @@
       "target_not_found": "目标未找到",
       "network_proxy": "网络/代理",
       "timeout": "超时",
+      "reply_timeout": "等待回复超时",
+      "retry_exhausted": "关键词重试耗尽",
+      "other": "其他",
       "strong_failure": "业务失败",
       "unknown": "未知失败",
       "semantic_review_required": "语义人工审查",
@@ -502,8 +505,14 @@
     "replySuccessPatternsPlaceholder": "例如：出席率\\s*成功",
     "replyFailurePatterns": "失败匹配规则 (每行一条正则)",
     "replyFailurePatternsPlaceholder": "例如：\n出席率\\s*失败\n签到失败\n操作失败",
-    "replyTimeout": "等待超时时间 (秒)",
-    "replyTimeoutPlaceholder": "默认 120"
+    "replyTimeout": "回复等待超时 (秒)",
+    "replyTimeoutPlaceholder": "默认 90 秒，下限 30 秒",
+    "replyRetryKeywords": "重试触发关键词 (每行一个)",
+    "replyRetryKeywordsPlaceholder": "命中时自动重试签到指令，默认：再试、重试、稍后、人数较多、繁忙、请 10 秒后",
+    "replyRetryInterval": "重试间隔 (秒)",
+    "replyRetryIntervalPlaceholder": "默认 10 秒",
+    "replyRetryMaxAttempts": "重试次数上限",
+    "replyRetryMaxAttemptsPlaceholder": "默认 3 次"
   },
   "taskModal": {
     "addTitle": "添加任务",

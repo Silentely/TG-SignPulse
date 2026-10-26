@@ -367,6 +367,46 @@ async def _runner_prepare_execution(
     except (TypeError, ValueError):
         task_timeout = 120.0
 
+    # 关键词重试有独立的回复窗口；总任务截止时间不能先于这些窗口耗尽。
+    from tg_signer.core.flow_models import ActionNode, WaitEventNode
+    from tg_signer.core.flow_normalizer import GraphNormalizer
+
+    reply_budget = 0.0
+    has_keyword_retries = False
+    for chat_cfg in raw_task_cfg.get("chats", []):
+        graph = GraphNormalizer.compile(chat_cfg)
+        resend_timeout = max(
+            (
+                float(n.timeout_seconds or 25.0)
+                for n in graph.nodes.values()
+                if isinstance(n, ActionNode)
+            ),
+            default=25.0,
+        )
+        for node in graph.nodes.values():
+            reply_budget += float(node.timeout_seconds or 25.0)
+            if (
+                isinstance(node, WaitEventNode)
+                and node.retry_keywords
+                and node.max_retries > 0
+            ):
+                has_keyword_retries = True
+                reply_budget += (
+                    node.max_retries
+                    * (
+                        float(node.timeout_seconds)
+                        + node.retry_interval
+                        + resend_timeout
+                    )
+                    + 3.0
+                )
+    if has_keyword_retries and reply_budget + 5.0 > task_timeout:
+        task_timeout = reply_budget + 5.0
+        svc._append_active_log(
+            state.get("task_key", f"{state['account_name']}:{state['task_name']}"),
+            f"关键词重试执行预算：总任务超时调整为 {task_timeout:.0f} 秒（包含每次回复等待、重试间隔及重发）",
+        )
+
     svc._update_run_phase(
         state["account_name"],
         state["task_name"],
@@ -792,6 +832,8 @@ async def _runner_handle_error(
 
     if is_timeout_error_message(str(e)) or state.get("timed_out"):
         _set_ctx(state, "timed_out", True)
+    if getattr(e, "failure_category", None):
+        _set_ctx(state, "failure_category", str(e.failure_category))
 
     loop_exceeded_types = tuple(
         t
@@ -1295,7 +1337,7 @@ async def execute_sign_task(
                 success=False,
             ).value
         )
-        if ctx.timed_out:
+        if ctx.timed_out and not ctx.failure_category:
             failure_category = FailureCategory.TIMEOUT.value
         _set_ctx(ctx, "failure_category", failure_category)
 

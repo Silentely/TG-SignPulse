@@ -33,6 +33,9 @@ GLOBAL_SETTINGS_CACHE_TTL = 2.0
 # 供 tg_signer 等仍读 env 的路径（AI_VISION_*、SIGN_TASK_*）使用
 GLOBAL_SETTINGS_ENV_SYNC = {
     "sign_task_execution_timeout": "SIGN_TASK_EXECUTION_TIMEOUT",
+    "sign_task_reply_timeout": "SIGN_TASK_REPLY_TIMEOUT",
+    "sign_task_retry_interval": "SIGN_TASK_RETRY_INTERVAL",
+    "sign_task_retry_max_attempts": "SIGN_TASK_RETRY_MAX_ATTEMPTS",
     "sign_task_account_cooldown": "SIGN_TASK_ACCOUNT_COOLDOWN",
     "sign_task_flow_retry_attempts": "SIGN_TASK_FLOW_RETRY_ATTEMPTS",
     "sign_task_history_max_age_days": "SIGN_TASK_HISTORY_MAX_AGE_DAYS",
@@ -44,6 +47,7 @@ GLOBAL_SETTINGS_ENV_SYNC = {
 # （区别于整数值的"空值保留已有 env"：思考度由面板全权管理，重置即关闭透传）
 GLOBAL_SETTINGS_ENV_SYNC_STR = {
     "ai_vision_reasoning_effort": "AI_VISION_REASONING_EFFORT",
+    "sign_task_retry_keywords": "SIGN_TASK_RETRY_KEYWORDS",
 }
 
 # reasoning_effort 合法取值（商汤 SenseNova 等文档：low/medium/high/none）
@@ -80,15 +84,29 @@ def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
 
     for gkey, ekey in GLOBAL_SETTINGS_ENV_SYNC_STR.items():
         val = merged.get(gkey)
-        if val is None or str(val).strip() == "":
+        if (
+            val is None
+            or (isinstance(val, str) and str(val).strip() == "")
+            or (isinstance(val, list) and not val)
+        ):
             os.environ.pop(ekey, None)
             continue
-        value = str(val).strip().lower()
-        if value in _REASONING_EFFORT_VALUES:
-            os.environ[ekey] = value
+        if gkey == "ai_vision_reasoning_effort":
+            value = str(val).strip().lower()
+            if value in _REASONING_EFFORT_VALUES:
+                os.environ[ekey] = value
+            else:
+                logger.debug("跳过无效 env 同步 %s=%r", ekey, val)
+                os.environ.pop(ekey, None)
+        elif gkey == "sign_task_retry_keywords":
+            if isinstance(val, list):
+                os.environ[ekey] = ",".join(
+                    str(k).strip() for k in val if str(k).strip()
+                )
+            else:
+                os.environ[ekey] = str(val).strip()
         else:
-            logger.debug("跳过无效 env 同步 %s=%r", ekey, val)
-            os.environ.pop(ekey, None)
+            os.environ[ekey] = str(val).strip()
 
 
 # 进程内仅告警一次：避免每次读取 telegram 配置都刷日志
@@ -111,6 +129,9 @@ def _warn_default_tg_credentials_once() -> None:
 _GLOBAL_SETTING_INT_CLAMPS = {
     "device_keepalive_interval_days": (1, 170),
     "sign_task_execution_timeout": (30, 3600),
+    "sign_task_reply_timeout": (30, 3600),
+    "sign_task_retry_interval": (1, 300),
+    "sign_task_retry_max_attempts": (0, 10),
     "sign_task_account_cooldown": (0, 600),
     "sign_task_flow_retry_attempts": (1, 10),
     "sign_task_history_max_age_days": (1, 90),
@@ -1358,6 +1379,10 @@ class GlobalSettingsMixin:
             "telegram_bot_chatops_enabled": False,
             "telegram_bot_admin_user_ids": None,
             "sign_task_execution_timeout": None,
+            "sign_task_reply_timeout": None,
+            "sign_task_retry_keywords": None,
+            "sign_task_retry_interval": None,
+            "sign_task_retry_max_attempts": None,
             "sign_task_account_cooldown": None,
             "sign_task_flow_retry_attempts": None,
             "sign_task_history_max_age_days": None,

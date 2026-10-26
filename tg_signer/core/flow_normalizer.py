@@ -248,6 +248,13 @@ class GraphNormalizer:
             nodes[node_id] = node
 
             if wait_for_reply:
+                from backend.services.runtime_settings import (
+                    get_reply_timeout,
+                    get_retry_interval,
+                    get_retry_keywords,
+                    get_retry_max_attempts,
+                )
+
                 success_pats = (
                     getattr(act, "reply_success_patterns", None)
                     if not isinstance(act, dict)
@@ -258,17 +265,40 @@ class GraphNormalizer:
                     if not isinstance(act, dict)
                     else act.get("reply_failure_patterns")
                 ) or []
-                reply_timeout = (
-                    getattr(act, "reply_timeout_seconds", None)
-                    if not isinstance(act, dict)
-                    else act.get("reply_timeout_seconds")
-                )
-                if reply_timeout is None:
-                    reply_timeout = 120.0
+                reply_timeout = cls._explicit_setting(act, "reply_timeout_seconds")
                 try:
-                    reply_timeout = float(reply_timeout)
+                    reply_timeout = max(
+                        30.0,
+                        min(
+                            3600.0,
+                            float(
+                                reply_timeout
+                                if reply_timeout is not None
+                                else get_reply_timeout()
+                            ),
+                        ),
+                    )
                 except (ValueError, TypeError):
-                    reply_timeout = 120.0
+                    reply_timeout = get_reply_timeout()
+                reply_retry_keywords = cls._explicit_setting(
+                    act, "reply_retry_keywords"
+                )
+                if reply_retry_keywords is None:
+                    reply_retry_keywords = get_retry_keywords()
+                reply_retry_interval = cls._explicit_setting(
+                    act, "reply_retry_interval"
+                )
+                if reply_retry_interval is None:
+                    reply_retry_interval = get_retry_interval()
+                reply_retry_interval = max(1.0, min(300.0, float(reply_retry_interval)))
+                reply_retry_max_attempts = cls._explicit_setting(
+                    act, "reply_retry_max_attempts"
+                )
+                if reply_retry_max_attempts is None:
+                    reply_retry_max_attempts = get_retry_max_attempts()
+                reply_retry_max_attempts = max(
+                    0, min(10, int(reply_retry_max_attempts))
+                )
 
                 sem_res = (
                     getattr(act, "semantic_result", None)
@@ -282,6 +312,10 @@ class GraphNormalizer:
                     success_patterns=list(success_pats),
                     failure_patterns=list(failure_pats),
                     timeout_seconds=reply_timeout,
+                    retry_keywords=reply_retry_keywords,
+                    retry_interval=reply_retry_interval,
+                    max_retries=reply_retry_max_attempts,
+                    action_node_id=node_id,
                     next_node_id=next_action_id,
                     on_failure_node_id=TERMINAL_FAIL_ID,
                     semantic_result=sem_res,
@@ -289,6 +323,7 @@ class GraphNormalizer:
                         "chat_id": chat.chat_id,
                         "chat_name": getattr(chat, "name", None),
                         "message_thread_id": chat.message_thread_id,
+                        "action_node_id": node_id,
                     },
                 )
                 nodes[wait_node_id] = wait_node
@@ -422,21 +457,39 @@ class GraphNormalizer:
         return graph
 
     @staticmethod
+    def _explicit_setting(source: Any, key: str) -> Any:
+        if isinstance(source, dict):
+            return source.get(key)
+        if key in getattr(source, "__fields_set__", set()):
+            return getattr(source, key, None)
+        return None
+
+    @staticmethod
     def _resolve_flow_step_timeout(step: Any) -> float:
+        from tg_signer.config import FlowNodeType
         from tg_signer.utils import read_positive_float_env
 
-        timeout_val = getattr(step, "timeout_seconds", None)
+        timeout_val = (
+            GraphNormalizer._explicit_setting(step, "timeout_seconds")
+            if getattr(step, "node_type", None) == FlowNodeType.WAIT_EVENT
+            else getattr(step, "timeout_seconds", None)
+        )
         if timeout_val is None or timeout_val <= 0:
-            base_timeout = read_positive_float_env(
-                "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
-            )
-            timeout_val = base_timeout
+            if getattr(step, "node_type", None) == FlowNodeType.WAIT_EVENT:
+                from backend.services.runtime_settings import get_reply_timeout
+
+                timeout_val = get_reply_timeout()
+            else:
+                base_timeout = read_positive_float_env(
+                    "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
+                )
+                timeout_val = base_timeout
         else:
             timeout_val = float(timeout_val)
 
-        from tg_signer.config import FlowNodeType
-
-        if getattr(step, "node_type", None) == FlowNodeType.ACTION:
+        if getattr(step, "node_type", None) == FlowNodeType.WAIT_EVENT:
+            timeout_val = max(30.0, min(3600.0, timeout_val))
+        elif getattr(step, "node_type", None) == FlowNodeType.ACTION:
             act_type_str = ""
             if hasattr(step, "action_type") and step.action_type:
                 act_type_str = (
@@ -537,6 +590,12 @@ class GraphNormalizer:
             return ActionNode(action_type=action_type, params=params, **common_kwargs)
 
         elif ntype == FlowNodeType.WAIT_EVENT:
+            from backend.services.runtime_settings import (
+                get_retry_interval,
+                get_retry_keywords,
+                get_retry_max_attempts,
+            )
+
             common_kwargs["metadata"].setdefault("chat_id", chat.chat_id)
             common_kwargs["metadata"].setdefault(
                 "chat_name", getattr(chat, "name", None)
@@ -545,12 +604,27 @@ class GraphNormalizer:
                 common_kwargs["metadata"].setdefault(
                     "message_thread_id", chat.message_thread_id
                 )
+
+            step_retry_keywords = cls._explicit_setting(step, "retry_keywords")
+            if step_retry_keywords is None:
+                step_retry_keywords = get_retry_keywords()
+            step_retry_interval = cls._explicit_setting(step, "retry_interval")
+            if step_retry_interval is None:
+                step_retry_interval = get_retry_interval()
+            step_max_retries = cls._explicit_setting(step, "max_retries")
+            if step_max_retries is None:
+                step_max_retries = get_retry_max_attempts()
+
             return WaitEventNode(
                 event_type=getattr(step, "event_type", "ANY") or "ANY",
                 filter_patterns=list(getattr(step, "filter_patterns", []) or []),
                 success_patterns=list(getattr(step, "success_patterns", []) or []),
                 failure_patterns=list(getattr(step, "failure_patterns", []) or []),
                 semantic_result=getattr(step, "semantic_result", None),
+                retry_keywords=step_retry_keywords,
+                retry_interval=max(1.0, min(300.0, float(step_retry_interval))),
+                max_retries=max(0, min(10, int(step_max_retries))),
+                action_node_id=getattr(step, "action_node_id", None),
                 **common_kwargs,
             )
 

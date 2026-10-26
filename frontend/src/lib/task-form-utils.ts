@@ -102,6 +102,15 @@ export function parseSingleAction(raw: RawTaskAction): TaskActionItem[] {
     if (raw.reply_timeout_seconds !== undefined) {
       item.reply_timeout_seconds = raw.reply_timeout_seconds
     }
+    if (Array.isArray(raw.reply_retry_keywords)) {
+      item.reply_retry_keywords = [...raw.reply_retry_keywords]
+    }
+    if (raw.reply_retry_interval !== undefined) {
+      item.reply_retry_interval = raw.reply_retry_interval
+    }
+    if (raw.reply_retry_max_attempts !== undefined) {
+      item.reply_retry_max_attempts = raw.reply_retry_max_attempts
+    }
   }
   if (raw.semantic_result) {
     item.semantic_result = { ...raw.semantic_result }
@@ -199,6 +208,15 @@ export function buildSingleAction(
     }
     if (action.reply_timeout_seconds !== undefined) {
       result.reply_timeout_seconds = Number(action.reply_timeout_seconds)
+    }
+    if (action.reply_retry_keywords && action.reply_retry_keywords.length > 0) {
+      result.reply_retry_keywords = [...action.reply_retry_keywords]
+    }
+    if (action.reply_retry_interval !== undefined) {
+      result.reply_retry_interval = Number(action.reply_retry_interval)
+    }
+    if (action.reply_retry_max_attempts !== undefined) {
+      result.reply_retry_max_attempts = Number(action.reply_retry_max_attempts)
     }
   }
   if (action.semantic_result) {
@@ -302,7 +320,12 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
       const failurePatterns = act.reply_failure_patterns && act.reply_failure_patterns.length > 0
         ? [...act.reply_failure_patterns]
         : ['出席率\\s*失败', '签到失败', '操作失败']
-      const timeout = act.reply_timeout_seconds !== undefined ? Number(act.reply_timeout_seconds) : 120
+      const timeout = act.reply_timeout_seconds !== undefined ? Number(act.reply_timeout_seconds) : 90
+      const retryKeywords = act.reply_retry_keywords && act.reply_retry_keywords.length > 0
+        ? [...act.reply_retry_keywords]
+        : ['再试', '重试', '稍后', '人数较多', '繁忙', '请 10 秒后']
+      const retryInterval = act.reply_retry_interval !== undefined ? Number(act.reply_retry_interval) : 10
+      const maxRetries = act.reply_retry_max_attempts !== undefined ? Number(act.reply_retry_max_attempts) : 3
 
       const step: any = {
         step_id: item.stepId,
@@ -311,6 +334,9 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
         success_patterns: successPatterns,
         failure_patterns: failurePatterns,
         timeout_seconds: timeout,
+        retry_keywords: retryKeywords,
+        retry_interval: retryInterval,
+        max_retries: maxRetries,
         next_step_id: nextStepId,
         on_failure_step_id: 'FAIL',
       }
@@ -394,7 +420,16 @@ export function parseStepsToActions(steps: any[]): TaskActionItem[] | null {
             : []
           actionItem.reply_timeout_seconds = nextStep.timeout_seconds !== undefined
             ? Number(nextStep.timeout_seconds)
-            : 30
+            : 90
+          if (Array.isArray(nextStep.retry_keywords)) {
+            actionItem.reply_retry_keywords = [...nextStep.retry_keywords]
+          }
+          if (nextStep.retry_interval !== undefined) {
+            actionItem.reply_retry_interval = Number(nextStep.retry_interval)
+          }
+          if (nextStep.max_retries !== undefined) {
+            actionItem.reply_retry_max_attempts = Number(nextStep.max_retries)
+          }
           i++ // 跳过已配对的 wait_event 节点
         }
       }

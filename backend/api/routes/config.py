@@ -438,6 +438,10 @@ class GlobalSettingsRequest(BaseModel):
     telegram_bot_admin_user_ids: Optional[str] = None
     timezone: Optional[str] = None
     sign_task_execution_timeout: Optional[int] = None
+    sign_task_reply_timeout: Optional[int] = None
+    sign_task_retry_keywords: Optional[str] = None
+    sign_task_retry_interval: Optional[int] = None
+    sign_task_retry_max_attempts: Optional[int] = None
     sign_task_account_cooldown: Optional[int] = None
     sign_task_flow_retry_attempts: Optional[int] = None
     sign_task_history_max_age_days: Optional[int] = None
@@ -491,6 +495,10 @@ class GlobalSettingsResponse(BaseModel):
     telegram_bot_admin_user_ids: Optional[str] = None
     timezone: str = "Asia/Hong_Kong"
     sign_task_execution_timeout: Optional[int] = None
+    sign_task_reply_timeout: Optional[int] = None
+    sign_task_retry_keywords: Optional[str] = None
+    sign_task_retry_interval: Optional[int] = None
+    sign_task_retry_max_attempts: Optional[int] = None
     sign_task_account_cooldown: Optional[int] = None
     sign_task_flow_retry_attempts: Optional[int] = None
     sign_task_history_max_age_days: Optional[int] = None

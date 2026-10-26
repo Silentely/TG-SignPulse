@@ -248,6 +248,12 @@ const setFailurePatterns = (action: TaskActionItem, val: string) => {
   action.reply_failure_patterns = val.split('\n').map((s) => s.trim()).filter(Boolean)
 }
 
+const DEFAULT_RETRY_KEYWORDS = ['再试', '重试', '稍后', '人数较多', '繁忙', '请 10 秒后']
+
+const setRetryKeywords = (action: TaskActionItem, val: string) => {
+  action.reply_retry_keywords = val.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
 const onToggleWaitForReply = (action: TaskActionItem, checked: boolean) => {
   action.wait_for_reply = checked
   if (checked) {
@@ -258,7 +264,16 @@ const onToggleWaitForReply = (action: TaskActionItem, checked: boolean) => {
       action.reply_failure_patterns = ['出席率\\s*失败', '签到失败', '操作失败']
     }
     if (action.reply_timeout_seconds === undefined) {
-      action.reply_timeout_seconds = 120
+      action.reply_timeout_seconds = 90
+    }
+    if (!action.reply_retry_keywords || action.reply_retry_keywords.length === 0) {
+      action.reply_retry_keywords = [...DEFAULT_RETRY_KEYWORDS]
+    }
+    if (action.reply_retry_interval === undefined) {
+      action.reply_retry_interval = 10
+    }
+    if (action.reply_retry_max_attempts === undefined) {
+      action.reply_retry_max_attempts = 3
     }
   }
 }
@@ -731,17 +746,58 @@ const emit = defineEmits<{
                 />
               </div>
 
-              <div class="flex flex-col gap-1 w-full sm:w-1/2">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div class="flex flex-col gap-1">
+                  <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
+                    {{ t('taskForm.replyTimeout') }}
+                  </span>
+                  <input
+                    v-model.number="action.reply_timeout_seconds"
+                    type="number"
+                    min="30"
+                    max="3600"
+                    :placeholder="t('taskForm.replyTimeoutPlaceholder')"
+                    class="ui-input !h-7 !text-xs !px-2 w-full"
+                  />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
+                    {{ t('taskForm.replyRetryInterval') }}
+                  </span>
+                  <input
+                    v-model.number="action.reply_retry_interval"
+                    type="number"
+                    min="1"
+                    max="300"
+                    :placeholder="t('taskForm.replyRetryIntervalPlaceholder')"
+                    class="ui-input !h-7 !text-xs !px-2 w-full"
+                  />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
+                    {{ t('taskForm.replyRetryMaxAttempts') }}
+                  </span>
+                  <input
+                    v-model.number="action.reply_retry_max_attempts"
+                    type="number"
+                    min="0"
+                    max="10"
+                    :placeholder="t('taskForm.replyRetryMaxAttemptsPlaceholder')"
+                    class="ui-input !h-7 !text-xs !px-2 w-full"
+                  />
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-1">
                 <span class="font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text)]">
-                  {{ t('taskForm.replyTimeout') }}
+                  {{ t('taskForm.replyRetryKeywords') }}
                 </span>
-                <input
-                  v-model.number="action.reply_timeout_seconds"
-                  type="number"
-                  min="1"
-                  max="600"
-                  :placeholder="t('taskForm.replyTimeoutPlaceholder')"
-                  class="ui-input !h-7 !text-xs !px-2 w-full"
+                <textarea
+                  :value="getPatternsText(action.reply_retry_keywords)"
+                  :placeholder="t('taskForm.replyRetryKeywordsPlaceholder')"
+                  rows="2"
+                  class="ui-input !h-auto !py-1 !text-xs !px-2 w-full font-mono"
+                  @input="setRetryKeywords(action, ($event.target as HTMLTextAreaElement).value)"
                 />
               </div>
             </div>
