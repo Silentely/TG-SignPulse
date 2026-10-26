@@ -92,8 +92,7 @@ describe('lossless task updates', () => {
       global: { stubs: { CustomSelect: true, MultiSelect: true, TaskFormTargetSection: true, TaskFormListenSection: true, TaskFormActionsSection: true } },
     })
     await flushPromises()
-    expect(wrapper.findComponent({ name: 'TaskFormActionsSection' }).exists()).toBe(false)
-    await wrapper.get('[data-testid="preserved-flow-summary"] button').trigger('click')
+    expect(wrapper.findComponent({ name: 'TaskFormActionsSection' }).exists()).toBe(true)
     const section = wrapper.findComponent({ name: 'TaskFormActionsSection' })
     const actions = section.props('actions') as { value: string }[]
     actions[0]!.value = 'edited'
@@ -126,7 +125,7 @@ describe('lossless task updates', () => {
     })
     await flushPromises()
     expect(wrapper.findComponent({ name: 'TaskFormActionsSection' }).exists()).toBe(true)
-    expect(wrapper.find('[data-testid="preserved-flow-summary"]').text()).not.toContain('advancedFlowPreserved')
+    expect(wrapper.find('[data-testid="preserved-flow-summary"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

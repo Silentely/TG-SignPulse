@@ -93,32 +93,6 @@ const canEditTargetFlow = computed(() => {
   const raw = activeRawTarget.value
   return Boolean(raw && !raw.flow_graph && parseableRawActions(raw))
 })
-const beginTargetFlowEdit = () => {
-  if (!canEditTargetFlow.value || !activeChat.value) return
-  flowEditorEnabled.value = false
-  const saved = flowDrafts.get(activeChat.value.id)
-  const raw = activeRawTarget.value
-  const rawActions = (saved?.actions || raw?.actions || []) as RawTaskAction[]
-  const listener = rawActions.find(action => action.action === 8)
-  if (listener) {
-    listenerKeywords.value = Array.isArray(listener.keywords) ? listener.keywords.join('\n') : ''
-    listenerMatchMode.value = listener.match_mode || 'contains'
-    listenerPushChannel.value = listener.push_channel || 'continue'
-    listenerForwardChatId.value = String(listener.forward_chat_id || '')
-    listenerForwardThreadId.value = String(listener.forward_message_thread_id || '')
-    listenerBarkUrl.value = listener.bark_url || ''
-    listenerCustomUrl.value = listener.custom_url || ''
-    listenerServerChanKey.value = listener.server_chan_send_key || ''
-    listenerIgnoreSelf.value = listener.ignore_self !== false
-    listenerTimeWindowEnabled.value = Boolean(listener.active_time_start && listener.active_time_end)
-    listenerActiveTimeStart.value = listener.active_time_start || '09:00'
-    listenerActiveTimeEnd.value = listener.active_time_end || '19:00'
-  }
-  actions.value = listener
-    ? parseActionsUtil(listener.continue_actions || rawActions)
-    : (saved?.steps ? parseStepsToActions(saved.steps) : parseableRawActions(raw)) || []
-  flowEditorEnabled.value = true
-}
 watch(activeChatIndex, () => { flowEditorEnabled.value = false }, { flush: 'sync' })
 const selectedChatId = computed({
   get: () => activeChat.value?.chatId ?? 0,
@@ -298,8 +272,12 @@ const loadAccounts = async () => {
             if (!primary.flow_graph) flowEditorEnabled.value = true
           } else if (primary.actions) {
             parseActions(primary.actions)
+            if (!la) flowEditorEnabled.value = true
           }
-        } else if (primary.actions) parseActions(primary.actions)
+        } else if (primary.actions) {
+          parseActions(primary.actions)
+          flowEditorEnabled.value = true
+        }
       } else if (selectedAccounts.value[0] || accounts.value[0]?.name) {
         targetChats.value[0].sourceAccount = selectedAccounts.value[0] || accounts.value[0]?.name || ''
       }
@@ -748,10 +726,9 @@ onMounted(() => { loadAccounts() })
       @toggle-bulk-chat="toggleBulkChat"
       @apply-bulk-picked="applyBulkPickedChats"
     />
-    <div v-if="editingExisting" class="ui-alert-info" data-testid="preserved-flow-summary">
+    <div v-if="editingExisting && !canEditTargetFlow" class="ui-alert-info" data-testid="preserved-flow-summary">
       <p>{{ t('taskForm.preservedFlowSummary', { target: activeRawTarget?.name || activeRawTarget?.chat_id || '' }) }}</p>
-      <p v-if="activeRawTarget?.flow_graph || (activeRawTarget?.steps && !canEditTargetFlow)">{{ t('taskForm.advancedFlowPreserved') }}</p>
-      <button v-if="canEditTargetFlow && !flowEditorEnabled" type="button" class="ui-btn-secondary mt-2" @click="beginTargetFlowEdit">{{ t('taskForm.editTargetFlow') }}</button>
+      <p>{{ t('taskForm.advancedFlowPreserved') }}</p>
     </div>
     <!-- 03 关键词监听（仅 listen） -->
     <TaskFormListenSection
