@@ -5,6 +5,7 @@ import time
 import pytest
 
 from backend.services import runtime_settings
+from backend.services.config_mixins import apply_global_settings_to_env
 from backend.services.sign_task_notify import is_bot_offline_timeout
 from tg_signer.config import FlowStepConfig, SendTextAction, SignChatV3
 from tg_signer.core.flow_context import ScopedFlowContext
@@ -29,7 +30,7 @@ def test_normalized_defaults_and_global_overrides(monkeypatch, steps):
         "RETRY_MAX_ATTEMPTS",
         "RETRY_KEYWORDS",
     ):
-        monkeypatch.delenv("SIGN_TASK_" + key, raising=False)
+        monkeypatch.setenv("SIGN_TASK_" + key, "")
     chat = SignChatV3(
         chat_id=1,
         **(
@@ -57,6 +58,7 @@ def test_normalized_defaults_and_global_overrides(monkeypatch, steps):
             "sign_task_retry_keywords": "custom\n稍后",
         },
     )
+    apply_global_settings_to_env(runtime_settings._global_settings())
     wait = next(
         n
         for n in GraphNormalizer.from_chat(chat).nodes.values()
@@ -209,6 +211,7 @@ async def test_task_budget_covers_reply_retries(monkeypatch):
 
 @pytest.mark.parametrize("steps", [False, True])
 def test_explicit_retry_configuration_and_timeout_floor(monkeypatch, steps):
+    monkeypatch.setenv("SIGN_TASK_REPLY_TIMEOUT", "200")
     monkeypatch.setattr(
         runtime_settings, "_global_settings", lambda: {"sign_task_reply_timeout": 200}
     )

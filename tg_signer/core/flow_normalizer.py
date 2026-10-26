@@ -248,7 +248,7 @@ class GraphNormalizer:
             nodes[node_id] = node
 
             if wait_for_reply:
-                from backend.services.runtime_settings import (
+                from tg_signer.reply_settings import (
                     get_reply_timeout,
                     get_retry_interval,
                     get_retry_keywords,
@@ -476,7 +476,7 @@ class GraphNormalizer:
         )
         if timeout_val is None or timeout_val <= 0:
             if getattr(step, "node_type", None) == FlowNodeType.WAIT_EVENT:
-                from backend.services.runtime_settings import get_reply_timeout
+                from tg_signer.reply_settings import get_reply_timeout
 
                 timeout_val = get_reply_timeout()
             else:
@@ -590,7 +590,7 @@ class GraphNormalizer:
             return ActionNode(action_type=action_type, params=params, **common_kwargs)
 
         elif ntype == FlowNodeType.WAIT_EVENT:
-            from backend.services.runtime_settings import (
+            from tg_signer.reply_settings import (
                 get_retry_interval,
                 get_retry_keywords,
                 get_retry_max_attempts,

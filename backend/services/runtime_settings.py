@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import os
-import re
 from typing import Any, Dict, Optional
 
-from tg_signer.utils import clamp
-
-DEFAULT_RETRY_KEYWORDS: tuple[str, ...] = (
-    "再试",
-    "重试",
-    "稍后",
-    "人数较多",
-    "繁忙",
-    "请 10 秒后",
+from tg_signer.reply_settings import (
+    DEFAULT_RETRY_KEYWORDS as DEFAULT_RETRY_KEYWORDS,
 )
+from tg_signer.reply_settings import (
+    parse_retry_keywords,
+)
+from tg_signer.utils import clamp
 
 
 def _global_settings() -> Dict[str, Any]:
@@ -115,16 +111,7 @@ def get_retry_keywords() -> list[str]:
     if raw is None or str(raw).strip() == "":
         env_raw = os.getenv("SIGN_TASK_RETRY_KEYWORDS")
         raw = env_raw if env_raw is not None and str(env_raw).strip() != "" else None
-    if raw is not None:
-        if isinstance(raw, list):
-            kws = [str(k).strip() for k in raw if str(k).strip()]
-            if kws:
-                return kws
-        elif isinstance(raw, str):
-            kws = [k.strip() for k in re.split(r"[\n,]+", raw) if k.strip()]
-            if kws:
-                return kws
-    return list(DEFAULT_RETRY_KEYWORDS)
+    return parse_retry_keywords(raw)
 
 
 def get_account_cooldown() -> int:
