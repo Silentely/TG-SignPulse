@@ -79,15 +79,26 @@ const initialTargets = new Map<number, TargetChatDraft>()
 const flowDrafts = new Map<number, Partial<SignTaskChat>>()
 const flowEditorEnabled = ref(false)
 const activeRawTarget = computed(() => activeChat.value && originalTargets.get(activeChat.value.id))
+const parseableRawActions = (raw: SignTaskChat | undefined): TaskActionItem[] | null => {
+  if (!raw) return null
+  if (Array.isArray(raw.actions) && raw.actions.length > 0) {
+    return parseActionsUtil(raw.actions as RawTaskAction[])
+  }
+  if (Array.isArray(raw.steps)) {
+    return parseStepsToActions(raw.steps)
+  }
+  return null
+}
 const canEditTargetFlow = computed(() => {
   const raw = activeRawTarget.value
-  return raw && !raw.steps && !raw.flow_graph && Boolean(raw.actions)
+  return Boolean(raw && !raw.flow_graph && parseableRawActions(raw))
 })
 const beginTargetFlowEdit = () => {
   if (!canEditTargetFlow.value || !activeChat.value) return
   flowEditorEnabled.value = false
   const saved = flowDrafts.get(activeChat.value.id)
-  const rawActions = (saved?.actions || activeRawTarget.value?.actions || []) as RawTaskAction[]
+  const raw = activeRawTarget.value
+  const rawActions = (saved?.actions || raw?.actions || []) as RawTaskAction[]
   const listener = rawActions.find(action => action.action === 8)
   if (listener) {
     listenerKeywords.value = Array.isArray(listener.keywords) ? listener.keywords.join('\n') : ''
@@ -103,7 +114,9 @@ const beginTargetFlowEdit = () => {
     listenerActiveTimeStart.value = listener.active_time_start || '09:00'
     listenerActiveTimeEnd.value = listener.active_time_end || '19:00'
   }
-  actions.value = parseActionsUtil(listener?.continue_actions || rawActions)
+  actions.value = listener
+    ? parseActionsUtil(listener.continue_actions || rawActions)
+    : (saved?.steps ? parseStepsToActions(saved.steps) : parseableRawActions(raw)) || []
   flowEditorEnabled.value = true
 }
 watch(activeChatIndex, () => { flowEditorEnabled.value = false }, { flush: 'sync' })
@@ -282,6 +295,7 @@ const loadAccounts = async () => {
           const parsedSteps = parseStepsToActions(primary.steps)
           if (parsedSteps && parsedSteps.length > 0) {
             actions.value = parsedSteps
+            if (!primary.flow_graph) flowEditorEnabled.value = true
           } else if (primary.actions) {
             parseActions(primary.actions)
           }
@@ -736,7 +750,7 @@ onMounted(() => { loadAccounts() })
     />
     <div v-if="editingExisting" class="ui-alert-info" data-testid="preserved-flow-summary">
       <p>{{ t('taskForm.preservedFlowSummary', { target: activeRawTarget?.name || activeRawTarget?.chat_id || '' }) }}</p>
-      <p v-if="activeRawTarget?.steps || activeRawTarget?.flow_graph">{{ t('taskForm.advancedFlowPreserved') }}</p>
+      <p v-if="activeRawTarget?.flow_graph || (activeRawTarget?.steps && !canEditTargetFlow)">{{ t('taskForm.advancedFlowPreserved') }}</p>
       <button v-if="canEditTargetFlow && !flowEditorEnabled" type="button" class="ui-btn-secondary mt-2" @click="beginTargetFlowEdit">{{ t('taskForm.editTargetFlow') }}</button>
     </div>
     <!-- 03 关键词监听（仅 listen） -->

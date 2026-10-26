@@ -107,6 +107,29 @@ describe('lossless task updates', () => {
     wrapper.unmount()
   })
 
+  it('shows action editor for reply-confirmation steps that can be reconstructed', async () => {
+    const replyTask = {
+      ...original,
+      chats: [{
+        chat_id: 3,
+        name: 'reply-bot',
+        action_interval: 1,
+        steps: [
+          { step_id: 'step_0', node_type: 'action', action_type: 'SEND_TEXT', params: { text: '/checkin' }, next_step_id: 'step_0_wait' },
+          { step_id: 'step_0_wait', node_type: 'wait_event', success_patterns: ['签到成功'], retry_keywords: ['稍后'], timeout_seconds: 90 },
+        ],
+      }],
+    } as unknown as SignTask
+    const wrapper = mount(TaskForm, {
+      props: { initialTask: replyTask, lockTaskName: true },
+      global: { stubs: { CustomSelect: true, MultiSelect: true, TaskFormTargetSection: true, TaskFormListenSection: true, TaskFormActionsSection: true } },
+    })
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'TaskFormActionsSection' }).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="preserved-flow-summary"]').text()).not.toContain('advancedFlowPreserved')
+    wrapper.unmount()
+  })
+
   it('sends a notification-only mask from the edit modal without including flows', async () => {
     api.updateSignTask.mockClear()
     const form = defineComponent({
