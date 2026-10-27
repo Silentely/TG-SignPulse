@@ -56,6 +56,11 @@ def matches_retry_keyword(text: str, keywords: Any) -> Optional[str]:
     norm_text = normalize_text_for_matching(text)
     if not norm_text:
         return None
+    # “不可重试/不能重试”等是否定语句，不能被识别为稍后重试指令。
+    if re.search(
+        r"(?:不可|不能|无需|无须|禁止|不应|无法).{0,2}(?:重试|再试)", norm_text
+    ):
+        return None
     sorted_kws = sorted(
         [k for k in keywords if k and str(k).strip()],
         key=lambda k: len(str(k)),
@@ -474,6 +479,11 @@ class PulseFlowEngine:
                     )
                     break
                 elif outcome.signal == FlowSignal.BRANCH and outcome.target_node_id:
+                    if outcome.details.get("retry_flow_restart"):
+                        # A bounded reply retry intentionally re-enters the graph.
+                        # Reset per-run loop guards; the wait node's persisted retry
+                        # counter remains the retry limit.
+                        node_visit_counts.clear()
                     current_id = self._normalize_target(outcome.target_node_id)
                     continue
 
@@ -1073,7 +1083,8 @@ class PulseFlowEngine:
             or ctx.system.get("last_action_finished_at")
         )
         timeout = float(node.timeout_seconds or 90.0)
-        retry_count = 0
+        retry_count_key = f"reply_retry_count:{node.id}"
+        retry_count = int(ctx.system.get(retry_count_key, 0) or 0)
         max_retries = int(node.max_retries if node.max_retries is not None else 3)
         retry_interval = float(
             node.retry_interval if node.retry_interval is not None else 10.0
@@ -1302,6 +1313,28 @@ class PulseFlowEngine:
                             f"WaitEventNode {node.id} 命中重试关键词「{matched_kw}」，将在 {retry_interval}s 后重试 (第 {retry_count + 1}/{max_retries} 次)"
                         )
                         await asyncio.sleep(retry_interval)
+                        retry_count += 1
+                        ctx.system[retry_count_key] = retry_count
+                        retry_entry_node_id = node.metadata.get("retry_entry_node_id")
+                        if retry_entry_node_id:
+                            _log_msg(
+                                f"[{now_utc}] 从流程入口 [{retry_entry_node_id}] 重新执行签到流程",
+                                level="WARNING",
+                            )
+                            return StepOutcome(
+                                node_id=node.id,
+                                status=NodeStatus.SUCCESS,
+                                output_text=f"已安排第 {retry_count} 次流程重试",
+                                signal=FlowSignal.BRANCH,
+                                target_node_id=str(retry_entry_node_id),
+                                updates_last_output=False,
+                                details={
+                                    **details,
+                                    "retry_count": retry_count,
+                                    "retry_entry_node_id": retry_entry_node_id,
+                                    "retry_flow_restart": True,
+                                },
+                            )
                         action_node = (
                             graph.nodes.get(node.action_node_id)
                             if (graph and node.action_node_id)
@@ -1339,7 +1372,6 @@ class PulseFlowEngine:
                                 output_text=f"重新发送指令失败: {getattr(retry_outcome, 'output_text', '')}",
                                 details={**details, "failure_category": "other"},
                             )
-                        retry_count += 1
                         new_sent_id = ctx.system.get(
                             "last_sent_message_id"
                         ) or ctx.system.get("last_message_id")
@@ -1374,6 +1406,7 @@ class PulseFlowEngine:
                             _log_msg(f"命中失败规则：\n{pattern}", level="WARNING")
                             _log_msg("机器人明确返回失败结果", level="WARNING")
                             _log_msg(f"步骤 [{node.id}] 执行失败", level="WARNING")
+                            ctx.system.pop(retry_count_key, None)
                             return StepOutcome(
                                 node_id=node.id,
                                 status=NodeStatus.FAILED,
@@ -1395,6 +1428,7 @@ class PulseFlowEngine:
                             _log_msg(f"命中成功规则：\n{pattern}")
                             _log_msg("机器人已确认签到成功")
                             _log_msg(f"步骤 [{node.id}] 执行完成（成功）")
+                            ctx.system.pop(retry_count_key, None)
                             return StepOutcome(
                                 node_id=node.id,
                                 status=NodeStatus.SUCCESS,

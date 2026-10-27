@@ -329,6 +329,9 @@ class GraphNormalizer:
                 nodes[wait_node_id] = wait_node
 
         graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
+        for flow_node in nodes.values():
+            if isinstance(flow_node, WaitEventNode):
+                flow_node.metadata.setdefault("retry_entry_node_id", entry_id)
         cls.validate_graph(graph, budget=budget, warnings=warnings)
         return graph
 
@@ -453,6 +456,9 @@ class GraphNormalizer:
 
         graph = ExecutionGraph(entry_node_id=entry_id, nodes=nodes)
         graph.max_total_steps = max(60, len(graph.nodes) * 2)
+        for flow_node in nodes.values():
+            if isinstance(flow_node, WaitEventNode):
+                flow_node.metadata.setdefault("retry_entry_node_id", entry_id)
         cls.validate_graph(graph, budget=budget, warnings=warnings)
         return graph
 

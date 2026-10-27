@@ -1,5 +1,6 @@
 """Reply retry regressions without Telegram network access."""
 
+import asyncio
 import time
 
 import pytest
@@ -260,6 +261,12 @@ def test_failure_categories_and_retry_keyword_variants():
     for text in ["再试", "重试", "稍后", "人数较多", "繁忙", "请10秒后"]:
         assert matches_retry_keyword(text, runtime_settings.DEFAULT_RETRY_KEYWORDS)
     assert (
+        matches_retry_keyword(
+            "失败或者过期当天不可重试", runtime_settings.DEFAULT_RETRY_KEYWORDS
+        )
+        is None
+    )
+    assert (
         classify_failure(error="等待机器人回复确认超时（90 秒）", success=False).value
         == "reply_timeout"
     )
@@ -273,6 +280,64 @@ def test_failure_categories_and_retry_keyword_variants():
         classify_failure(error="任务执行超时（300秒）", success=False).value
         == "timeout"
     )
+
+
+@pytest.mark.asyncio
+async def test_retry_restarts_flow_from_entry_for_image_action():
+    bus = TelegramEventBus()
+    engine = PulseFlowEngine(event_bus=bus)
+    ctx = ScopedFlowContext()
+    calls = []
+    graph = ExecutionGraph(
+        entry_node_id="send",
+        nodes={
+            "send": ActionNode(
+                id="send", action_type="SEND_TEXT", next_node_id="click"
+            ),
+            "click": ActionNode(
+                id="click",
+                action_type="CHOOSE_OPTION_BY_IMAGE",
+                next_node_id="wait",
+            ),
+            "wait": WaitEventNode(
+                id="wait",
+                timeout_seconds=0.2,
+                retry_interval=0.001,
+                max_retries=1,
+                retry_keywords=["繁忙"],
+                action_node_id="click",
+                metadata={"chat_id": 1, "retry_entry_node_id": "send"},
+            ),
+        },
+    )
+
+    async def execute(node, context):
+        calls.append(node.id)
+        if node.id == "click":
+            text = "繁忙" if calls.count("click") == 1 else "签到成功"
+            context.system["last_sent_message_id"] = len(calls) * 10
+
+            async def publish_reply():
+                await asyncio.sleep(0.001)
+                await bus.publish(
+                    TelegramMessageEvent(
+                        event_id=str(len(calls)),
+                        chat_id=1,
+                        message_thread_id=None,
+                        message_id=len(calls) * 10 + 1,
+                        sender_id=1,
+                        event_type="NEW_MESSAGE",
+                        text=text,
+                        occurred_at=time.time(),
+                    )
+                )
+
+            asyncio.create_task(publish_reply())
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    result = await engine.run(graph, ctx, execute, event_bus=bus)
+    assert result["status"] == "success"
+    assert calls == ["send", "click", "send", "click"]
 
 
 @pytest.mark.asyncio
