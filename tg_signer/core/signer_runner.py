@@ -266,6 +266,12 @@ class SignerRunnerMixin:
                     ) from e
         self.log(self._describe_chat_run(chat))
         self.context.pulseflow_side_effect_started = False
+
+        override_engine = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
+        if override_engine in {"classic", "v3"}:
+            logger.critical("[EMERGENCY_OVERRIDE] 触发紧急回滚 Classic 引擎运行")
+            return await self._run_classic_chat(chat)
+
         from tg_signer.core.flow_routing import ENGINE_V4, resolve_execution_engine
 
         task_engine = getattr(getattr(self, "config", None), "execution_engine", None)

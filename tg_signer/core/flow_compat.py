@@ -236,7 +236,27 @@ class FlowCompatibilityBridge:
             self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
             return txt
 
-        # 3. 如果动作本身是发送文本动作或点击动作，以已渲染的执行文本作为输出
+        # 3. 从当前会话收到的最新 Telegram 消息提取文本
+        chat_msgs = self.get_chat_messages(chat_id, thread_id)
+        for msg in reversed(list(chat_msgs.values())):
+            if msg is not None:
+                txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
+                if txt and isinstance(txt, str):
+                    self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
+                    return txt
+
+        # 4. 从终态命中原因或回调通知文本提取
+        stop_reason = self.get_stop_reason()
+        if stop_reason:
+            self.set_last_output(stop_reason, chat_id=chat_id, thread_id=thread_id)
+            return stop_reason
+
+        last_cb = self.get_last_callback_answer()
+        if last_cb:
+            self.set_last_output(last_cb, chat_id=chat_id, thread_id=thread_id)
+            return last_cb
+
+        # 5. 如果动作本身是发送文本动作或点击动作，以已渲染的执行文本作为输出
         from tg_signer.config import ClickKeyboardByTextAction, SendTextAction
 
         if isinstance(action, (SendTextAction, ClickKeyboardByTextAction)):
@@ -249,26 +269,7 @@ class FlowCompatibilityBridge:
             self.set_last_output(act_text, chat_id=chat_id, thread_id=thread_id)
             return act_text
 
-        # 4. 从当前会话收到的最新 Telegram 消息提取文本
-        chat_msgs = self.get_chat_messages(chat_id, thread_id)
-        for msg in reversed(list(chat_msgs.values())):
-            if msg is not None:
-                txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
-                if txt and isinstance(txt, str):
-                    self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
-                    return txt
-
-        # 5. 从终态命中原因或回调通知文本提取
-        stop_reason = self.get_stop_reason()
-        if stop_reason:
-            self.set_last_output(stop_reason, chat_id=chat_id, thread_id=thread_id)
-            return stop_reason
-
-        last_cb = self.get_last_callback_answer()
-        if last_cb:
-            self.set_last_output(last_cb, chat_id=chat_id, thread_id=thread_id)
-            return last_cb
-
+        # 6. 兜底尝试读取 last_received_text
         last_recv = self.get_last_received_text(thread_id)
         if last_recv:
             self.set_last_output(last_recv, chat_id=chat_id, thread_id=thread_id)
@@ -280,6 +281,9 @@ class FlowCompatibilityBridge:
         parts = []
         if context.last_output:
             parts.append(str(context.last_output))
+        for so in getattr(context, "step_history", []):
+            if getattr(so, "output_text", None):
+                parts.append(str(so.output_text))
         ctx = self.runner_context
         if ctx is not None:
             thread_id = getattr(self.chat, "message_thread_id", None)
