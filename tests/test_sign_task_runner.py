@@ -539,6 +539,46 @@ class TestCancel:
         await asyncio.sleep(0)  # 让清理任务跑完
         assert "acc::t" not in svc._active_logs
 
+    @pytest.mark.asyncio
+    async def test_cancellation_releases_account_lock_and_cleans_state(
+        self, runner_env
+    ):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def behavior(run_calls: int):
+            started.set()
+            await release.wait()
+
+        FakeSigner.behavior = behavior
+        svc = FakeSvc(task_cfg={"name": "task_cancel_lock"})
+        account_name = "acc_lock_test"
+        task_name = "task_cancel_lock"
+        task_key = svc._task_key(account_name, task_name)
+
+        account_lock = asyncio.Lock()
+        svc._account_locks[account_name] = account_lock
+
+        task = asyncio.create_task(
+            execute_sign_task(svc, account_name, task_name, run_id="run_c1")
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+
+        assert account_lock.locked() is True
+        assert svc._active_tasks.get(task_key) is True
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert not account_lock.locked()
+        assert svc._active_tasks[task_key] is False
+
+        next_acquired = False
+        async with account_lock:
+            next_acquired = True
+        assert next_acquired is True
+
 
 class TestStrongFailureFlip:
     """回复含失败关键词且强失败 → 成功翻转"""

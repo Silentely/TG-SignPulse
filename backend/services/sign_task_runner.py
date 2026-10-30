@@ -1217,6 +1217,38 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
                         exc_info=True,
                     )
     finally:
+        # 无论正常退出还是 CancelledError 异常中断，先强制释放账号锁与注销运行标记
+        account_name = state.get("account_name")
+        account_lock = state.get("account_lock")
+        if (
+            account_lock is not None
+            and getattr(account_lock, "locked", None)
+            and account_lock.locked()
+        ):
+            try:
+                account_lock.release()
+            except RuntimeError:
+                pass
+        if (
+            account_name
+            and hasattr(svc, "_account_locks")
+            and svc._account_locks is not None
+            and account_name in svc._account_locks
+        ):
+            alock = svc._account_locks[account_name]
+            if alock is not None and getattr(alock, "locked", None) and alock.locked():
+                try:
+                    alock.release()
+                except RuntimeError:
+                    pass
+
+        svc._active_tasks[task_key] = False
+        if (
+            hasattr(svc, "_background_run_tasks")
+            and task_key in svc._background_run_tasks
+        ):
+            svc._background_run_tasks.pop(task_key, None)
+
         if not state.get("artifact_id"):
             try:
                 await _runner_record_artifact(state)
@@ -1225,9 +1257,6 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
         # 先调度清理再停止客户端：清理注册是同步的，若放在 stop() 之后，
         # stop() 抛出 CancelledError（BaseException）时本次运行的日志将永不回收。
         await _runner_schedule_cleanup(state)
-        # 再复位运行标记：随后 await 若抛出 CancelledError（BaseException，不被
-        # except Exception 捕获），仍能保证任务不被永久标记为“运行中”
-        svc._active_tasks[task_key] = False
         signer = state.get("signer")
         if signer is not None:
             app = getattr(signer, "app", None)

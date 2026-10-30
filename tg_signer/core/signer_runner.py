@@ -141,8 +141,11 @@ class SignerRunnerMixin:
             and not getattr(self, "_skip_peer_warmup", False)
         ):
             try:
-                # 预热会话，确保 peer/access_hash 可用
-                await self.app.get_chat(chat.chat_id)
+                # 预热会话：优先命中本地 peer 缓存与 access_hash，减少网络往返
+                if hasattr(self.app, "resolve_peer"):
+                    await self.app.resolve_peer(chat.chat_id)
+                elif hasattr(self.app, "get_chat"):
+                    await self.app.get_chat(chat.chat_id)
             except Exception as e:
                 # 兼容历史配置：部分会话可能保存了缺失负号的 chat_id
                 try:
@@ -979,7 +982,7 @@ class SignerRunnerMixin:
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
-        if self.user is None:
+        if getattr(self, "user", None) is None:
             await self.login(num_of_dialogs, print_chat=True)
 
         config = self.load_config(self.cfg_cls)

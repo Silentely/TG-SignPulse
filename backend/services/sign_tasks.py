@@ -2067,6 +2067,14 @@ class SignTaskService(SignTaskCrudMixin):
 
         bg.cancel()
         self._append_active_log(task_key, "用户请求取消任务…")
+        # 显式规范状态转换: CANCEL_REQUESTED
+        self._update_run_phase(
+            account_name,
+            task_name,
+            run_id=run_id or (status.get("run_id") if status else None),
+            phase="CANCEL_REQUESTED",
+            phase_detail="正在取消任务执行",
+        )
         return build_cancel_run_response(
             ok=True,
             cancelled=True,
