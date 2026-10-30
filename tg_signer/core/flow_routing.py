@@ -226,6 +226,12 @@ def resolve_execution_engine(
     elif target_chat is not None:
         requires_flow = _chat_requires_flow_engine(target_chat)
 
+    has_steps = False
+    if task_cfg_chats is not None:
+        has_steps = any(_chat_has_steps(c) for c in task_cfg_chats)
+    elif target_chat is not None:
+        has_steps = _chat_has_steps(target_chat)
+
     raw_env_override = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
     if raw_env_override in {"classic", "v3", ENGINE_V3}:
         env_engine_override = ENGINE_V3
@@ -367,9 +373,16 @@ def resolve_execution_engine(
             source,
         )
 
-    # 5. 系统默认：全面平滑切流至 PulseFlow (v4)，除非显式指定 v3 或开启回滚闸
+    # 5. 系统默认：工作流 steps 默认切流至 PulseFlow (v4)，actions 默认保持 Classic (v3)
+    if has_steps:
+        return EngineResolutionResult(
+            ENGINE_V4,
+            ENGINE_DISPLAY_NAMES[ENGINE_V4],
+            "default",
+        )
+
     return EngineResolutionResult(
-        ENGINE_V4,
-        ENGINE_DISPLAY_NAMES[ENGINE_V4],
+        ENGINE_V3,
+        ENGINE_DISPLAY_NAMES[ENGINE_V3],
         "default",
     )
