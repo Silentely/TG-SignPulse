@@ -142,10 +142,22 @@ class SignerRunnerMixin:
         ):
             try:
                 # 预热会话：优先命中本地 peer 缓存与 access_hash，减少网络往返
+                import inspect
+
+                resolved_peer = False
                 if hasattr(self.app, "resolve_peer"):
-                    await self.app.resolve_peer(chat.chat_id)
-                elif hasattr(self.app, "get_chat"):
-                    await self.app.get_chat(chat.chat_id)
+                    try:
+                        res = self.app.resolve_peer(chat.chat_id)
+                        if inspect.isawaitable(res):
+                            await res
+                            resolved_peer = True
+                    except Exception:
+                        resolved_peer = False
+
+                if not resolved_peer and hasattr(self.app, "get_chat"):
+                    res = self.app.get_chat(chat.chat_id)
+                    if inspect.isawaitable(res):
+                        await res
             except Exception as e:
                 # 兼容历史配置：部分会话可能保存了缺失负号的 chat_id
                 try:
@@ -254,7 +266,23 @@ class SignerRunnerMixin:
                     ) from e
         self.log(self._describe_chat_run(chat))
         self.context.pulseflow_side_effect_started = False
-        return await self._run_pulseflow_chat(chat)
+        from tg_signer.core.flow_routing import ENGINE_V4, resolve_execution_engine
+
+        task_engine = getattr(getattr(self, "config", None), "execution_engine", None)
+        global_engine = getattr(self, "execution_engine", None)
+        engine_code, engine_display, engine_source = resolve_execution_engine(
+            chat,
+            task_engine=task_engine,
+            global_engine=global_engine,
+        )
+        self.log(f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})")
+        if engine_code == ENGINE_V4:
+            flow_ok = await self._run_pulseflow_chat(chat, engine_source=engine_source)
+            if flow_ok or not getattr(
+                self.context, "pulseflow_fallback_occurred", False
+            ):
+                return flow_ok
+        return await self._run_classic_chat(chat)
 
     async def _run_classic_chat(self, chat: SignChatV3):
         """Classic (v3) 紧急回退执行逻辑。"""
@@ -1249,6 +1277,11 @@ class SignerRunnerMixin:
         from tg_signer.core.flow_engine import PulseFlowEngine
         from tg_signer.core.flow_models import ExecutionGraph
 
+        auto_fallback_env = os.getenv("PULSEFLOW_AUTO_FALLBACK", "").strip().lower()
+        allow_fallback = auto_fallback_env in {"1", "true", "yes", "on"} or (
+            engine_source == "env" and os.getenv("USE_PULSEFLOW_ENGINE") == "1"
+        )
+
         def _reset_v4_legacy_context() -> None:
             scope_key = chat_scope_key(chat.chat_id, chat.message_thread_id)
             if scope_key in self.context.chat_messages:
@@ -1454,6 +1487,22 @@ class SignerRunnerMixin:
                 self._event_bus = None
 
             if not flow_succeeded:
+                if (
+                    allow_fallback
+                    and not getattr(last_error, "non_retryable", False)
+                    and not getattr(
+                        self.context, "pulseflow_side_effect_started", False
+                    )
+                ):
+                    self.log(
+                        f"⚠️ PulseFlow (v4) 执行未成功 ({last_error})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
+                        level="WARNING",
+                    )
+                    self.context.pulseflow_fallback_occurred = True
+                    self.context.pulseflow_fallback_reason = str(last_error)
+                    _reset_v4_legacy_context()
+                    return False
+
                 if getattr(self.context, "pulseflow_side_effect_started", False):
                     self.log(
                         "PulseFlow 已产生外部副作用，禁止自动回退 Classic，避免重复执行",

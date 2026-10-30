@@ -215,32 +215,7 @@ class FlowCompatibilityBridge:
         if output:
             return output
 
-        # 2. 从当前会话收到的最新 Telegram 消息提取文本
-        chat_msgs = self.get_chat_messages(chat_id, thread_id)
-        for msg in reversed(list(chat_msgs.values())):
-            if msg is not None:
-                txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
-                if txt and isinstance(txt, str):
-                    self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
-                    return txt
-
-        # 3. 从终态命中原因或回调通知文本提取
-        stop_reason = self.get_stop_reason()
-        if stop_reason:
-            self.set_last_output(stop_reason, chat_id=chat_id, thread_id=thread_id)
-            return stop_reason
-
-        last_cb = self.get_last_callback_answer()
-        if last_cb:
-            self.set_last_output(last_cb, chat_id=chat_id, thread_id=thread_id)
-            return last_cb
-
-        last_recv = self.get_last_received_text(thread_id)
-        if last_recv:
-            self.set_last_output(last_recv, chat_id=chat_id, thread_id=thread_id)
-            return last_recv
-
-        # 4. 从动作返回值提取（如插件返回、计算结果或 Message 对象）
+        # 2. 从动作返回值提取（如插件返回、计算结果或 Message 对象）
         if isinstance(res, str) and res:
             self.set_last_output(res, chat_id=chat_id, thread_id=thread_id)
             return res
@@ -260,6 +235,44 @@ class FlowCompatibilityBridge:
             txt = res.caption
             self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
             return txt
+
+        # 3. 如果动作本身是发送文本动作或点击动作，以已渲染的执行文本作为输出
+        from tg_signer.config import ClickKeyboardByTextAction, SendTextAction
+
+        if isinstance(action, (SendTextAction, ClickKeyboardByTextAction)):
+            act_text = getattr(action, "text", "")
+            if act_text:
+                self.set_last_output(act_text, chat_id=chat_id, thread_id=thread_id)
+                return act_text
+        elif isinstance(action, dict) and action.get("text"):
+            act_text = str(action["text"])
+            self.set_last_output(act_text, chat_id=chat_id, thread_id=thread_id)
+            return act_text
+
+        # 4. 从当前会话收到的最新 Telegram 消息提取文本
+        chat_msgs = self.get_chat_messages(chat_id, thread_id)
+        for msg in reversed(list(chat_msgs.values())):
+            if msg is not None:
+                txt = getattr(msg, "text", None) or getattr(msg, "caption", None)
+                if txt and isinstance(txt, str):
+                    self.set_last_output(txt, chat_id=chat_id, thread_id=thread_id)
+                    return txt
+
+        # 5. 从终态命中原因或回调通知文本提取
+        stop_reason = self.get_stop_reason()
+        if stop_reason:
+            self.set_last_output(stop_reason, chat_id=chat_id, thread_id=thread_id)
+            return stop_reason
+
+        last_cb = self.get_last_callback_answer()
+        if last_cb:
+            self.set_last_output(last_cb, chat_id=chat_id, thread_id=thread_id)
+            return last_cb
+
+        last_recv = self.get_last_received_text(thread_id)
+        if last_recv:
+            self.set_last_output(last_recv, chat_id=chat_id, thread_id=thread_id)
+            return last_recv
 
         return ""
 

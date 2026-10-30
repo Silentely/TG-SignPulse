@@ -411,6 +411,8 @@ class TelegramNodeExecutor:
                 if isinstance(exec_action, SendTextAction):
                     self._log("签到命令已发送")
             matched_term = self.compat.consume_stop_signal()
+            if matched_term:
+                self._log("检测到任务已完成，停止执行后续动作")
             output_text = self.compat.output_text(res=res, action=exec_action)
 
             if res is False:
