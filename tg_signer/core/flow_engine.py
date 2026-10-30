@@ -22,12 +22,14 @@ from tg_signer.core.flow_models import (
     ExecutionGraph,
     ExtractorNode,
     FlowLoopLimitExceededError,
+    FlowResult,
     FlowSignal,
     NodeStatus,
     ParallelMode,
     ParallelNode,
     StepOutcome,
     SubflowNode,
+    TargetMessage,
     TerminalPolicy,
     WaitEventNode,
     redact_sensitive_value,
@@ -595,7 +597,19 @@ class PulseFlowEngine:
             res["failure_category"] = last_failure_category
             res["non_retryable"] = last_non_retryable
             res["semantic_disposition"] = last_semantic_disposition
-        return res
+
+        target_msg = getattr(ctx, "last_received_text", None) or (
+            ctx.target_messages[-1].text
+            if getattr(ctx, "target_messages", None)
+            else None
+        )
+        return FlowResult(
+            res,
+            target_message=target_msg,
+            target_messages=getattr(ctx, "target_messages", []),
+            last_output=getattr(ctx, "last_output", None),
+            last_received_text=getattr(ctx, "last_received_text", None),
+        )
 
     @staticmethod
     def _calculate_metrics(
@@ -1096,6 +1110,21 @@ class PulseFlowEngine:
         _log_msg(f"等待机器人回复确认，超时 {int(timeout)} 秒")
 
         unmatched_replies: list[str] = []
+
+        def _record_success_event(ev: Any, t: str) -> None:
+            ctx.last_received_text = t
+            ctx.target_messages.append(
+                TargetMessage(
+                    chat_id=ev.chat_id,
+                    message_id=getattr(ev, "message_id", None),
+                    thread_id=getattr(ev, "message_thread_id", None),
+                    kind="text" if t else "other",
+                    text=t,
+                    received_at=float(getattr(ev, "occurred_at", time.time())),
+                    source="event",
+                )
+            )
+
         success_rules = (
             node.success_patterns
             if getattr(node, "success_patterns", None)
@@ -1429,6 +1458,7 @@ class PulseFlowEngine:
                             _log_msg("机器人已确认签到成功")
                             _log_msg(f"步骤 [{node.id}] 执行完成（成功）")
                             ctx.system.pop(retry_count_key, None)
+                            _record_success_event(event, text)
                             return StepOutcome(
                                 node_id=node.id,
                                 status=NodeStatus.SUCCESS,
@@ -1515,6 +1545,7 @@ class PulseFlowEngine:
                                     f"步骤 [{node.id}] 语义辅助判断确认签到成功: {decision.selected}",
                                     level="INFO",
                                 )
+                                _record_success_event(event, text)
                                 return StepOutcome(
                                     node_id=node.id,
                                     status=NodeStatus.SUCCESS,
@@ -1564,6 +1595,7 @@ class PulseFlowEngine:
                 # 9. 两者皆空时的原有行为：任意消息即成功
                 _log_msg(f"收到机器人回复：\n{text}")
                 _log_msg(f"步骤 [{node.id}] 执行完成（成功）")
+                _record_success_event(event, text)
                 return StepOutcome(
                     node_id=node.id,
                     status=NodeStatus.SUCCESS,

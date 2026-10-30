@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    from tg_signer.core.flow_models import TargetMessage
 
 from tg_signer.core.flow_models import StepOutcome, redact_sensitive_value
 from tg_signer.core.operation_receipts import OperationAttemptState, OperationReceipt
@@ -77,6 +80,8 @@ class ScopedFlowContext:
         self.last_output: str = ""
         self.topic_last_outputs: Dict[tuple[int, int], str] = {}
         self.operation_receipts: list[OperationReceipt] = []
+        self.last_received_text: str = ""
+        self.target_messages: list[TargetMessage] = []
 
     def begin_operation(
         self, operation_id: str, node_id: str, attempt: int, kind: str
@@ -164,6 +169,19 @@ class ScopedFlowContext:
             "account": account_dict,
             "vars": vars_dict,
             "last_output": self.last_output,
+            "last_received_text": self.last_received_text,
+            "target_messages": [
+                {
+                    "chat_id": tm.chat_id,
+                    "message_id": tm.message_id,
+                    "thread_id": tm.thread_id,
+                    "kind": tm.kind,
+                    "text": tm.text,
+                    "received_at": tm.received_at,
+                    "source": tm.source,
+                }
+                for tm in getattr(self, "target_messages", [])
+            ],
             "topic_last_outputs": [
                 {"chat_id": chat_id, "thread_id": thread_id, "output": output}
                 for (chat_id, thread_id), output in self.topic_last_outputs.items()
@@ -187,6 +205,15 @@ class ScopedFlowContext:
         )
         ctx.vars = dict(data.get("vars", {}))
         ctx.last_output = data.get("last_output", "")
+        ctx.last_received_text = str(data.get("last_received_text", ""))
+        raw_target_messages = data.get("target_messages")
+        if isinstance(raw_target_messages, list):
+            from tg_signer.core.flow_models import TargetMessage
+
+            ctx.target_messages = [
+                TargetMessage(**tm) if isinstance(tm, dict) else tm
+                for tm in raw_target_messages
+            ]
         for item in data.get("topic_last_outputs", []):
             if isinstance(item, dict):
                 ctx.topic_last_outputs[
@@ -241,6 +268,8 @@ class ScopedFlowContext:
             "steps": steps_dict,
             "step": steps_dict,
             "prev": {"output": curr_output},
+            "last_output": curr_output,
+            "last_received_text": getattr(self, "last_received_text", ""),
         }
         return scope
 

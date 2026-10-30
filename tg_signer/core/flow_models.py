@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import collections.abc
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, root_validator, validator
 
@@ -52,6 +53,112 @@ def redact_sensitive_value(val: Any) -> Any:
     elif isinstance(val, list):
         return [redact_sensitive_value(item) for item in val]
     return val
+
+
+@dataclass
+class TargetMessage:
+    """Telegram 目标消息实体封装"""
+
+    chat_id: int | str
+    message_id: Optional[int]
+    thread_id: Optional[int]
+    kind: Literal["text", "caption", "photo", "other"]
+    text: Optional[str]
+    received_at: float
+    source: Literal["event", "history_fetch", "legacy_log_fallback"]
+
+
+class FlowResult(collections.abc.MutableMapping):
+    """PulseFlow 流程执行终态结构化结果。
+
+    实现完整的 MutableMapping 行为，保持与既有字典访问（__getitem__, __setitem__,
+    get, keys, items, in 等）100% 向后兼容。
+    """
+
+    def __init__(self, data: Optional[Dict[str, Any]] = None, **kwargs):
+        self._data: Dict[str, Any] = dict(data or {})
+        self._data.update(kwargs)
+
+    @property
+    def status(self) -> str:
+        return str(self._data.get("status", "failed"))
+
+    @property
+    def business_status(self) -> str:
+        return str(self._data.get("business_status", "not_evaluated"))
+
+    @property
+    def path(self) -> List[str]:
+        return list(self._data.get("path") or [])
+
+    @property
+    def steps(self) -> int:
+        return int(self._data.get("steps", 0))
+
+    @property
+    def duration_ms(self) -> float:
+        return float(self._data.get("duration_ms", 0.0))
+
+    @property
+    def last_output(self) -> Optional[str]:
+        val = self._data.get("last_output")
+        return str(val) if val is not None else None
+
+    @property
+    def last_received_text(self) -> Optional[str]:
+        val = self._data.get("last_received_text")
+        return str(val) if val is not None else None
+
+    @property
+    def target_message(self) -> Optional[str]:
+        val = self._data.get("target_message")
+        return str(val) if val is not None else None
+
+    @property
+    def target_messages(self) -> List[TargetMessage]:
+        return list(self._data.get("target_messages") or [])
+
+    @property
+    def summary(self) -> Optional[str]:
+        val = self._data.get("summary")
+        return str(val) if val is not None else None
+
+    @property
+    def operation_receipts(self) -> List[Any]:
+        return list(self._data.get("operation_receipts") or [])
+
+    @property
+    def error(self) -> Optional[str]:
+        val = self._data.get("error")
+        return str(val) if val is not None else None
+
+    @property
+    def failure_code(self) -> Optional[str]:
+        val = self._data.get("failure_code")
+        return str(val) if val is not None else None
+
+    # MutableMapping 抽象方法实现
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._data[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """导出纯字典副本"""
+        return dict(self._data)
+
+    def __repr__(self) -> str:
+        return f"FlowResult({self._data!r})"
 
 
 class NodeType(str, Enum):

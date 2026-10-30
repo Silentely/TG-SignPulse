@@ -918,3 +918,95 @@ async def test_flow_engine_parallel_node_execution():
     # 验证 join_strategy="merge" 成功将分支变量合并到主 context
     assert ctx.get_var("var_a") == "res_a"
     assert ctx.get_var("var_b") == "res_b"
+
+
+@pytest.mark.asyncio
+async def test_flow_result_is_mutable_mapping_and_captures_target_message():
+    """验证 FlowResult 支持字典索引读写与 target_messages 属性，且 replay_fixtures 与 workflow_engine 的结果赋值不报错"""
+    import collections.abc
+
+    from tg_signer.core.flow_models import FlowResult, TargetMessage
+
+    res = FlowResult(
+        status="success",
+        business_status="ok",
+        path=["node1"],
+        steps=1,
+        duration_ms=10.5,
+        target_message="Hello Bot\n第二行：签到成功！",
+        target_messages=[
+            TargetMessage(
+                chat_id=1001,
+                message_id=1,
+                thread_id=None,
+                kind="text",
+                text="Hello Bot\n第二行：签到成功！",
+                received_at=100.0,
+                source="event",
+            )
+        ],
+    )
+    # 字典兼容断言
+    assert isinstance(res, collections.abc.MutableMapping)
+    assert res["status"] == "success"
+    assert res.get("target_message") == "Hello Bot\n第二行：签到成功！"
+    res["simulation"] = True
+    assert res["simulation"] is True
+    assert "simulation" in res
+    assert res.target_message == "Hello Bot\n第二行：签到成功！"
+    assert len(res.target_messages) == 1
+    assert res.target_messages[0].source == "event"
+    assert res.target_messages[0].text == "Hello Bot\n第二行：签到成功！"
+
+
+@pytest.mark.asyncio
+async def test_wait_event_captures_structured_target_message():
+    """验证 WaitEvent 节点在事件匹配成功时，正确记录 structured TargetMessage 与 last_received_text"""
+    from tg_signer.core.flow_models import FlowResult
+
+    bus = TelegramEventBus()
+    graph = ExecutionGraph(
+        entry_node_id="wait_step",
+        nodes={
+            "wait_step": WaitEventNode(
+                id="wait_step",
+                success_patterns=["签到成功"],
+                timeout_seconds=2.0,
+                metadata={"chat_id": 999},
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+    ctx.system["chat_id"] = 999
+
+    async def _publish_later():
+        await asyncio.sleep(0.05)
+        await bus.publish(
+            TelegramMessageEvent(
+                event_id="e1",
+                chat_id=999,
+                message_id=123,
+                message_thread_id=None,
+                sender_id=888,
+                event_type="NEW_MESSAGE",
+                text="恭喜你，签到成功！\n获得积分 +10",
+                occurred_at=time.time(),
+            )
+        )
+
+    task = asyncio.create_task(_publish_later())
+    engine = PulseFlowEngine(event_bus=bus)
+    result = await engine.run(graph, ctx, AsyncMock())
+    await task
+
+    assert isinstance(result, FlowResult)
+    assert result["status"] == "success"
+    assert result.target_message == "恭喜你，签到成功！\n获得积分 +10"
+    assert len(result.target_messages) == 1
+    tm = result.target_messages[0]
+    assert tm.chat_id == 999
+    assert tm.message_id == 123
+    assert tm.source == "event"
+    assert tm.text == "恭喜你，签到成功！\n获得积分 +10"
+    assert ctx.last_received_text == "恭喜你，签到成功！\n获得积分 +10"

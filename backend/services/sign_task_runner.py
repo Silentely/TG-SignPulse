@@ -508,33 +508,54 @@ async def _runner_parse_reply(state: TaskExecutionContext | Dict[str, Any]) -> N
     _set_ctx(state, "output_str", "\n".join(final_logs))
 
     last_reply = ""
-    for line in reversed(final_logs):
-        if "收到来自「" in line and (
-            "」的消息:" in line or "」对消息的更新，消息:" in line
-        ):
-            try:
-                splitter = (
-                    "」的消息:" if "」的消息:" in line else "」对消息的更新，消息:"
-                )
-                reply_part = line.split(splitter, 1)[-1].strip()
-                if reply_part.startswith("Message:"):
-                    reply_part = reply_part[len("Message:") :].strip()
+    signer = state.get("signer")
+    if signer and hasattr(signer, "context"):
+        if getattr(signer.context, "last_received_text", None):
+            last_reply = str(signer.context.last_received_text).strip()
+        elif getattr(signer.context, "target_messages", None):
+            t_msgs = getattr(signer.context, "target_messages", [])
+            if t_msgs and t_msgs[-1].text:
+                last_reply = str(t_msgs[-1].text).strip()
+    if not last_reply and state.get("target_message"):
+        last_reply = str(state["target_message"]).strip()
 
-                if "text: " in reply_part:
-                    raw_text = reply_part.split("text: ", 1)[-1]
-                    for delimiter in (
-                        "\n  InlineKeyboard:",
-                        "\nInlineKeyboard:",
-                        "\n  ReplyKeyboard:",
-                        "\nReplyKeyboard:",
-                        "\n  图片:",
-                        "\n图片:",
-                    ):
-                        if delimiter in raw_text:
-                            raw_text = raw_text.split(delimiter, 1)[0]
-                    text_content = " ".join(raw_text.split()).strip()
-                    if text_content:
-                        last_reply = text_content
+    if not last_reply:
+        for line in reversed(final_logs):
+            if "收到来自「" in line and (
+                "」的消息:" in line or "」对消息的更新，消息:" in line
+            ):
+                try:
+                    splitter = (
+                        "」的消息:" if "」的消息:" in line else "」对消息的更新，消息:"
+                    )
+                    reply_part = line.split(splitter, 1)[-1].strip()
+                    if reply_part.startswith("Message:"):
+                        reply_part = reply_part[len("Message:") :].strip()
+
+                    if "text: " in reply_part:
+                        raw_text = reply_part.split("text: ", 1)[-1]
+                        for delimiter in (
+                            "\n  InlineKeyboard:",
+                            "\nInlineKeyboard:",
+                            "\n  ReplyKeyboard:",
+                            "\nReplyKeyboard:",
+                            "\n  图片:",
+                            "\n图片:",
+                        ):
+                            if delimiter in raw_text:
+                                raw_text = raw_text.split(delimiter, 1)[0]
+                        text_content = " ".join(raw_text.split()).strip()
+                        if text_content:
+                            last_reply = text_content
+                        elif "图片: " in reply_part:
+                            last_reply = (
+                                "[图片] "
+                                + reply_part.split("图片: ", 1)[-1]
+                                .split("\n")[0]
+                                .strip()
+                            )
+                        else:
+                            last_reply = reply_part.replace("\n", " ").strip()
                     elif "图片: " in reply_part:
                         last_reply = (
                             "[图片] "
@@ -542,20 +563,13 @@ async def _runner_parse_reply(state: TaskExecutionContext | Dict[str, Any]) -> N
                         )
                     else:
                         last_reply = reply_part.replace("\n", " ").strip()
-                elif "图片: " in reply_part:
-                    last_reply = (
-                        "[图片] "
-                        + reply_part.split("图片: ", 1)[-1].split("\n")[0].strip()
-                    )
-                else:
-                    last_reply = reply_part.replace("\n", " ").strip()
 
-                if len(last_reply) > LAST_REPLY_MAX_CHARS:
-                    last_reply = last_reply[: LAST_REPLY_MAX_CHARS - 3] + "..."
-            except Exception as e:
-                _service_logger.debug("解析最近回复文本失败: %s", e)
-            if last_reply:
-                break
+                    if len(last_reply) > LAST_REPLY_MAX_CHARS:
+                        last_reply = last_reply[: LAST_REPLY_MAX_CHARS - 3] + "..."
+                except Exception as e:
+                    _service_logger.debug("解析最近回复文本失败: %s", e)
+                if last_reply:
+                    break
 
     if last_reply:
         reply_lower = last_reply.lower()
