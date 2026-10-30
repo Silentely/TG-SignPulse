@@ -116,6 +116,9 @@ class SignTaskService(SignTaskCrudMixin):
         self._active_logs: Dict[
             tuple[str, str], List[str]
         ] = {}  # (account, task) -> logs
+        self._active_logs_by_run: Dict[
+            tuple[str, str, str], List[str]
+        ] = {}  # (account, task, run_id) -> logs
         self._active_tasks: Dict[
             tuple[str, str], bool
         ] = {}  # (account, task) -> running
@@ -1592,11 +1595,25 @@ class SignTaskService(SignTaskCrudMixin):
         """向运行中日志追加一行，超上限时从头部批量裁剪（与历史截断策略一致）。
         同时作为唯一事件发布入口，向 TaskLogBroadcaster 发布实时日志事件。
         """
-        logs = self._active_logs.setdefault(task_key, [])
-        logs.append(line)
-        overflow = len(logs) - self.MAX_ACTIVE_LOG_LINES
+        eff_run_id = (
+            run_id
+            or (
+                self._run_statuses.get(task_key, {}).get("run_id")
+                if hasattr(self, "_run_statuses")
+                else None
+            )
+            or ""
+        )
+        if not hasattr(self, "_active_logs_by_run"):
+            self._active_logs_by_run = {}
+        run_key = (task_key[0], task_key[1], eff_run_id)
+        run_logs = self._active_logs_by_run.setdefault(run_key, [])
+        run_logs.append(line)
+        overflow = len(run_logs) - self.MAX_ACTIVE_LOG_LINES
         if overflow > 0:
-            del logs[:overflow]
+            del run_logs[:overflow]
+
+        self._active_logs[task_key] = run_logs
 
         try:
             account_name = (

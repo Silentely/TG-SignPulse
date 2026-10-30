@@ -230,12 +230,14 @@ async def _runner_setup_logging(state: TaskExecutionContext | Dict[str, Any]) ->
     """Phase 4: 配置 TaskLogHandler 将日志注入 active_logs。"""
     svc: SignTaskService = state["svc"]
     task_key = state["task_key"]
-    run_id = state.get("run_id")
+    run_id = state.get("run_id") or ""
+    run_key = (state["account_name"], state["task_name"], run_id)
     tg_logger = logging.getLogger("tg-signer")
     log_handler = state["TaskLogHandler"](
         svc._active_logs[task_key],
         max_lines=svc.MAX_ACTIVE_LOG_LINES,
         sink=lambda line: svc._append_active_log(task_key, line, run_id),
+        target_run_key=run_key,
     )
     log_handler.setLevel(logging.INFO)
     log_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
@@ -1095,6 +1097,15 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
     if log_handler is not None and tg_logger is not None:
         tg_logger.removeHandler(log_handler)
 
+    from backend.services.sign_task_backend import current_run_context
+
+    run_token = state.get("run_context_token")
+    if run_token is not None:
+        try:
+            current_run_context.reset(run_token)
+        except Exception:
+            pass
+
     final_logs = list(svc._active_logs.get(task_key, []))
     _set_ctx(state, "final_logs", final_logs)
     _set_ctx(state, "output_str", "\n".join(final_logs))
@@ -1289,6 +1300,10 @@ async def execute_sign_task(
         )
 
     task_key = svc._task_key(account_name, task_name)
+    run_key = (account_name, task_name, run_id or "")
+    from backend.services.sign_task_backend import current_run_context
+
+    run_token = current_run_context.set(run_key)
     svc._active_tasks[task_key] = True
     svc._active_logs[task_key] = []
     if run_id:
@@ -1306,6 +1321,7 @@ async def execute_sign_task(
         TaskLogHandler=TaskLogHandler,
         visited_chain=list(visited_chain or []),
     )
+    _set_ctx(ctx, "run_context_token", run_token)
 
     try:
         await _runner_load_config(ctx)

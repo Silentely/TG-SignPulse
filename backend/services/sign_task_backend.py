@@ -4,11 +4,16 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from backend.utils.task_logs import normalize_log_line
 from tg_signer.core import UserSigner
+
+current_run_context: contextvars.ContextVar[Optional[Tuple[str, str, str]]] = (
+    contextvars.ContextVar("current_run_context", default=None)
+)
 
 
 class TaskLogHandler(logging.Handler):
@@ -23,14 +28,21 @@ class TaskLogHandler(logging.Handler):
         log_list: List[str],
         max_lines: int = 2000,
         sink: Optional[Callable[[str], None]] = None,
+        target_run_key: Optional[Tuple[str, str, str]] = None,
     ):
         super().__init__()
         self.log_list = log_list
         self.max_lines = max_lines
         self._sink = sink
+        self.target_run_key = target_run_key
 
     def emit(self, record):
         try:
+            run_key = getattr(record, "run_key", None) or current_run_context.get()
+            if self.target_run_key is not None:
+                if run_key is None or run_key != self.target_run_key:
+                    return
+
             msg = normalize_log_line(self.format(record)) or record.getMessage()
             if self._sink is not None:
                 # 统一发布入口：落库 + 广播，裁剪由 _append_active_log 负责

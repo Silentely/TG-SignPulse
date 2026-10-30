@@ -938,3 +938,148 @@ class TestNotificationFailureCategory:
         }
         await _runner_send_notifications(state)
         assert captured.get("failure_category") == "ai_error"
+
+
+@pytest.mark.asyncio
+async def test_unowned_system_log_dropped_from_task_stream():
+    """验证在无任务 ContextVar 的环境下，向全局 tg-signer logger 打出的系统级日志被 TaskLogHandler 拦截丢弃，不污染任务日志"""
+    import logging
+
+    from backend.services.sign_task_backend import TaskLogHandler, current_run_context
+    from backend.services.sign_tasks import get_sign_task_service
+
+    svc = get_sign_task_service()
+    task_name = "test_drop_orphan_task"
+    account_name = "test_drop_orphan_acc"
+    task_key = (account_name, task_name)
+    run_id = "orphan_test_run"
+    run_key = (account_name, task_name, run_id)
+
+    svc._active_logs[task_key] = []
+    tg_logger = logging.getLogger("tg-signer")
+    tg_logger.setLevel(logging.INFO)
+    handler = TaskLogHandler(
+        svc._active_logs[task_key],
+        max_lines=2000,
+        sink=lambda line: svc._append_active_log(task_key, line, run_id),
+        target_run_key=run_key,
+    )
+    handler.setLevel(logging.INFO)
+    tg_logger.addHandler(handler)
+
+    try:
+        # ContextVar is None (no task context)
+        tg_logger.info("orphan system warning 12345")
+        active_logs = svc.get_active_logs(task_name, account_name)
+        assert not any("orphan system warning 12345" in line for line in active_logs)
+        assert not any(
+            "orphan system warning 12345" in line for line in svc._active_logs[task_key]
+        )
+
+        # When context is set to this task, logs should be recorded
+        token = current_run_context.set(run_key)
+        try:
+            tg_logger.info("owned task log 67890")
+            active_logs = svc.get_active_logs(task_name, account_name)
+            assert any("owned task log 67890" in line for line in active_logs)
+        finally:
+            current_run_context.reset(token)
+
+        # Once reset, subsequent unowned logs are dropped again
+        tg_logger.info("another orphan warning 99999")
+        active_logs = svc.get_active_logs(task_name, account_name)
+        assert not any("another orphan warning 99999" in line for line in active_logs)
+    finally:
+        tg_logger.removeHandler(handler)
+        svc._active_logs.pop(task_key, None)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_tasks_log_isolation_multithread():
+    """验证任务 A 与任务 B 并发运行时（含 run_in_executor 子线程），相互日志隔离且无泄漏"""
+    import asyncio
+    import contextvars
+    import logging
+
+    from backend.services.sign_task_backend import TaskLogHandler, current_run_context
+    from backend.services.sign_tasks import get_sign_task_service
+
+    svc = get_sign_task_service()
+    tg_logger = logging.getLogger("tg-signer")
+
+    key_a = ("acc_a", "task_a", "run_a")
+    key_b = ("acc_b", "task_b", "run_b")
+    task_key_a = ("acc_a", "task_a")
+    task_key_b = ("acc_b", "task_b")
+
+    svc._active_logs[task_key_a] = []
+    svc._active_logs[task_key_b] = []
+    tg_logger.setLevel(logging.INFO)
+
+    handler_a = TaskLogHandler(
+        svc._active_logs[task_key_a],
+        sink=lambda line: svc._append_active_log(task_key_a, line, "run_a"),
+        target_run_key=key_a,
+    )
+    handler_a.setLevel(logging.INFO)
+    handler_b = TaskLogHandler(
+        svc._active_logs[task_key_b],
+        sink=lambda line: svc._append_active_log(task_key_b, line, "run_b"),
+        target_run_key=key_b,
+    )
+    handler_b.setLevel(logging.INFO)
+    tg_logger.addHandler(handler_a)
+    tg_logger.addHandler(handler_b)
+
+    loop = asyncio.get_running_loop()
+
+    def thread_worker(msg: str):
+        tg_logger.info(msg)
+
+    async def run_worker_a():
+        token = current_run_context.set(key_a)
+        try:
+            for i in range(5):
+                tg_logger.info(f"Task A step {i}")
+                await loop.run_in_executor(
+                    None,
+                    contextvars.copy_context().run,
+                    thread_worker,
+                    f"Task A thread {i}",
+                )
+                await asyncio.sleep(0.01)
+        finally:
+            current_run_context.reset(token)
+
+    async def run_worker_b():
+        token = current_run_context.set(key_b)
+        try:
+            for i in range(5):
+                tg_logger.info(f"Task B step {i}")
+                await loop.run_in_executor(
+                    None,
+                    contextvars.copy_context().run,
+                    thread_worker,
+                    f"Task B thread {i}",
+                )
+                await asyncio.sleep(0.01)
+        finally:
+            current_run_context.reset(token)
+
+    try:
+        await asyncio.gather(run_worker_a(), run_worker_b())
+
+        logs_a = svc.get_active_logs("task_a", "acc_a")
+        logs_b = svc.get_active_logs("task_b", "acc_b")
+
+        assert len([line for line in logs_a if "Task B" in line]) == 0
+        assert len([line for line in logs_b if "Task A" in line]) == 0
+        assert any("Task A step" in line for line in logs_a)
+        assert any("Task A thread" in line for line in logs_a)
+        assert any("Task B step" in line for line in logs_b)
+        assert any("Task B thread" in line for line in logs_b)
+    finally:
+        tg_logger.removeHandler(handler_a)
+        tg_logger.removeHandler(handler_b)
+        svc._active_logs.pop(task_key_a, None)
+        svc._active_logs.pop(task_key_b, None)
