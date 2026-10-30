@@ -135,130 +135,126 @@ class SignerRunnerMixin:
         self,
         chat: SignChatV3,
     ):
-        try:
-            # 预热会话，确保 peer/access_hash 可用
-            await self.app.get_chat(chat.chat_id)
-        except Exception as e:
-            # 兼容历史配置：部分会话可能保存了缺失负号的 chat_id
+        if (
+            hasattr(self, "app")
+            and self.app is not None
+            and not getattr(self, "_skip_peer_warmup", False)
+        ):
             try:
-                from pyrogram.errors import ChannelInvalid, PeerIdInvalid
+                # 预热会话，确保 peer/access_hash 可用
+                await self.app.get_chat(chat.chat_id)
+            except Exception as e:
+                # 兼容历史配置：部分会话可能保存了缺失负号的 chat_id
+                try:
+                    from pyrogram.errors import ChannelInvalid, PeerIdInvalid
 
-                is_peer_invalid = isinstance(e, (PeerIdInvalid, ChannelInvalid))
-            except Exception:
-                is_peer_invalid = any(
-                    x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID")
-                )
+                    is_peer_invalid = isinstance(e, (PeerIdInvalid, ChannelInvalid))
+                except Exception:
+                    is_peer_invalid = any(
+                        x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID")
+                    )
 
-            if is_peer_invalid and isinstance(chat.chat_id, int):
-                last_error = e
-                resolved_peer = False
+                if is_peer_invalid and isinstance(chat.chat_id, int):
+                    last_error = e
+                    resolved_peer = False
 
-                # Historical configs may store a user/bot id before Pyrogram knows
-                # its access hash. get_users warms the local peer cache.
-                if chat.chat_id > 0:
-                    try:
-                        await self.app.get_users(chat.chat_id)
-                        self.log(
-                            f"已通过 get_users 预热会话：chat_id={chat.chat_id}",
-                            level="WARNING",
-                        )
-                        resolved_peer = True
-                        last_error = None
-                    except Exception as e2:
-                        last_error = e2
-
-                if not resolved_peer:
-                    cached = self._find_cached_chat(chat.chat_id, chat.name)
-                    if cached:
-                        username = cached.get("username")
-                        cached_id = cached.get("id")
-                        if username:
-                            try:
-                                resolved = await self.app.get_chat(username)
-                                self.log(
-                                    f"已通过缓存用户名预热会话：chat_id={chat.chat_id} -> @{username}",
-                                    level="WARNING",
-                                )
-                                chat.chat_id = resolved.id
-                                resolved_peer = True
-                                last_error = None
-                            except Exception as e2:
-                                last_error = e2
-                        if (
-                            not resolved_peer
-                            and cached_id
-                            and cached_id != chat.chat_id
-                        ):
-                            try:
-                                await self.app.get_chat(cached_id)
-                                self.log(
-                                    f"已通过缓存记录预热会话：chat_id={chat.chat_id} -> {cached_id}",
-                                    level="WARNING",
-                                )
-                                chat.chat_id = cached_id
-                                resolved_peer = True
-                                last_error = None
-                            except Exception as e2:
-                                last_error = e2
-
-                if not resolved_peer:
-                    candidates = []
+                    # Historical configs may store a user/bot id before Pyrogram knows
+                    # its access hash. get_users warms the local peer cache.
                     if chat.chat_id > 0:
-                        candidates.append(-chat.chat_id)
-                        candidates.append(int(f"-100{chat.chat_id}"))
-                    elif chat.chat_id < 0 and not str(chat.chat_id).startswith("-100"):
-                        candidates.append(int(f"-100{abs(chat.chat_id)}"))
-
-                    for candidate in candidates:
-                        if candidate == chat.chat_id:
-                            continue
                         try:
-                            await self.app.get_chat(candidate)
+                            await self.app.get_users(chat.chat_id)
                             self.log(
-                                f"已通过候选 chat_id 预热会话：chat_id={chat.chat_id} -> {candidate}",
+                                f"已通过 get_users 预热会话：chat_id={chat.chat_id}",
                                 level="WARNING",
                             )
-                            chat.chat_id = candidate
                             resolved_peer = True
                             last_error = None
-                            break
                         except Exception as e2:
                             last_error = e2
-                            continue
 
-                if not resolved_peer:
+                    if not resolved_peer:
+                        cached = self._find_cached_chat(chat.chat_id, chat.name)
+                        if cached:
+                            username = cached.get("username")
+                            cached_id = cached.get("id")
+                            if username:
+                                try:
+                                    resolved = await self.app.get_chat(username)
+                                    self.log(
+                                        f"已通过缓存用户名预热会话：chat_id={chat.chat_id} -> @{username}",
+                                        level="WARNING",
+                                    )
+                                    chat.chat_id = resolved.id
+                                    resolved_peer = True
+                                    last_error = None
+                                except Exception as e2:
+                                    last_error = e2
+                            if (
+                                not resolved_peer
+                                and cached_id
+                                and cached_id != chat.chat_id
+                            ):
+                                try:
+                                    await self.app.get_chat(cached_id)
+                                    self.log(
+                                        f"已通过缓存记录预热会话：chat_id={chat.chat_id} -> {cached_id}",
+                                        level="WARNING",
+                                    )
+                                    chat.chat_id = cached_id
+                                    resolved_peer = True
+                                    last_error = None
+                                except Exception as e2:
+                                    last_error = e2
+
+                    if not resolved_peer:
+                        candidates = []
+                        if chat.chat_id > 0:
+                            candidates.append(-chat.chat_id)
+                            candidates.append(int(f"-100{chat.chat_id}"))
+                        elif chat.chat_id < 0 and not str(chat.chat_id).startswith(
+                            "-100"
+                        ):
+                            candidates.append(int(f"-100{abs(chat.chat_id)}"))
+
+                        for candidate in candidates:
+                            if candidate == chat.chat_id:
+                                continue
+                            try:
+                                await self.app.get_chat(candidate)
+                                self.log(
+                                    f"已通过候选 chat_id 预热会话：chat_id={chat.chat_id} -> {candidate}",
+                                    level="WARNING",
+                                )
+                                chat.chat_id = candidate
+                                resolved_peer = True
+                                last_error = None
+                                break
+                            except Exception as e2:
+                                last_error = e2
+                                continue
+
+                    if not resolved_peer:
+                        self.log(
+                            f"预热会话失败: chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
+                            level="ERROR",
+                        )
+                        raise RuntimeError(
+                            f"预热会话失败 chat_id={chat.chat_id}: {last_error}"
+                        ) from last_error
+                else:
                     self.log(
-                        f"预热会话失败: chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
+                        f"预热会话失败: chat_id={chat.chat_id}, error={type(e).__name__}: {e}",
                         level="ERROR",
                     )
                     raise RuntimeError(
-                        f"预热会话失败 chat_id={chat.chat_id}: {last_error}"
-                    ) from last_error
-            else:
-                self.log(
-                    f"预热会话失败: chat_id={chat.chat_id}, error={type(e).__name__}: {e}",
-                    level="ERROR",
-                )
-                raise RuntimeError(f"预热会话失败 chat_id={chat.chat_id}: {e}") from e
+                        f"预热会话失败 chat_id={chat.chat_id}: {e}"
+                    ) from e
         self.log(self._describe_chat_run(chat))
         self.context.pulseflow_side_effect_started = False
-        from tg_signer.core.flow_routing import ENGINE_V4, resolve_execution_engine
+        return await self._run_pulseflow_chat(chat)
 
-        task_engine = getattr(getattr(self, "config", None), "execution_engine", None)
-        global_engine = getattr(self, "execution_engine", None)
-        engine_code, engine_display, engine_source = resolve_execution_engine(
-            chat,
-            task_engine=task_engine,
-            global_engine=global_engine,
-        )
-        if engine_code == ENGINE_V4:
-            self.log(f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})")
-            flow_ok = await self._run_pulseflow_chat(chat, engine_source=engine_source)
-            if flow_ok or not getattr(
-                self.context, "pulseflow_fallback_occurred", False
-            ):
-                return flow_ok
-
+    async def _run_classic_chat(self, chat: SignChatV3):
+        """Classic (v3) 紧急回退执行逻辑。"""
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。
             max_workflow_attempts = max(
@@ -1241,12 +1237,14 @@ class SignerRunnerMixin:
     async def _run_pulseflow_chat(
         self, chat: SignChatV3, engine_source: str = "auto"
     ) -> bool:
+        override_engine = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
+        if override_engine in {"classic", "v3"}:
+            logger.critical("[EMERGENCY_OVERRIDE] 触发紧急回滚 Classic 引擎运行")
+            return await self._run_classic_chat(chat)
+
         from tg_signer.core.flow_context import ScopedFlowContext
         from tg_signer.core.flow_engine import PulseFlowEngine
         from tg_signer.core.flow_models import ExecutionGraph
-        from tg_signer.core.flow_routing import task_requires_semantic
-
-        has_semantic = task_requires_semantic(chat)
 
         def _reset_v4_legacy_context() -> None:
             scope_key = chat_scope_key(chat.chat_id, chat.message_thread_id)
@@ -1265,37 +1263,8 @@ class SignerRunnerMixin:
             self.context.stop_reason = None
             self.context.last_callback_answer = None
 
-        auto_fallback_env = os.getenv("PULSEFLOW_AUTO_FALLBACK", "").strip().lower()
-        allow_fallback = auto_fallback_env in {"1", "true", "yes", "on"} or (
-            engine_source
-            in {"canary", "settings", "env", "default", "override", "auto"}
-            and engine_source != "task"
-            and auto_fallback_env not in {"0", "false", "no", "off"}
-        )
-        if has_semantic:
-            allow_fallback = False
-
         self.context.pulseflow_side_effect_started = False
-
-        graph = None
-        try:
-            graph = ExecutionGraph.compile(chat)
-        except Exception as norm_err:
-            if (
-                allow_fallback
-                and not has_semantic
-                and not getattr(self.context, "pulseflow_side_effect_started", False)
-            ):
-                self.log(
-                    f"⚠️ PulseFlow 图构建失败 ({norm_err})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
-                    level="WARNING",
-                )
-                self.context.pulseflow_fallback_occurred = True
-                self.context.pulseflow_fallback_reason = str(norm_err)
-                _reset_v4_legacy_context()
-                return False
-            else:
-                raise
+        graph = ExecutionGraph.compile(chat)
 
         if graph is not None:
             max_flow_attempts = max(
@@ -1482,41 +1451,22 @@ class SignerRunnerMixin:
                 self._event_bus = None
 
             if not flow_succeeded:
-                if (
-                    allow_fallback
-                    and not getattr(last_error, "non_retryable", False)
-                    and not has_semantic
-                    and not getattr(
-                        self.context, "pulseflow_side_effect_started", False
-                    )
-                ):
+                if getattr(self.context, "pulseflow_side_effect_started", False):
                     self.log(
-                        f"⚠️ PulseFlow (v4) 执行未成功 ({last_error})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
-                        level="WARNING",
+                        "PulseFlow 已产生外部副作用，禁止自动回退 Classic，避免重复执行",
+                        level="ERROR",
                     )
-                    self.context.pulseflow_fallback_occurred = True
-                    self.context.pulseflow_fallback_reason = str(last_error)
-                    _reset_v4_legacy_context()
-                    return False
-                else:
-                    if getattr(self.context, "pulseflow_side_effect_started", False):
-                        self.log(
-                            "PulseFlow 已产生外部副作用，禁止自动回退 Classic，避免重复执行",
-                            level="ERROR",
-                        )
-                    if last_error is not None:
-                        from tg_signer.core.flow_models import (
-                            FlowLoopLimitExceededError,
-                        )
-                        from tg_signer.core.workflow_engine import (
-                            WorkflowLoopExceededError,
-                        )
+                if last_error is not None:
+                    from tg_signer.core.flow_models import (
+                        FlowLoopLimitExceededError,
+                    )
+                    from tg_signer.core.workflow_engine import (
+                        WorkflowLoopExceededError,
+                    )
 
-                        if isinstance(last_error, FlowLoopLimitExceededError):
-                            raise WorkflowLoopExceededError(
-                                str(last_error)
-                            ) from last_error
-                        raise last_error
+                    if isinstance(last_error, FlowLoopLimitExceededError):
+                        raise WorkflowLoopExceededError(str(last_error)) from last_error
+                    raise last_error
                     raise RuntimeError(
                         "PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果"
                     )

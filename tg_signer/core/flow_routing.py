@@ -232,7 +232,13 @@ def resolve_execution_engine(
     elif target_chat is not None:
         has_steps = _chat_has_steps(target_chat)
 
-    env_engine_override = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
+    raw_env_override = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
+    if raw_env_override in {"classic", "v3", ENGINE_V3}:
+        env_engine_override = ENGINE_V3
+    elif raw_env_override in {"pulseflow", "v4", ENGINE_V4}:
+        env_engine_override = ENGINE_V4
+    else:
+        env_engine_override = ""
 
     explicit_v3 = False
     if env_engine_override == ENGINE_V3:

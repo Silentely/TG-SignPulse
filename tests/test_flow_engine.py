@@ -1010,3 +1010,55 @@ async def test_wait_event_captures_structured_target_message():
     assert tm.source == "event"
     assert tm.text == "恭喜你，签到成功！\n获得积分 +10"
     assert ctx.last_received_text == "恭喜你，签到成功！\n获得积分 +10"
+
+
+@pytest.mark.asyncio
+async def test_pulseflow_cutover_and_classic_emergency_override(monkeypatch):
+    """验证未设 override 时非正常配置编译直接抛异常，设置 PULSEFLOW_ENGINE_OVERRIDE=classic 时记录 CRITICAL 告警"""
+    import logging
+    from unittest.mock import MagicMock
+
+    from tg_signer.config import SignChatV3
+    from tg_signer.core.signer_runner import SignerRunnerMixin
+
+    class DummySigner(SignerRunnerMixin):
+        def __init__(self):
+            self.context = MagicMock()
+            self.context.chat_messages = {}
+            self.context.topic_last_output = {}
+            self.context.topic_last_received_text = {}
+            self.logs = []
+
+        def log(self, msg, level="INFO"):
+            self.logs.append((level, msg))
+
+        def _describe_chat_run(self, chat):
+            return "testing chat"
+
+    signer = DummySigner()
+    signer._skip_peer_warmup = True
+    # 构造非法空配置（actions 和 steps 均为空）
+    malformed_chat = SignChatV3(chat_id=12345, actions=[])
+
+    # 1. 默认无 override 时，编译失败必须直接抛出异常（不再静默降级）
+    monkeypatch.delenv("PULSEFLOW_ENGINE_OVERRIDE", raising=False)
+    with pytest.raises((RuntimeError, ValueError)):
+        await signer.sign_a_chat(malformed_chat)
+
+    # 2. 显式开启紧急回滚闸门 PULSEFLOW_ENGINE_OVERRIDE=classic 时触发 CRITICAL 日志
+    monkeypatch.setenv("PULSEFLOW_ENGINE_OVERRIDE", "classic")
+    critical_logs = []
+    logger = logging.getLogger("tg_signer.runtime.runner")
+    orig_critical = logger.critical
+
+    def _intercept_critical(msg, *args, **kwargs):
+        critical_logs.append(msg)
+        orig_critical(msg, *args, **kwargs)
+
+    monkeypatch.setattr(logger, "critical", _intercept_critical)
+
+    # 预期 _run_classic_chat 被调用并因 actions 为空抛出 RuntimeError("任务没有配置任何执行动作")
+    with pytest.raises(RuntimeError, match="任务没有配置任何执行动作"):
+        await signer.sign_a_chat(malformed_chat)
+
+    assert any("[EMERGENCY_OVERRIDE]" in str(log) for log in critical_logs)
