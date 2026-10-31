@@ -103,6 +103,16 @@ def normalize_permissions(perms: Iterable[str]) -> set[str]:
     return {PERMISSION_CANONICAL_MAP.get(p, p) for p in perms if p}
 
 
+def normalize_permissions_list(perms: Iterable[str]) -> list[str]:
+    """保持声明顺序将权限集合或列表归一化。"""
+    result: list[str] = []
+    for p in perms:
+        canon = PERMISSION_CANONICAL_MAP.get(p, p)
+        if canon and canon not in result:
+            result.append(canon)
+    return result
+
+
 # 100% 向后兼容别名：PluginStorageBackend 即 PluginStore
 PluginStorageBackend = PluginStore
 
@@ -1067,7 +1077,7 @@ class PluginRegistry:
                 params_schema=params_schema or [],
                 enabled=cls.is_enabled(name),
                 builtin=is_builtin_plugin_path(source_file),
-                permissions=sorted(normalize_permissions(permissions or [])),
+                permissions=normalize_permissions_list(permissions or []),
                 doc=doc_str or None,
                 category=category,
                 tags=list(tags or []),
@@ -1380,7 +1390,7 @@ class PluginRegistry:
                     )
                     final_permissions: List[str] = []
                     if isinstance(raw_perms, (list, tuple)):
-                        final_permissions = sorted(normalize_permissions(raw_perms))
+                        final_permissions = normalize_permissions_list(raw_perms)
 
                     # 参数定义 schema
                     final_schema = (
@@ -1480,8 +1490,14 @@ class PluginRegistry:
                     )
                     if context_version not in {1, 2}:
                         raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
+                    is_community_or_market = (
+                        "community_plugins" in str(resolved_file)
+                        or "marketplace" in str(resolved_file)
+                        or ("id" in pjson_data and "plugin_api" in pjson_data)
+                    )
                     if (
-                        meta_name not in BUILTIN_LEGACY_PLUGINS_WHITELIST
+                        is_community_or_market
+                        and meta_name not in BUILTIN_LEGACY_PLUGINS_WHITELIST
                         and context_version < 2
                     ):
                         raise ValueError(

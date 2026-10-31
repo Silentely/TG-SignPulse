@@ -384,6 +384,7 @@ class PluginProcessHost:
         stderr_task: Optional[asyncio.Task] = None
         stdout_task: Optional[asyncio.Task] = None
         process_wait_task: Optional[asyncio.Task] = None
+        active_rpc_tasks: Dict[Any, asyncio.Task] = {}
 
         try:
             init_payload = {
@@ -431,8 +432,6 @@ class PluginProcessHost:
                     line_str = line.decode("utf-8", errors="replace").rstrip("\r\n")
                     if line_str:
                         self.ctx.log(f"[worker stderr] {line_str}", level="WARNING")
-
-            active_rpc_tasks: Dict[Any, asyncio.Task] = {}
 
             async def dispatch_rpc_call(call_payload: Dict[str, Any]) -> None:
                 call_id = call_payload.get("id")

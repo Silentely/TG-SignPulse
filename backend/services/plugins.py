@@ -2174,6 +2174,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "{version}"
 UPDATED_AT = "{today}"
 AUTHOR = {author!r}
+PERMISSIONS = ["storage"]
 
 PARAMS_SCHEMA = []
 
@@ -2182,6 +2183,7 @@ PARAMS_SCHEMA = []
     mode="reactive",
     description={description!r},
     params_schema=PARAMS_SCHEMA,
+    permissions=PERMISSIONS,
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
@@ -2313,7 +2315,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "{version}"
 UPDATED_AT = "{today}"
 AUTHOR = {author!r}
-PERMISSIONS = ["network"]
+PERMISSIONS = ["network", "storage"]
 
 PARAMS_SCHEMA = [
     {{
@@ -2369,6 +2371,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "{version}"
 UPDATED_AT = "{today}"
 AUTHOR = {author!r}
+PERMISSIONS = ["storage"]
 
 PARAMS_SCHEMA = [
     {{
@@ -2385,6 +2388,7 @@ PARAMS_SCHEMA = [
     mode="reactive",
     description={description!r},
     params_schema=PARAMS_SCHEMA,
+    permissions=PERMISSIONS,
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
