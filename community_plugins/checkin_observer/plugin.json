@@ -1,0 +1,82 @@
+{
+  "id": "checkin_observer",
+  "name": "签到全景观察与清理卫士",
+  "version": "1.0.0",
+  "mode": "reactive",
+  "category": "helper",
+  "description": "原子聚合积分变动解析、自然日连续签到校准与可选延迟消息清理，杜绝多插件争抢。",
+  "author": "TG-SignPulse",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "sparkles",
+  "tags": ["checkin", "observer", "points", "streak", "cleaner", "helper"],
+  "min_app_version": "1.9.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
+  "permissions": ["storage", "telegram_send"],
+  "params_schema": [
+    {
+      "name": "balance_pattern",
+      "label": "余额/总积分提取正则",
+      "type": "string",
+      "default": "(?:总积分|当前积分|余额|剩余积分|Points|Balance)[:：\\s]*([0-9]+(?:\\.[0-9]+)?)",
+      "required": false,
+      "description": "从回复消息中提取总积分或当前余额的正则表达式（带数字捕获组）"
+    },
+    {
+      "name": "gain_pattern",
+      "label": "单次奖励积分提取正则",
+      "type": "string",
+      "default": "(?:获得|增加|奖励|\\+)\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(?:分|点|积分|Points)?",
+      "required": false,
+      "description": "从回复消息中提取本次打卡获得积分的正则表达式（带数字捕获组）"
+    },
+    {
+      "name": "streak_pattern",
+      "label": "连续签到天数提取正则",
+      "type": "string",
+      "default": "(?:已连续签到|连续签到|连签|Streak)[:：\\s]*([0-9]+)\\s*天?",
+      "required": false,
+      "description": "从回复消息中提取连续签到天数的正则表达式（带整数捕获组）"
+    },
+    {
+      "name": "enable_points",
+      "label": "启用积分变动持久化",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否解析积分变动并原子持久化到 ledger:latest_balance"
+    },
+    {
+      "name": "enable_streak",
+      "label": "启用连续签到校准",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否校准自然日连续签到并更新 streak:current 与 streak:last_date"
+    },
+    {
+      "name": "enable_cleanup",
+      "label": "启用消息自动清理",
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "description": "打卡完成后是否自动延迟清理 Bot 回复及触发口令消息"
+    },
+    {
+      "name": "delay_seconds",
+      "label": "清理等待时长(秒)",
+      "type": "number",
+      "default": 3.0,
+      "required": false,
+      "description": "执行消息清理前的缓冲等待秒数"
+    }
+  ],
+  "description_en": "Atomically parses point changes, calibrates calendar check-in streaks, and provides optional delayed message cleanup to prevent multi-plugin contention.",
+  "features": [
+    "Atomic points parsing and persistence to ledger:latest_balance",
+    "Natural calendar check-in streak calibration and persistence",
+    "Optional delayed cleanup for bot replies and user trigger commands",
+    "Idempotency guard against duplicate message event processing",
+    "Non-destructive error fallback safeguarding message traces on failure"
+  ]
+}

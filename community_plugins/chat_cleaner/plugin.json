@@ -1,0 +1,48 @@
+{
+  "id": "chat_cleaner",
+  "name": "通用对话痕迹自动清理助手",
+  "version": "1.0.0",
+  "mode": "reactive",
+  "category": "message",
+  "description": "在响应式任务末尾自动延迟清理用户触发口令与 Bot 回复消息，保持聊天会话整洁。",
+  "author": "TG-SignPulse",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "trash-2",
+  "tags": ["cleaner", "cleanup", "message", "privacy", "chat"],
+  "min_app_version": "1.9.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
+  "permissions": ["telegram_send"],
+  "params_schema": [
+    {
+      "name": "delay_seconds",
+      "label": "清理延迟秒数",
+      "type": "number",
+      "default": 3.0,
+      "required": false,
+      "description": "清理消息前的等待缓冲时间（秒）"
+    },
+    {
+      "name": "delete_bot_reply",
+      "label": "删除 Bot 回复",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否删除 Bot 响应发出的消息"
+    },
+    {
+      "name": "delete_trigger_command",
+      "label": "删除触发口令",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否删除用户发送的签到/触发命令消息"
+    }
+  ],
+  "description_en": "Automatically delays and cleans up user trigger commands and Bot replies at the end of reactive tasks to keep chat history clean.",
+  "features": [
+    "Configurable delay before message deletion",
+    "Cleans bot replies and original trigger commands",
+    "Safely handles missing reply_to references and already-deleted messages"
+  ]
+}
