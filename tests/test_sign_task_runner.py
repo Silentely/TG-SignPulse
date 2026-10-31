@@ -579,6 +579,61 @@ class TestCancel:
             next_acquired = True
         assert next_acquired is True
 
+    @pytest.mark.asyncio
+    async def test_waiting_task_cancelled_does_not_release_running_task_lock(
+        self, runner_env
+    ):
+        """回归验证：任务 B 等锁期间被取消，绝不误释放任务 A 持有的锁；且任务 A 完成前锁保持 locked，A 的 release 仅发生一次。"""
+        task_a_started = asyncio.Event()
+        task_a_can_finish = asyncio.Event()
+
+        async def behavior_a(run_calls: int):
+            task_a_started.set()
+            await task_a_can_finish.wait()
+
+        FakeSigner.behavior = behavior_a
+        svc = FakeSvc(task_cfg={"name": "task_a"})
+        account_name = "acc_shared_lock"
+
+        # 两个任务共享同一个底层的账号锁
+        real_lock = asyncio.Lock()
+        svc._account_locks[account_name] = real_lock
+
+        # 启动任务 A
+        task_a = asyncio.create_task(
+            execute_sign_task(svc, account_name, "task_a", run_id="run_a")
+        )
+        await asyncio.wait_for(task_a_started.wait(), timeout=5)
+
+        # 此时任务 A 正在运行并持锁
+        assert real_lock.locked() is True
+
+        # 启动任务 B（同账号不同任务，排队等锁）
+        task_b = asyncio.create_task(
+            execute_sign_task(svc, account_name, "task_b", run_id="run_b")
+        )
+        # 让 event loop 转一下，确保任务 B 已经进入等待锁状态
+        await asyncio.sleep(0.05)
+
+        # 验证此时锁依然由 A 持有
+        assert real_lock.locked() is True
+
+        # 取消等待中的任务 B
+        task_b.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task_b
+
+        # 关键断言 1：B 被取消后，底层锁必须依然处于 locked 状态（属于 A，未被 B 误释放）
+        assert real_lock.locked() is True
+
+        # 允许任务 A 完成
+        task_a_can_finish.set()
+        res_a = await task_a
+        assert res_a["success"] is True
+
+        # 关键断言 2：任务 A 完成后，锁正常释放，且 release 只发生了一次
+        assert real_lock.locked() is False
+
 
 class TestStrongFailureFlip:
     """回复含失败关键词且强失败 → 成功翻转"""

@@ -172,8 +172,19 @@ async def _runner_refresh_keyword_monitor(
 
 async def _runner_acquire_lock(state: TaskExecutionContext | Dict[str, Any]) -> None:
     """Phase 3: 等待账号锁、处理冷却，并在锁持有期间完成全部执行。"""
+    from backend.utils.account_locks import AccountLockLease
+
     svc: SignTaskService = state["svc"]
     account_lock = state["account_lock"]
+    if not isinstance(account_lock, AccountLockLease):
+        account_name = state.get("account_name", "")
+        task_name = state.get("task_name", "")
+        run_id = state.get("run_id") or ""
+        account_lock = AccountLockLease(
+            lock=account_lock,
+            owner_id=f"{account_name}:{task_name}:{run_id or 'default'}",
+        )
+        _set_ctx(state, "account_lock", account_lock)
 
     if isinstance(state, TaskExecutionContext):
         state.transition_to(TaskPhase.WAITING_LOCK)
@@ -187,6 +198,7 @@ async def _runner_acquire_lock(state: TaskExecutionContext | Dict[str, Any]) -> 
     )
 
     async with account_lock:
+        _set_ctx(state, "lock_acquired", True)
         last_end = svc._account_last_run_end.get(state["account_name"])
         if last_end:
             gap = time.time() - last_end
@@ -208,8 +220,6 @@ async def _runner_acquire_lock(state: TaskExecutionContext | Dict[str, Any]) -> 
                 )
                 svc._append_active_log(state["task_key"], f"等待账号冷却 {wait_i} 秒")
                 await asyncio.sleep(wait_seconds)
-
-        _set_ctx(state, "lock_acquired", True)
 
         await _runner_run_task(state)
 
@@ -1217,30 +1227,16 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
                         exc_info=True,
                     )
     finally:
-        # 无论正常退出还是 CancelledError 异常中断，先强制释放账号锁与注销运行标记
-        account_name = state.get("account_name")
+        # 严格遵守锁所有权契约：只有真正成功持有锁（state['lock_acquired']）的任务才能 release，
+        # 绝不盲目通过 locked() 误释放其他并发任务持有的锁。
         account_lock = state.get("account_lock")
-        if (
-            account_lock is not None
-            and getattr(account_lock, "locked", None)
-            and account_lock.locked()
-        ):
-            try:
-                account_lock.release()
-            except RuntimeError:
-                pass
-        if (
-            account_name
-            and hasattr(svc, "_account_locks")
-            and svc._account_locks is not None
-            and account_name in svc._account_locks
-        ):
-            alock = svc._account_locks[account_name]
-            if alock is not None and getattr(alock, "locked", None) and alock.locked():
+        if state.get("lock_acquired") is True and account_lock is not None:
+            if hasattr(account_lock, "release"):
                 try:
-                    alock.release()
+                    account_lock.release()
                 except RuntimeError:
                     pass
+            _set_ctx(state, "lock_acquired", False)
 
         svc._active_tasks[task_key] = False
         if (
@@ -1315,11 +1311,22 @@ async def execute_sign_task(
         and svc._account_locks is not None
         and account_name in svc._account_locks
     ):
-        account_lock = svc._account_locks[account_name]
+        raw_lock = svc._account_locks[account_name]
     else:
-        account_lock = get_account_lock(account_name)
+        raw_lock = get_account_lock(account_name)
         if hasattr(svc, "_account_locks") and svc._account_locks is not None:
-            svc._account_locks[account_name] = account_lock
+            svc._account_locks[account_name] = raw_lock
+
+    from backend.utils.account_locks import AccountLockLease
+
+    account_lock = (
+        raw_lock
+        if isinstance(raw_lock, AccountLockLease)
+        else AccountLockLease(
+            lock=raw_lock,
+            owner_id=f"{account_name}:{task_name}:{run_id or 'default'}",
+        )
+    )
 
     # 定时任务同时触发时排队等待账号锁
     _service_logger.debug("等待获取账号锁 %s...", account_name)

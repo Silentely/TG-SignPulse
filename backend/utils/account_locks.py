@@ -28,7 +28,7 @@ import logging
 import weakref
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import AsyncIterator, Iterable
+from typing import Any, AsyncIterator, Iterable, Optional
 
 logger = logging.getLogger("backend.account_locks")
 
@@ -58,21 +58,41 @@ class AccountLockLease:
 
     lock: asyncio.Lock
     owned: bool = False
+    owner_id: Optional[str] = None
 
     def mark_owned(self) -> None:
         """标记本次流程已持有该锁，此后 release() 才会真正释放。"""
         self.owned = True
 
+    def locked(self) -> bool:
+        """检查底层锁当前是否被锁定。"""
+        return self.lock.locked() if hasattr(self.lock, "locked") else False
+
+    async def acquire(self) -> None:
+        """等待获取底层锁，并在获取成功后原子标记当前租约所有权。"""
+        await self.lock.acquire()
+        self.owned = True
+
     def release(self) -> bool:
         """释放锁并返回是否真的释放；未持有时告警跳过，绝不放他人的锁。"""
         if not self.owned:
-            if self.lock.locked():
-                logger.warning("跳过释放非本流程持有的账号锁，该锁可能正被其他协程使用")
+            if self.locked():
+                logger.warning(
+                    "跳过释放非本流程持有的账号锁 (owner=%s)，该锁可能正被其他协程使用",
+                    self.owner_id or "unknown",
+                )
             return False
         self.owned = False
         with contextlib.suppress(RuntimeError):
             self.lock.release()
         return True
+
+    async def __aenter__(self) -> AccountLockLease:
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.release()
 
     def force_release(self) -> bool:
         """无视所有权强制释放锁并作废租约。
