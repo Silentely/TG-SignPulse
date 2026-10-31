@@ -45,7 +45,7 @@ describe('DatePicker 键盘导航', () => {
   })
 
   it('方向键移动光标：右 +1 天、下 +7 天', async () => {
-    const wrapper = mount(DatePicker, { props: { modelValue: '' }, attachTo: document.body })
+    const wrapper = mount(DatePicker, { props: { modelValue: '2026-05-10' }, attachTo: document.body })
     await openPicker(wrapper)
     const start = document.activeElement as HTMLElement
     const startDate = new Date(start.id.replace(/^.*-day-/, '') + 'T00:00:00')
