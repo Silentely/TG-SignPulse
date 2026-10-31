@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 import time
 
@@ -17,6 +18,9 @@ AUTHOR = "BlockExplorer"
     description="响应式解析消息中的加密货币价格并持久化跟踪",
     version=VERSION,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    permissions=["storage", "telegram_read"],
     params_schema=[
         {
             "name": "target_symbol",
@@ -60,9 +64,15 @@ async def handle_crypto_tracker(ctx: PluginContext) -> bool:
 
     if track_history and ctx.storage:
         now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        ctx.storage.set("last_price", price)
-        ctx.storage.set("last_updated", now)
-        ctx.storage.set("symbol", symbol)
+        res1 = ctx.storage.set("last_price", price)
+        if inspect.isawaitable(res1):
+            await res1
+        res2 = ctx.storage.set("last_updated", now)
+        if inspect.isawaitable(res2):
+            await res2
+        res3 = ctx.storage.set("symbol", symbol)
+        if inspect.isawaitable(res3):
+            await res3
         ctx.log(f"[crypto_price_tracker] 已写入持久化存储: {symbol} = {price} @ {now}")
 
     return True

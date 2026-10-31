@@ -20,7 +20,17 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+)
 
 from tg_signer.async_utils import run_in_thread
 from tg_signer.core.plugin_storage import PluginStore
@@ -28,8 +38,69 @@ from tg_signer.core.plugin_storage import PluginStore
 _logger = logging.getLogger("tg_signer.plugins")
 
 
-class PluginTimeoutError(RuntimeError):
-    """插件执行超时；该错误不可通过步骤级重试安全恢复。"""
+class PluginError(Exception):
+    """插件系统基础异常。"""
+
+
+class PluginTimeoutError(PluginError, RuntimeError):
+    """插件执行或 RPC 调用超时；该错误不可通过步骤级重试安全恢复。"""
+
+
+class PluginFloodWaitError(PluginError, RuntimeError):
+    """Telegram MTProto 速率限制，携带冷却等待秒数。"""
+
+    def __init__(self, seconds: int):
+        super().__init__(f"Telegram FloodWait: retry after {seconds} seconds")
+        self.seconds = int(seconds)
+
+
+class PluginPermissionDeniedError(PluginError, PermissionError):
+    """RPC 能力权限不足或会话禁止写入。"""
+
+
+class PluginNotSupportedError(PluginError, RuntimeError):
+    """当前会话类型或客户端不支持该动作。"""
+
+
+class PluginMessageNotFoundError(PluginError, RuntimeError):
+    """指定消息已不存在或已被删除。"""
+
+
+class PluginConnectionResetError(PluginError, ConnectionResetError):
+    """IPC 通信管道断开或子进程异常退出。"""
+
+
+BUILTIN_LEGACY_PLUGINS_WHITELIST = frozenset(
+    {
+        "math_solver",
+        "regex_reply",
+        "keyword_reactor",
+        "daily_checkin_helper",
+        "webhook_pusher",
+        "stock_sniper",
+    }
+)
+
+PERMISSION_CANONICAL_MAP: Dict[str, str] = {
+    # 兼容别名映射
+    "telegram_read": "message_read",
+    "telegram_send": "message_write",
+    "chat_action": "message_write",
+    # 内核规范能力
+    "message_read": "message_read",
+    "message_write": "message_write",
+    "storage": "storage",
+    "global_storage": "global_storage",
+    "network": "network",
+    "cron": "cron",
+    "buttons": "buttons",
+    "reactions": "reactions",
+}
+
+
+def normalize_permissions(perms: Iterable[str]) -> set[str]:
+    """将权限集合或列表归一化为规范能力集合。"""
+    return {PERMISSION_CANONICAL_MAP.get(p, p) for p in perms if p}
 
 
 # 100% 向后兼容别名：PluginStorageBackend 即 PluginStore
@@ -644,6 +715,66 @@ class PluginContext:
             )
         raise RuntimeError("Telegram Client 不支持 forward_messages 方法")
 
+    async def send_chat_action(self, action: str = "typing", **kwargs: Any) -> bool:
+        self._mark_side_effect()
+        """向当前会话发送聊天动作指示器（如 typing）。"""
+        target_action = action
+        try:
+            from pyrogram.enums import ChatAction
+
+            if isinstance(action, str):
+                action_enum = getattr(ChatAction, action.upper(), None)
+                if action_enum is None:
+                    for a in ChatAction:
+                        if str(a.value).lower() == action.lower():
+                            action_enum = a
+                            break
+                target_action = action_enum or action
+            else:
+                target_action = action
+        except ImportError:
+            target_action = action
+
+        sender = getattr(self.logger, "send_chat_action", None)
+        if sender is not None and callable(sender):
+            try:
+                res = sender(self.chat_id, target_action, **kwargs)
+                if inspect.isawaitable(res):
+                    return bool(await res)
+                return bool(res)
+            except TypeError:
+                pass
+        if hasattr(self.app, "send_chat_action") and callable(
+            self.app.send_chat_action
+        ):
+            res = self.app.send_chat_action(self.chat_id, target_action, **kwargs)
+            if inspect.isawaitable(res):
+                return bool(await res)
+            return bool(res)
+        raise RuntimeError("Telegram Client 不支持 send_chat_action 方法")
+
+    async def read_chat_history(self, max_id: int = 0, **kwargs: Any) -> bool:
+        self._mark_side_effect()
+        """将当前会话的历史消息标记为已读（清空未读计数与小红点）。"""
+        safe_max_id = int(max_id or 0)
+        reader = getattr(self.logger, "read_chat_history", None)
+        if reader is not None and callable(reader):
+            try:
+                res = reader(self.chat_id, max_id=safe_max_id, **kwargs)
+                if inspect.isawaitable(res):
+                    return bool(await res)
+                return bool(res)
+            except TypeError:
+                pass
+        if hasattr(self.app, "read_chat_history") and callable(
+            self.app.read_chat_history
+        ):
+            res = self.app.read_chat_history(self.chat_id, max_id=safe_max_id, **kwargs)
+            if inspect.isawaitable(res):
+                return bool(await res)
+            return bool(res)
+        raise RuntimeError("Telegram Client 不支持 read_chat_history 方法")
+
 
 @dataclass
 class PluginLoadError:
@@ -936,7 +1067,7 @@ class PluginRegistry:
                 params_schema=params_schema or [],
                 enabled=cls.is_enabled(name),
                 builtin=is_builtin_plugin_path(source_file),
-                permissions=list(permissions or []),
+                permissions=sorted(normalize_permissions(permissions or [])),
                 doc=doc_str or None,
                 category=category,
                 tags=list(tags or []),
@@ -1249,7 +1380,7 @@ class PluginRegistry:
                     )
                     final_permissions: List[str] = []
                     if isinstance(raw_perms, (list, tuple)):
-                        final_permissions = [str(x) for x in raw_perms]
+                        final_permissions = sorted(normalize_permissions(raw_perms))
 
                     # 参数定义 schema
                     final_schema = (
@@ -1349,6 +1480,13 @@ class PluginRegistry:
                     )
                     if context_version not in {1, 2}:
                         raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
+                    if (
+                        meta_name not in BUILTIN_LEGACY_PLUGINS_WHITELIST
+                        and context_version < 2
+                    ):
+                        raise ValueError(
+                            f"Plugin '{meta_name}' requires context_version >= 2 (got {context_version})"
+                        )
                     meta = PluginMeta(
                         name=meta_name,
                         handler=active_handler,
@@ -2219,14 +2357,17 @@ def audit_plugin_source(source: str) -> List[Dict[str, Any]]:
 
     # 权限越界与未声明高级权限检查
     detected_caps = detect_plugin_capabilities(source)
-    declared_perms = extract_plugin_declared_permissions(source)
+    declared_perms = normalize_permissions(extract_plugin_declared_permissions(source))
     for cap in detected_caps:
-        if cap in ("network", "storage") and cap not in declared_perms:
+        has_perm = cap in declared_perms or (
+            cap == "storage" and "global_storage" in declared_perms
+        )
+        if cap in ("network", "storage") and not has_perm:
             warnings.append(
                 {
                     "line": 1,
                     "column": 0,
-                    "severity": "medium",
+                    "severity": "high",
                     "rule": f"undeclared-capability:{cap}",
                     "message": f"源码使用了核心能力 '{cap}'，但未在 PERMISSIONS 声明中配置",
                 }

@@ -9,7 +9,10 @@
     "mode",
     "category",
     "description",
-    "author"
+    "author",
+    "min_app_version",
+    "context_version",
+    "plugin_api"
   ],
   "properties": {
     "id": {
@@ -81,6 +84,16 @@
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "description": "Minimum TG-SignPulse version required"
     },
+    "context_version": {
+      "type": "integer",
+      "enum": [2],
+      "description": "必须显式声明为 2，以启用严格的沙箱能力控制"
+    },
+    "plugin_api": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "插件运行时契约版本，当前标准为 2.0"
+    },
     "permissions": {
       "type": "array",
       "items": {
@@ -88,9 +101,15 @@
         "enum": [
           "network",
           "storage",
+          "global_storage",
           "telegram_read",
           "telegram_send",
-          "cron"
+          "message_read",
+          "message_write",
+          "chat_action",
+          "cron",
+          "buttons",
+          "reactions"
         ]
       },
       "description": "Permissions requested by this plugin"

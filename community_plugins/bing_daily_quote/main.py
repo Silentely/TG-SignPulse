@@ -17,6 +17,9 @@ AUTHOR = "TG-Community"
     description="主动获取必应每日一图背景格言并发送问候",
     version=VERSION,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    permissions=["network", "telegram_send"],
     params_schema=[
         {
             "name": "greeting_prefix",

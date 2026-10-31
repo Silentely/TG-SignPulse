@@ -18,11 +18,30 @@ from tg_signer.core.plugin_ipc import (
     encode_ipc_payload,
 )
 from tg_signer.core.plugins import (
+    PluginConnectionResetError,
+    PluginError,
     PluginExecutionIdentity,
+    PluginFloodWaitError,
+    PluginMessageNotFoundError,
     PluginMeta,
+    PluginNotSupportedError,
+    PluginPermissionDeniedError,
     PluginRegistry,
+    PluginTimeoutError,
     plugin_storage_namespace,
 )
+
+__all__ = [
+    "PluginConnectionResetError",
+    "PluginError",
+    "PluginFloodWaitError",
+    "PluginMessageNotFoundError",
+    "PluginNotSupportedError",
+    "PluginPermissionDeniedError",
+    "PluginTimeoutError",
+    "ProxyPluginContext",
+    "ProxyStorageClient",
+]
 
 
 def import_single_plugin_source(
@@ -404,6 +423,21 @@ class ProxyPluginContext:
             return ProxyMessage(res, rpc=self._rpc)
         return res
 
+    async def send_chat_action(self, action: str = "typing", **kwargs: Any) -> bool:
+        """向当前会话发送聊天动作指示器（如 typing）。"""
+        call_params = {"action": action}
+        call_params.update(kwargs)
+        res = await self._rpc("send_chat_action", **call_params)
+        return bool(res)
+
+    async def read_chat_history(self, max_id: Optional[int] = 0, **kwargs: Any) -> bool:
+        """将当前会话的历史消息标记为已读（清空未读计数与小红点）。"""
+        safe_max_id = int(max_id or 0)
+        call_params = {"max_id": safe_max_id}
+        call_params.update(kwargs)
+        res = await self._rpc("read_chat_history", **call_params)
+        return bool(res)
+
 
 async def run_worker_loop(
     reader: Optional[asyncio.StreamReader] = None,
@@ -479,7 +513,13 @@ async def run_worker_loop(
             {"type": "call", "id": current_id, "method": method, "params": params}
         )
         await flush_writer()
-        return await fut
+        try:
+            return await fut
+        except asyncio.CancelledError:
+            pending_calls.pop(current_id, None)
+            send_payload_sync({"type": "call_cancel", "id": current_id})
+            await flush_writer()
+            raise
 
     # 读取初始配置
     init_line = await reader.readline()
@@ -556,7 +596,7 @@ async def run_worker_loop(
                 for fut in list(pending_calls.values()):
                     if not fut.done():
                         fut.set_exception(
-                            ConnectionResetError("IPC pipe closed by host")
+                            PluginConnectionResetError("IPC pipe closed by host")
                         )
                 pending_calls.clear()
                 break
@@ -572,9 +612,26 @@ async def run_worker_loop(
                     if msg.get("success"):
                         fut.set_result(msg.get("data"))
                     else:
-                        fut.set_exception(
-                            RuntimeError(msg.get("error", "RPC call failed"))
-                        )
+                        err_code = msg.get("error_code")
+                        err_msg = msg.get("error", "RPC call failed")
+                        if err_code == "permission_denied":
+                            fut.set_exception(PluginPermissionDeniedError(err_msg))
+                        elif err_code == "flood_wait":
+                            try:
+                                secs = int(err_msg)
+                            except (ValueError, TypeError):
+                                secs = 0
+                            fut.set_exception(PluginFloodWaitError(secs))
+                        elif err_code == "unsupported":
+                            fut.set_exception(PluginNotSupportedError(err_msg))
+                        elif err_code == "message_not_found":
+                            fut.set_exception(PluginMessageNotFoundError(err_msg))
+                        elif err_code == "timeout":
+                            fut.set_exception(PluginTimeoutError(err_msg))
+                        elif err_code == "ipc_disconnected":
+                            fut.set_exception(PluginConnectionResetError(err_msg))
+                        else:
+                            fut.set_exception(RuntimeError(err_msg))
 
     listener_task = asyncio.create_task(host_listener())
 

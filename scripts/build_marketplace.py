@@ -25,8 +25,12 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 try:
-    from tg_signer.core.plugins import audit_plugin_source
+    from tg_signer.core.plugins import (
+        BUILTIN_LEGACY_PLUGINS_WHITELIST,
+        audit_plugin_source,
+    )
 except ImportError:
+    BUILTIN_LEGACY_PLUGINS_WHITELIST = frozenset()
 
     class _SecurityVisitor(ast.NodeVisitor):  # type: ignore
         def __init__(self) -> None:
@@ -115,6 +119,13 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
                 errors.append("plugin.json 缺少 'description' 属性")
             if not manifest.get("author"):
                 errors.append("plugin.json 缺少 'author' 属性")
+            if folder_name not in BUILTIN_LEGACY_PLUGINS_WHITELIST:
+                if manifest.get("context_version") != 2:
+                    errors.append(
+                        f"plugin.json 中的 'context_version' 必须为 2，当前为 {manifest.get('context_version')}"
+                    )
+            if not manifest.get("min_app_version"):
+                errors.append("plugin.json 缺少 'min_app_version' 属性")
 
             schema_file = plugin_dir.parent / "schema.json"
             if schema_file.is_file():

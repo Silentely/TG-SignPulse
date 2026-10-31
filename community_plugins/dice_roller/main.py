@@ -17,6 +17,9 @@ AUTHOR = "GameMaster"
     description="响应 /roll 或 /dice 口令并掷骰子",
     version=VERSION,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    permissions=["telegram_send"],
     params_schema=[
         {
             "name": "max_sides",
