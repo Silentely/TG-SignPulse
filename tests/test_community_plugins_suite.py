@@ -302,12 +302,164 @@ def test_negative_context_version_whitelisted_legacy_bypass():
             encoding="utf-8",
         )
 
-        with patch(
-            "tg_signer.core.plugins.BUILTIN_LEGACY_PLUGINS_WHITELIST",
-            BUILTIN_LEGACY_PLUGINS_WHITELIST | {plugin_name},
+        with (
+            patch(
+                "tg_signer.core.plugins.BUILTIN_LEGACY_PLUGINS_WHITELIST",
+                BUILTIN_LEGACY_PLUGINS_WHITELIST | {plugin_name},
+            ),
+            patch(
+                "tg_signer.core.plugins.PluginRegistry.get_builtin_directories",
+                return_value=[Path(tmp_dir)],
+            ),
         ):
             loaded_count = PluginRegistry.load_plugins_from_dir(Path(tmp_dir))
             assert loaded_count == 1
             assert plugin_name in PluginRegistry.list_plugins()
             assert len(PluginRegistry._load_errors) == 0
             assert PluginRegistry.list_plugins()[plugin_name].context_version == 1
+
+
+def test_negative_v1_manifest_without_plugin_api_rejected_in_data_plugins():
+    """Verify v1 manifest without plugin_api in data/plugins is strictly rejected."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        fake_plugin = Path(tmp_dir) / "data" / "plugins" / "custom_v1_plugin"
+        fake_plugin.mkdir(parents=True)
+        (fake_plugin / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "custom_v1_plugin",
+                    "name": "Custom V1 Plugin",
+                    "version": "1.0.0",
+                    "mode": "reactive",
+                    "category": "utility",
+                    "description": "Custom v1 without plugin_api in data/plugins",
+                    "author": "Tester",
+                    "context_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        code = (
+            "from tg_signer.core.plugins import PluginRegistry\n"
+            '@PluginRegistry.register("custom_v1_plugin", mode="reactive", description="test", version="1.0.0", context_version=1)\n'
+            "async def handle(ctx):\n    pass\n"
+        )
+        (fake_plugin / "main.py").write_text(code, encoding="utf-8")
+
+        loaded_count = PluginRegistry.load_plugins_from_dir(fake_plugin.parent)
+        assert loaded_count == 0
+        assert "custom_v1_plugin" not in PluginRegistry.list_plugins()
+        error_keys = list(PluginRegistry._load_errors.keys())
+        assert len(error_keys) == 1
+        load_err = PluginRegistry._load_errors[error_keys[0]]
+        assert "requires context_version >= 2" in load_err.error_message
+
+
+def test_negative_math_solver_in_community_plugins_v1_rejected():
+    """Verify whitelisted name in community_plugins directory is rejected when context_version=1."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        fake_plugin = Path(tmp_dir) / "community_plugins" / "math_solver"
+        fake_plugin.mkdir(parents=True)
+        (fake_plugin / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "math_solver",
+                    "name": "Math Solver Spoof",
+                    "version": "1.0.0",
+                    "mode": "reactive",
+                    "category": "utility",
+                    "description": "Spoofed legacy plugin in community folder",
+                    "author": "Tester",
+                    "min_app_version": "1.9.0",
+                    "context_version": 1,
+                    "plugin_api": "2.0",
+                }
+            ),
+            encoding="utf-8",
+        )
+        code = (
+            "from tg_signer.core.plugins import PluginRegistry\n"
+            '@PluginRegistry.register("math_solver", mode="reactive", description="test", version="1.0.0", context_version=1)\n'
+            "async def handle(ctx):\n    pass\n"
+        )
+        (fake_plugin / "main.py").write_text(code, encoding="utf-8")
+        (fake_plugin / "README.md").write_text("# Readme", encoding="utf-8")
+        shutil.copy(SCHEMA_PATH, fake_plugin.parent / "schema.json")
+
+        is_valid, errors, _ = validate_plugin(fake_plugin)
+        assert not is_valid
+        assert any("context_version" in err for err in errors)
+
+        loaded_count = PluginRegistry.load_plugins_from_dir(fake_plugin.parent)
+        assert loaded_count == 0
+        assert "math_solver" not in PluginRegistry.list_plugins()
+
+
+def test_negative_worker_direct_load_v1_rejected():
+    """Verify import_single_plugin_source blocks context_version=1 for non-whitelisted path."""
+    from tg_signer.core.plugin_worker import import_single_plugin_source
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        fake_plugin = Path(tmp_dir) / "worker_v1_direct"
+        fake_plugin.mkdir()
+        (fake_plugin / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "worker_v1_direct",
+                    "name": "Worker V1 Direct",
+                    "version": "1.0.0",
+                    "mode": "reactive",
+                    "category": "utility",
+                    "description": "Direct worker load attempt",
+                    "author": "Tester",
+                    "context_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        main_file = fake_plugin / "main.py"
+        code = (
+            "from tg_signer.core.plugins import PluginRegistry\n"
+            '@PluginRegistry.register("worker_v1_direct", mode="reactive", description="test", version="1.0.0", context_version=1)\n'
+            "async def handle(ctx):\n    pass\n"
+        )
+        main_file.write_text(code, encoding="utf-8")
+
+        with pytest.raises(ValueError, match="requires context_version >= 2"):
+            import_single_plugin_source(str(main_file), "worker_v1_direct")
+
+        assert PluginRegistry.get("worker_v1_direct") is None
+
+
+def test_negative_host_rpc_grant_rejects_v1_non_whitelisted():
+    """Verify host _check_rpc_grant raises PluginPermissionDeniedError for v1 non-whitelisted plugin."""
+    from unittest.mock import MagicMock
+
+    from tg_signer.core.plugin_host import PluginProcessHost
+    from tg_signer.core.plugins import PluginMeta, PluginPermissionDeniedError
+
+    meta = PluginMeta(
+        name="rogue_v1_plugin",
+        handler=lambda ctx: None,
+        mode="active",
+        description="",
+        version="1.0.0",
+        updated_at="2026-10-31",
+        author="tester",
+        source_path="/data/plugins/rogue_v1/main.py",
+        params_schema=[],
+        permissions=[],
+        context_version=1,
+    )
+    PluginRegistry._plugins["rogue_v1_plugin"] = meta
+    try:
+        host = PluginProcessHost(
+            plugin_name="rogue_v1_plugin", ctx=MagicMock(), timeout=1.0
+        )
+        with pytest.raises(
+            PluginPermissionDeniedError,
+            match="requires context_version >= 2 and is not whitelisted",
+        ):
+            host._check_rpc_grant("storage_get", {})
+    finally:
+        PluginRegistry.unregister("rogue_v1_plugin")

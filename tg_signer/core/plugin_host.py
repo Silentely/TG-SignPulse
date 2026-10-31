@@ -22,7 +22,9 @@ from tg_signer.core.plugins import (
     PluginContext,
     PluginMessageNotFoundError,
     PluginNotSupportedError,
+    PluginPermissionDeniedError,
     PluginRegistry,
+    is_whitelisted_legacy_plugin,
     normalize_permissions,
     resolve_plugin_params,
 )
@@ -273,8 +275,14 @@ class PluginProcessHost:
         or network access inside the subprocess (which is not an OS sandbox).
         """
         meta = PluginRegistry.get(self.plugin_name)
-        if getattr(meta, "context_version", 1) < 2:
+        source_path = getattr(meta, "source_path", None) if meta else None
+        if is_whitelisted_legacy_plugin(source_path, self.plugin_name):
             return
+        context_version = getattr(meta, "context_version", 1) if meta else 1
+        if context_version < 2:
+            raise PluginPermissionDeniedError(
+                f"Plugin '{self.plugin_name}' requires context_version >= 2 and is not whitelisted"
+            )
         raw_grants = getattr(meta, "permissions", []) or []
         grants = normalize_permissions(raw_grants)
         if method.startswith("storage_"):

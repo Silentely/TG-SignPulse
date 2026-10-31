@@ -16,6 +16,7 @@ def _register_worker_fixtures():
     @PluginRegistry.register(
         name="test_hang_with_child_process",
         mode="active",
+        context_version=2,
     )
     def hang_handler(ctx: PluginContext):
         import subprocess
@@ -37,6 +38,7 @@ def _register_worker_fixtures():
     @PluginRegistry.register(
         name="test_plugin_with_prints",
         mode="active",
+        context_version=2,
     )
     def print_handler(ctx: PluginContext):
         print("Hello from stdout banner!")
@@ -48,6 +50,8 @@ def _register_worker_fixtures():
     @PluginRegistry.register(
         name="test_plugin_edit_delete_rpc",
         mode="active",
+        context_version=2,
+        permissions=["message_write"],
     )
     async def edit_delete_handler(ctx: PluginContext):
         edited = await ctx.edit_message("new text", message_id=888)
@@ -59,6 +63,8 @@ def _register_worker_fixtures():
     @PluginRegistry.register(
         name="test_plugin_rpc_roundtrip",
         mode="active",
+        context_version=2,
+        permissions=["message_write", "buttons"],
     )
     async def rpc_handler(ctx: PluginContext):
         ctx.log("starting rpc")
@@ -74,6 +80,7 @@ def _register_worker_fixtures():
     @PluginRegistry.register(
         name="test_plugin_worker_exception",
         mode="active",
+        context_version=2,
     )
     def err_handler(ctx: PluginContext):
         raise ValueError("Simulated worker error")
@@ -94,6 +101,7 @@ async def test_subprocess_host_kills_infinite_loop_and_cleans_process_group():
     @PluginRegistry.register(
         name="test_hang_with_child_process",
         mode="active",
+        context_version=2,
     )
     def hang_handler(ctx: PluginContext):
         import subprocess
@@ -132,6 +140,7 @@ async def test_subprocess_host_tolerates_arbitrary_print_output():
     @PluginRegistry.register(
         name="test_plugin_with_prints",
         mode="active",
+        context_version=2,
     )
     def print_handler(ctx: PluginContext):
         print("Hello from stdout banner!")

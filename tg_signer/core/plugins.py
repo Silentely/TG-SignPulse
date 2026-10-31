@@ -1101,6 +1101,11 @@ class PluginRegistry:
         return dict(cls._plugins)
 
     @classmethod
+    def unregister(cls, name: str) -> None:
+        """从注册表中注销指定插件。"""
+        cls._plugins.pop(name, None)
+
+    @classmethod
     def clear(cls) -> None:
         cls._plugins.clear()
         cls._loaded_files.clear()
@@ -1485,24 +1490,14 @@ class PluginRegistry:
                     min_app_version = reg.get(
                         "min_app_version", pjson_data.get("min_app_version")
                     )
-                    validate_plugin_compatibility(
-                        min_app_version=min_app_version, plugin_api=plugin_api
+                    validate_plugin_origin_and_context(
+                        path=resolved_file,
+                        name=meta_name,
+                        context_version=context_version,
+                        manifest=pjson_data if pjson_data else None,
+                        plugin_api=plugin_api,
+                        min_app_version=min_app_version,
                     )
-                    if context_version not in {1, 2}:
-                        raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
-                    is_community_or_market = (
-                        "community_plugins" in str(resolved_file)
-                        or "marketplace" in str(resolved_file)
-                        or ("id" in pjson_data and "plugin_api" in pjson_data)
-                    )
-                    if (
-                        is_community_or_market
-                        and meta_name not in BUILTIN_LEGACY_PLUGINS_WHITELIST
-                        and context_version < 2
-                    ):
-                        raise ValueError(
-                            f"Plugin '{meta_name}' requires context_version >= 2 (got {context_version})"
-                        )
                     meta = PluginMeta(
                         name=meta_name,
                         handler=active_handler,
@@ -2141,6 +2136,65 @@ def validate_plugin_compatibility(
             }[op]
             if not valid:
                 raise ValueError("PLUGIN_API_VERSION_INCOMPATIBLE")
+
+
+def is_whitelisted_legacy_plugin(
+    path: Union[str, Path, None], name: Optional[str]
+) -> bool:
+    """组合判定：仅当插件名称位于白名单内且物理路径属于官方内置目录时，才豁免 v2 门禁。"""
+    if not name or not path:
+        return False
+    if name not in BUILTIN_LEGACY_PLUGINS_WHITELIST:
+        return False
+    return is_builtin_plugin_path(path)
+
+
+def validate_plugin_origin_and_context(
+    path: Union[str, Path, None],
+    name: str,
+    context_version: int = 1,
+    manifest: Optional[Dict[str, Any]] = None,
+    plugin_api: Optional[str] = None,
+    min_app_version: Optional[str] = None,
+) -> None:
+    """唯一门禁函数：主进程加载、worker 定向加载、build 检查统一使用。
+
+    1. context_version 必须在 {1, 2} 范围内，否则抛出 ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
+    2. 若满足组合判定 is_whitelisted_legacy_plugin(path, name)，则作为内置遗留插件豁免放行
+    3. 非内置白名单插件：
+       - context_version 必须 >= 2 (若为 1 则直接拒绝)
+       - 若存在 manifest 字典：
+           - manifest 中的 context_version 必须为 2
+           - manifest 必须包含非空的 plugin_api 与 min_app_version
+       - 必须满足 min_app_version / plugin_api 兼容性
+    """
+    if context_version not in {1, 2}:
+        raise ValueError("PLUGIN_CONTEXT_VERSION_UNSUPPORTED")
+
+    if is_whitelisted_legacy_plugin(path, name):
+        return
+
+    if context_version < 2:
+        raise ValueError(
+            f"Plugin '{name}' requires context_version >= 2 (got {context_version})"
+        )
+
+    if manifest is not None:
+        m_cv = manifest.get("context_version")
+        if m_cv != 2:
+            raise ValueError(
+                f"Plugin '{name}' manifest context_version must be 2 (got {m_cv})"
+            )
+        if not manifest.get("plugin_api"):
+            raise ValueError(f"Plugin '{name}' requires 'plugin_api' in manifest")
+        if not manifest.get("min_app_version"):
+            raise ValueError(f"Plugin '{name}' requires 'min_app_version' in manifest")
+
+    final_api = (manifest.get("plugin_api") if manifest else None) or plugin_api
+    final_min_app = (
+        manifest.get("min_app_version") if manifest else None
+    ) or min_app_version
+    validate_plugin_compatibility(min_app_version=final_min_app, plugin_api=final_api)
 
 
 def resolve_plugin_params(plugin_meta, action_params) -> Dict[str, Any]:

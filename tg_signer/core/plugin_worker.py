@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
+import json
 import os
 import signal
 import sys
@@ -29,6 +30,7 @@ from tg_signer.core.plugins import (
     PluginRegistry,
     PluginTimeoutError,
     plugin_storage_namespace,
+    validate_plugin_origin_and_context,
 )
 
 __all__ = [
@@ -83,7 +85,30 @@ def import_single_plugin_source(
             sys.modules.pop(mod_name, None)
             raise
 
-    return PluginRegistry.get(plugin_name)
+    meta = PluginRegistry.get(plugin_name)
+    if meta is not None:
+        manifest = None
+        manifest_file = entry_file.parent / "plugin.json"
+        if manifest_file.exists():
+            try:
+                manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        try:
+            validate_plugin_origin_and_context(
+                path=source_path,
+                name=plugin_name,
+                context_version=getattr(meta, "context_version", 1),
+                manifest=manifest,
+                plugin_api=getattr(meta, "plugin_api", None),
+                min_app_version=getattr(meta, "min_app_version", None),
+            )
+        except Exception:
+            PluginRegistry.unregister(plugin_name)
+            sys.modules.pop(mod_name, None)
+            raise
+
+    return meta
 
 
 class ProxyStorageClient:
@@ -203,7 +228,10 @@ class ProxyPluginContext:
             self._rpc, is_global=True, namespace=global_ns
         )
         if context_version == 2:
-            self.storage = self.storage_for("chat")
+            try:
+                self.storage = self.storage_for("chat")
+            except Exception:
+                pass
 
         if self.message:
             self.message.click = self.click

@@ -28,9 +28,22 @@ try:
     from tg_signer.core.plugins import (
         BUILTIN_LEGACY_PLUGINS_WHITELIST,
         audit_plugin_source,
+        validate_plugin_origin_and_context,
     )
 except ImportError:
     BUILTIN_LEGACY_PLUGINS_WHITELIST = frozenset()
+
+    def validate_plugin_origin_and_context(
+        path, name, context_version=1, manifest=None, **kwargs
+    ):
+        if context_version != 2:
+            raise ValueError(
+                f"Plugin '{name}' requires context_version >= 2 (got {context_version})"
+            )
+        if not manifest or not manifest.get("min_app_version"):
+            raise ValueError(f"Plugin '{name}' requires min_app_version")
+        if not manifest or not manifest.get("plugin_api"):
+            raise ValueError(f"Plugin '{name}' requires plugin_api")
 
     class _SecurityVisitor(ast.NodeVisitor):  # type: ignore
         def __init__(self) -> None:
@@ -119,13 +132,15 @@ def validate_plugin(plugin_dir: Path) -> Tuple[bool, List[str], Dict[str, Any]]:
                 errors.append("plugin.json 缺少 'description' 属性")
             if not manifest.get("author"):
                 errors.append("plugin.json 缺少 'author' 属性")
-            if folder_name not in BUILTIN_LEGACY_PLUGINS_WHITELIST:
-                if manifest.get("context_version") != 2:
-                    errors.append(
-                        f"plugin.json 中的 'context_version' 必须为 2，当前为 {manifest.get('context_version')}"
-                    )
-            if not manifest.get("min_app_version"):
-                errors.append("plugin.json 缺少 'min_app_version' 属性")
+            try:
+                validate_plugin_origin_and_context(
+                    path=plugin_dir,
+                    name=folder_name,
+                    context_version=manifest.get("context_version", 1),
+                    manifest=manifest,
+                )
+            except Exception as exc:
+                errors.append(f"门禁校验未通过: {exc}")
 
             schema_file = plugin_dir.parent / "schema.json"
             if schema_file.is_file():
