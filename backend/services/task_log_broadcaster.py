@@ -87,6 +87,15 @@ class TaskLogBroadcaster:
         if after_seq is not None:
             with self._lock:
                 backlog = list(self._history.get(key, ()))
+                if not backlog and not key.run_id:
+                    for stream_k, hist in self._history.items():
+                        if (
+                            stream_k.account_name == key.account_name
+                            and stream_k.task_name == key.task_name
+                            and hist
+                        ):
+                            backlog = list(hist)
+                            break
             for event in backlog:
                 if event.get("seq", 0) > after_seq:
                     self._deliver_to_queue(key, q, event)
@@ -173,21 +182,38 @@ class TaskLogBroadcaster:
             if can_store_history:
                 self._history[key].append(payload)
 
-            targets = [
-                (q, self._queue_loops.get(q))
-                for q in list(self._subscribers.get(key, ()))
-            ]
+            matched_targets = []
+            for q in self._subscribers.get(key, ()):
+                matched_targets.append((key, q, self._queue_loops.get(q)))
+
+            if key.run_id:
+                for sub_k in (
+                    StreamKey(
+                        account_name=key.account_name,
+                        task_name=key.task_name,
+                        run_id="",
+                    ),
+                    StreamKey(
+                        account_name=key.account_name,
+                        task_name=key.task_name,
+                        run_id=None,
+                    ),
+                ):
+                    for q in self._subscribers.get(sub_k, ()):
+                        matched_targets.append((sub_k, q, self._queue_loops.get(q)))
+
+            targets = matched_targets
 
         if not targets:
             return
 
         current_loop = self._current_loop()
-        for q, loop in targets:
+        for sub_k, q, loop in targets:
             if loop is None or loop is current_loop:
-                self._deliver_to_queue(key, q, payload)
+                self._deliver_to_queue(sub_k, q, payload)
                 continue
             try:
-                loop.call_soon_threadsafe(self._deliver_to_queue, key, q, payload)
+                loop.call_soon_threadsafe(self._deliver_to_queue, sub_k, q, payload)
             except RuntimeError:
                 # 目标事件循环已关闭：丢弃该订阅的投递
                 pass

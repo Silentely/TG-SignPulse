@@ -39,6 +39,22 @@ class TaskLogHandler(logging.Handler):
     def emit(self, record):
         try:
             run_key = getattr(record, "run_key", None) or current_run_context.get()
+            if run_key is None and self.target_run_key:
+                # 等价兜底键：检查 record 中是否显式附加了任务/账号标识
+                rec_task_key = getattr(record, "task_key", None)
+                rec_acc = getattr(record, "account_name", None)
+                rec_task = getattr(record, "task_name", None)
+                rec_run_id = getattr(record, "run_id", None)
+                if rec_task_key == (self.target_run_key[0], self.target_run_key[1]):
+                    if not rec_run_id or rec_run_id == self.target_run_key[2]:
+                        run_key = self.target_run_key
+                elif (
+                    rec_acc == self.target_run_key[0]
+                    and rec_task == self.target_run_key[1]
+                ):
+                    if not rec_run_id or rec_run_id == self.target_run_key[2]:
+                        run_key = self.target_run_key
+
             if self.target_run_key is not None:
                 if run_key is None or run_key != self.target_run_key:
                     return

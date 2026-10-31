@@ -1093,7 +1093,6 @@ async def test_unowned_system_log_dropped_from_task_stream():
 async def test_concurrent_tasks_log_isolation_multithread():
     """验证任务 A 与任务 B 并发运行时（含 run_in_executor 子线程），相互日志隔离且无泄漏"""
     import asyncio
-    import contextvars
     import logging
 
     from backend.services.sign_task_backend import TaskLogHandler, current_run_context
@@ -1136,13 +1135,15 @@ async def test_concurrent_tasks_log_isolation_multithread():
         try:
             for i in range(5):
                 tg_logger.info(f"Task A step {i}")
-                await loop.run_in_executor(
-                    None,
-                    contextvars.copy_context().run,
-                    thread_worker,
-                    f"Task A thread {i}",
-                )
+                # 生产真实线程路径：使用 asyncio.to_thread 传递执行（不手动 copy_context 包装）
+                await asyncio.to_thread(thread_worker, f"Task A thread {i}")
                 await asyncio.sleep(0.01)
+
+            # 等价兜底键测试：普通线程池在无 contextvar 时通过 extra 兜底键仍能正确归属
+            def fallback_a(msg: str):
+                tg_logger.info(msg, extra={"task_key": task_key_a, "run_id": "run_a"})
+
+            await loop.run_in_executor(None, fallback_a, "Task A fallback thread")
         finally:
             current_run_context.reset(token)
 
@@ -1151,13 +1152,22 @@ async def test_concurrent_tasks_log_isolation_multithread():
         try:
             for i in range(5):
                 tg_logger.info(f"Task B step {i}")
-                await loop.run_in_executor(
-                    None,
-                    contextvars.copy_context().run,
-                    thread_worker,
-                    f"Task B thread {i}",
-                )
+                # 生产真实线程路径：使用 asyncio.to_thread 传递执行（不手动 copy_context 包装）
+                await asyncio.to_thread(thread_worker, f"Task B thread {i}")
                 await asyncio.sleep(0.01)
+
+            # 等价兜底键测试：普通线程池在无 contextvar 时通过 extra 兜底键仍能正确归属
+            def fallback_b(msg: str):
+                tg_logger.info(
+                    msg,
+                    extra={
+                        "account_name": "acc_b",
+                        "task_name": "task_b",
+                        "run_id": "run_b",
+                    },
+                )
+
+            await loop.run_in_executor(None, fallback_b, "Task B fallback thread")
         finally:
             current_run_context.reset(token)
 
@@ -1173,6 +1183,10 @@ async def test_concurrent_tasks_log_isolation_multithread():
         assert any("Task A thread" in line for line in logs_a)
         assert any("Task B step" in line for line in logs_b)
         assert any("Task B thread" in line for line in logs_b)
+        assert any("Task A fallback thread" in line for line in logs_a)
+        assert any("Task B fallback thread" in line for line in logs_b)
+        assert not any("Task B fallback thread" in line for line in logs_a)
+        assert not any("Task A fallback thread" in line for line in logs_b)
     finally:
         tg_logger.removeHandler(handler_a)
         tg_logger.removeHandler(handler_b)

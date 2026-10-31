@@ -326,3 +326,34 @@ async def test_publish_from_worker_thread_delivers_to_subscriber():
     assert event["text"] == "from-worker"
 
     broadcaster.unsubscribe(key, queue)
+
+
+@pytest.mark.asyncio
+async def test_task_log_broadcaster_wildcard_subscription_matches_published_run_id():
+    """验证 WebSocket 订阅端未带 run_id (空 run_id) 时，发布端附带真实 run_id 的日志绝不丢失，一致派发。"""
+    broadcaster = TaskLogBroadcaster(max_queue_size=10)
+    # 模拟客户端订阅时任务尚未生成 run_id (空 run_id 订阅)
+    wildcard_key = StreamKey(account_name="ws_acc", task_name="ws_task", run_id="")
+    queue = broadcaster.subscribe(wildcard_key)
+
+    # 模拟任务启动后，发布端使用该运行真实的 run_id 发布日志
+    pub_key = StreamKey(
+        account_name="ws_acc", task_name="ws_task", run_id="run_real_999"
+    )
+    broadcaster.publish_nowait(
+        pub_key,
+        {
+            "type": "logs",
+            "data": ["line with real run id"],
+            "account_name": "ws_acc",
+            "task_name": "ws_task",
+            "run_id": "run_real_999",
+        },
+    )
+
+    event = await asyncio.wait_for(queue.get(), timeout=2.0)
+    assert event["type"] == "logs"
+    assert "line with real run id" in event["data"]
+    assert event["run_id"] == "run_real_999"
+
+    broadcaster.unsubscribe(wildcard_key, queue)
