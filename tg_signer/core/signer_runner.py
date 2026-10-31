@@ -270,9 +270,12 @@ class SignerRunnerMixin:
         override_engine = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
         if override_engine in {"classic", "v3"}:
             logger.critical("[EMERGENCY_OVERRIDE] 触发紧急回滚 Classic 引擎运行")
+            self.log(
+                "[EMERGENCY_OVERRIDE] 触发紧急回滚 Classic 引擎运行", level="CRITICAL"
+            )
             return await self._run_classic_chat(chat)
 
-        from tg_signer.core.flow_routing import ENGINE_V4, resolve_execution_engine
+        from tg_signer.core.flow_routing import resolve_execution_engine
 
         task_engine = getattr(getattr(self, "config", None), "execution_engine", None)
         global_engine = getattr(self, "execution_engine", None)
@@ -282,13 +285,7 @@ class SignerRunnerMixin:
             global_engine=global_engine,
         )
         self.log(f"当前任务使用执行引擎: {engine_display} (来源: {engine_source})")
-        if engine_code == ENGINE_V4:
-            flow_ok = await self._run_pulseflow_chat(chat, engine_source=engine_source)
-            if flow_ok or not getattr(
-                self.context, "pulseflow_fallback_occurred", False
-            ):
-                return flow_ok
-        return await self._run_classic_chat(chat)
+        return await self._run_pulseflow_chat(chat, engine_source=engine_source)
 
     async def _run_classic_chat(self, chat: SignChatV3):
         """Classic (v3) 紧急回退执行逻辑。"""
@@ -1283,11 +1280,6 @@ class SignerRunnerMixin:
         from tg_signer.core.flow_engine import PulseFlowEngine
         from tg_signer.core.flow_models import ExecutionGraph
 
-        auto_fallback_env = os.getenv("PULSEFLOW_AUTO_FALLBACK", "").strip().lower()
-        allow_fallback = auto_fallback_env in {"1", "true", "yes", "on"} or (
-            engine_source == "env" and os.getenv("USE_PULSEFLOW_ENGINE") == "1"
-        )
-
         def _reset_v4_legacy_context() -> None:
             scope_key = chat_scope_key(chat.chat_id, chat.message_thread_id)
             if scope_key in self.context.chat_messages:
@@ -1493,25 +1485,9 @@ class SignerRunnerMixin:
                 self._event_bus = None
 
             if not flow_succeeded:
-                if (
-                    allow_fallback
-                    and not getattr(last_error, "non_retryable", False)
-                    and not getattr(
-                        self.context, "pulseflow_side_effect_started", False
-                    )
-                ):
-                    self.log(
-                        f"⚠️ PulseFlow (v4) 执行未成功 ({last_error})，启动安全兜底机制：自动降级回退至经典引擎执行，确保上线不脱钩",
-                        level="WARNING",
-                    )
-                    self.context.pulseflow_fallback_occurred = True
-                    self.context.pulseflow_fallback_reason = str(last_error)
-                    _reset_v4_legacy_context()
-                    return False
-
                 if getattr(self.context, "pulseflow_side_effect_started", False):
                     self.log(
-                        "PulseFlow 已产生外部副作用，禁止自动回退 Classic，避免重复执行",
+                        "PulseFlow 已产生外部副作用，跳过整流程重试以避免重复执行",
                         level="ERROR",
                     )
                 if last_error is not None:
@@ -1525,7 +1501,7 @@ class SignerRunnerMixin:
                     if isinstance(last_error, FlowLoopLimitExceededError):
                         raise WorkflowLoopExceededError(str(last_error)) from last_error
                     raise last_error
-                    raise RuntimeError(
-                        "PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果"
-                    )
-        return False
+                raise RuntimeError(
+                    "PulseFlow 执行失败（工作流节点执行失败）：没有得到执行结果"
+                )
+        raise ValueError("无法编译任务执行图")

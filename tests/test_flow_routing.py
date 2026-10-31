@@ -16,13 +16,23 @@ from tg_signer.core.flow_routing import (
 
 
 def test_routing_default_fallback():
-    # 没有任何覆盖时，返回 v3, default
+    # 没有任何覆盖时，单轨全面切流默认返回 v4, default
     with patch.dict(os.environ, {}, clear=True):
+        chat = SignChatV3(chat_id=123, actions=[])
+        code, name, source = resolve_execution_engine(chat)
+        assert code == ENGINE_V4
+        assert name == "PulseFlow (v4)"
+        assert source == "default"
+
+
+def test_routing_emergency_override():
+    # 唯一旧引擎入口：显式环境变量 PULSEFLOW_ENGINE_OVERRIDE=classic 触发紧急回滚
+    with patch.dict(os.environ, {"PULSEFLOW_ENGINE_OVERRIDE": "classic"}):
         chat = SignChatV3(chat_id=123, actions=[])
         code, name, source = resolve_execution_engine(chat)
         assert code == ENGINE_V3
         assert name == "Classic (v3)"
-        assert source == "default"
+        assert source == "override"
 
 
 def test_routing_env_override():
@@ -36,12 +46,12 @@ def test_routing_env_override():
 
 
 def test_routing_settings_override_beats_env():
-    # 全局设置优先于环境变量
-    with patch.dict(os.environ, {"USE_PULSEFLOW_ENGINE": "1"}):
+    # 全局设置注入 v4
+    with patch.dict(os.environ, {}, clear=True):
         chat = SignChatV3(chat_id=123, actions=[])
-        code, name, source = resolve_execution_engine(chat, global_engine="v3")
-        assert code == ENGINE_V3
-        assert name == "Classic (v3)"
+        code, name, source = resolve_execution_engine(chat, global_engine="v4")
+        assert code == ENGINE_V4
+        assert name == "PulseFlow (v4)"
         assert source == "settings"
 
 
@@ -56,13 +66,13 @@ def test_routing_task_override_beats_all():
 
 
 def test_routing_task_explicit_v3_override():
-    # 任务显式指定 v3 时，即使全局或环境变量开了 v4，也保持 v3
-    with patch.dict(os.environ, {"USE_PULSEFLOW_ENGINE": "1"}):
+    # 单轨纪律：任务显式指定 v3 时，未设置 PULSEFLOW_ENGINE_OVERRIDE 依然单轨走 v4 default
+    with patch.dict(os.environ, {}, clear=True):
         chat = SignChatV3(chat_id=123, actions=[], execution_engine="v3")
-        code, name, source = resolve_execution_engine(chat, global_engine="v4")
-        assert code == ENGINE_V3
-        assert name == "Classic (v3)"
-        assert source == "task"
+        code, name, source = resolve_execution_engine(chat)
+        assert code == ENGINE_V4
+        assert name == "PulseFlow (v4)"
+        assert source == "default"
 
 
 def test_task_config_build_preserves_execution_engine():
@@ -120,8 +130,8 @@ def test_global_engine_setting_syncs_through_explicit_environment_boundary():
 
         apply_global_settings_to_env({"execution_engine": "v3"})
         code, _, source = resolve_execution_engine(None)
-        assert code == ENGINE_V3
-        assert source == "settings"
+        # 单轨纪律：普通全局设置 v3 不再分流旧引擎，保持单轨 v4
+        assert code == ENGINE_V4
 
 
 def test_missing_global_engine_setting_preserves_cli_environment_override():
@@ -203,24 +213,24 @@ def test_routing_canary_traffic_splitting():
         assert code == ENGINE_V4
         assert source == "canary"
 
-    # 3. 0% 灰度切流不命中，回退到默认
+    # 3. 0% 灰度切流不命中，回退到单轨默认 v4
     with patch.dict(os.environ, {}, clear=True):
         code, name, source = resolve_execution_engine(chat, canary_percentage=0)
-        assert code == ENGINE_V3
+        assert code == ENGINE_V4
         assert source == "default"
 
-    # 4. 显式 chat/task 级别设定优先于灰度切流
+    # 4. 单轨纪律下普通 chat_v3 不分流，依然单轨走 v4
     chat_v3 = SignChatV3(chat_id=99999, execution_engine="v3", actions=[])
     code_override, _, source_override = resolve_execution_engine(
         chat_v3, canary_percentage=100
     )
-    assert code_override == ENGINE_V3
-    assert source_override == "task"
+    assert code_override == ENGINE_V4
+    assert source_override == "canary"
 
 
 def test_routing_canary_without_target_skips_splitting():
     """缺少分流目标时不参与灰度，避免用占位键得到稳定但无意义的分桶结果。"""
     with patch.dict(os.environ, {}, clear=True):
         code, _, source = resolve_execution_engine(None, canary_percentage=100)
-        assert code == ENGINE_V3
+        assert code == ENGINE_V4
         assert source == "default"

@@ -172,17 +172,6 @@ def _chat_requires_flow_engine(c: Any) -> bool:
     return False
 
 
-def _chat_has_steps(c: Any) -> bool:
-    """检测会话是否配置了工作流步骤 steps。"""
-    if c is None:
-        return False
-    if isinstance(c, dict):
-        steps = c.get("steps")
-        return bool(steps)
-    steps = getattr(c, "steps", None)
-    return bool(steps)
-
-
 def resolve_execution_engine(
     chat: Optional[Union[SignChatV3, Dict[str, Any]]] = None,
     task_engine: Optional[str] = None,
@@ -197,17 +186,16 @@ def resolve_execution_engine(
          - 否则：自动提升路由为 'v4' (PulseFlow)。
     0.5. 紧急环境强控过渡窗口覆盖 (Transition Window Emergency Override):
        - PULSEFLOW_ENGINE_OVERRIDE=v3 或 v4 (来源: 'override')
-    1. 任务/目标级覆盖 (Task/Chat Override):
-       - chat.execution_engine 为 'v4' 或 'v3' (来源: 'task')
-       - task_engine 为 'v4' 或 'v3' (来源: 'task')
-    2. 系统全局配置 (Global Settings): 由调用边界显式传入 global_engine (来源: 'settings')
+    1. 任务/目标级显式指定 v4 (Task/Chat Override):
+       - chat.execution_engine 为 'v4' (来源: 'task')
+       - task_engine 为 'v4' (来源: 'task')
+    2. 系统全局配置 (Global Settings): 由调用边界显式传入 global_engine 为 'v4' (来源: 'settings')
     3. 灰度金丝雀分流 (Canary Traffic Splitting):
        - 若设置 canary_percentage 或环境变量 CANARY_PULSEFLOW_PERCENTAGE (0~100)
        - 依据 chat_id / name 计算稳定哈希分流 (来源: 'canary')
-    4. 环境变量兜底 (Environment Variable): USE_PULSEFLOW_ENGINE=1/true/yes/v4/v3 (来源: 'env'/'settings')
+    4. 环境变量兜底 (Environment Variable): USE_PULSEFLOW_ENGINE=1/true/yes/v4 (来源: 'env'/'settings')
     5. 系统默认 (Default):
-       - 工作流步骤任务 (chat.steps) 默认切流至 'v4' (PulseFlow) (来源: 'default')
-       - 经典动作流任务 (chat.actions) 默认保持 'v3' (来源: 'default')
+       - 单轨全面切流至 'v4' (PulseFlow) (来源: 'default')
 
     Returns:
         EngineResolutionResult(engine_code, engine_display_name, source)
@@ -225,12 +213,6 @@ def resolve_execution_engine(
         requires_flow = any(_chat_requires_flow_engine(c) for c in task_cfg_chats)
     elif target_chat is not None:
         requires_flow = _chat_requires_flow_engine(target_chat)
-
-    has_steps = False
-    if task_cfg_chats is not None:
-        has_steps = any(_chat_has_steps(c) for c in task_cfg_chats)
-    elif target_chat is not None:
-        has_steps = _chat_has_steps(target_chat)
 
     raw_env_override = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
     if raw_env_override in {"classic", "v3", ENGINE_V3}:
@@ -295,39 +277,36 @@ def resolve_execution_engine(
             "override",
         )
 
-    # 1a. 单目标 Chat 级显式指定
+    # 1a. 单目标 Chat 级显式指定 v4
     if target_chat is not None:
         raw_chat_engine = getattr(target_chat, "execution_engine", None)
         if raw_chat_engine is None and isinstance(target_chat, dict):
             raw_chat_engine = target_chat.get("execution_engine")
-        if raw_chat_engine is not None:
-            engine_norm = str(raw_chat_engine).strip().lower()
-            if engine_norm in {ENGINE_V4, ENGINE_V3}:
-                return EngineResolutionResult(
-                    engine_norm,
-                    ENGINE_DISPLAY_NAMES[engine_norm],
-                    "task",
-                )
-
-    # 1b. 单任务 Task 级显式指定
-    if task_engine is not None:
-        engine_norm = str(task_engine).strip().lower()
-        if engine_norm in {ENGINE_V4, ENGINE_V3}:
+        if (
+            raw_chat_engine is not None
+            and str(raw_chat_engine).strip().lower() == ENGINE_V4
+        ):
             return EngineResolutionResult(
-                engine_norm,
-                ENGINE_DISPLAY_NAMES[engine_norm],
+                ENGINE_V4,
+                ENGINE_DISPLAY_NAMES[ENGINE_V4],
                 "task",
             )
 
-    # 2. 系统全局配置由 backend/CLI 边界显式注入，core 不反向依赖 backend。
-    if global_engine is not None:
-        engine_norm = str(global_engine).strip().lower()
-        if engine_norm in {ENGINE_V4, ENGINE_V3}:
-            return EngineResolutionResult(
-                engine_norm,
-                ENGINE_DISPLAY_NAMES[engine_norm],
-                "settings",
-            )
+    # 1b. 单任务 Task 级显式指定 v4
+    if task_engine is not None and str(task_engine).strip().lower() == ENGINE_V4:
+        return EngineResolutionResult(
+            ENGINE_V4,
+            ENGINE_DISPLAY_NAMES[ENGINE_V4],
+            "task",
+        )
+
+    # 2. 系统全局配置由 backend/CLI 边界显式注入 v4
+    if global_engine is not None and str(global_engine).strip().lower() == ENGINE_V4:
+        return EngineResolutionResult(
+            ENGINE_V4,
+            ENGINE_DISPLAY_NAMES[ENGINE_V4],
+            "settings",
+        )
 
     # 3. 灰度金丝雀分流 (Canary Traffic Splitting)
     pct = canary_percentage
@@ -359,10 +338,6 @@ def resolve_execution_engine(
     env_raw = os.getenv("USE_PULSEFLOW_ENGINE", "").strip().lower()
     env_source = os.getenv("PULSEFLOW_ENGINE_SOURCE", "env").strip().lower()
     source = env_source if env_source in {"env", "settings"} else "env"
-    if env_raw == ENGINE_V3:
-        return EngineResolutionResult(
-            ENGINE_V3, ENGINE_DISPLAY_NAMES[ENGINE_V3], source
-        )
     if (
         env_raw in {"1", "true", "yes", "on", "v4"}
         or read_positive_int_env("USE_PULSEFLOW_ENGINE", 0, 0) == 1
@@ -373,16 +348,9 @@ def resolve_execution_engine(
             source,
         )
 
-    # 5. 系统默认：工作流 steps 默认切流至 PulseFlow (v4)，actions 默认保持 Classic (v3)
-    if has_steps:
-        return EngineResolutionResult(
-            ENGINE_V4,
-            ENGINE_DISPLAY_NAMES[ENGINE_V4],
-            "default",
-        )
-
+    # 5. 系统默认：全面单轨切流至 PulseFlow (v4)
     return EngineResolutionResult(
-        ENGINE_V3,
-        ENGINE_DISPLAY_NAMES[ENGINE_V3],
+        ENGINE_V4,
+        ENGINE_DISPLAY_NAMES[ENGINE_V4],
         "default",
     )

@@ -138,8 +138,8 @@ async def test_user_signer_pulseflow_clears_stale_legacy_context():
 
 
 @pytest.mark.asyncio
-async def test_user_signer_pulseflow_auto_fallback_on_engine_error():
-    """上线不脱钩保障：当系统全局/金丝雀切流命中 v4 时，若引擎异常，自动安全降级至经典引擎继续执行"""
+async def test_user_signer_pulseflow_failure_does_not_call_classic_chat():
+    """单轨纪律保障：当 PULSEFLOW_ENGINE_OVERRIDE 未设置时，PulseFlow 失败直接抛出异常，绝不静默回退 _run_classic_chat"""
     signer = UserSigner.__new__(UserSigner)
     signer._account = "test_acc"
     signer.app = MagicMock()
@@ -147,34 +147,51 @@ async def test_user_signer_pulseflow_auto_fallback_on_engine_error():
     signer.context = MagicMock()
     signer.context.chat_messages = {}
     signer.log = MagicMock()
+    signer._run_classic_chat = AsyncMock(return_value=True)
 
-    # 模拟 v4 尝试时 wait_for 失败，但后续降级到经典流程时 wait_for 成功
-    call_counts = 0
-
-    async def dynamic_wait_for(chat, action, next_action=None):
-        nonlocal call_counts
-        call_counts += 1
-        # 第一次在 v4 运行失败触发异常，降级到 actions 经典引擎重跑时成功
-        if call_counts == 1:
-            return False
-        return True
-
-    signer.wait_for = dynamic_wait_for
+    # 模拟 wait_for 失败
+    signer.wait_for = AsyncMock(return_value=False)
 
     chat = SignChatV3(
         chat_id=88888,
         actions=[SendTextAction(text="/ping")],
-        # 未显式指定 execution_engine，由环境变量全局切流
     )
 
-    with patch.dict("os.environ", {"USE_PULSEFLOW_ENGINE": "1"}):
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(RuntimeError) as exc_info:
+            await signer.sign_a_chat(chat)
+        assert "PulseFlow 执行失败" in str(exc_info.value)
+        # 断言 _run_classic_chat 未被调用
+        signer._run_classic_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pulseflow_emergency_override_calls_classic_chat():
+    """唯一旧引擎入口：显式 PULSEFLOW_ENGINE_OVERRIDE=classic 时，触发紧急回滚并记录 CRITICAL 审计日志"""
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = MagicMock()
+    signer.context.chat_messages = {}
+    signer.log = MagicMock()
+    signer._run_classic_chat = AsyncMock(return_value=True)
+    signer._run_pulseflow_chat = AsyncMock(return_value=True)
+
+    chat = SignChatV3(
+        chat_id=88888,
+        actions=[SendTextAction(text="/ping")],
+    )
+
+    with patch.dict("os.environ", {"PULSEFLOW_ENGINE_OVERRIDE": "classic"}):
         result = await signer.sign_a_chat(chat)
-        assert result is True or result is None
-        # 验证产生了降级警告日志
-        log_msgs = [call[0][0] for call in signer.log.call_args_list]
-        assert any("启动安全兜底机制" in m and "降级" in m for m in log_msgs)
-        # 验证 context 中记录了降级发生
-        assert getattr(signer.context, "pulseflow_fallback_occurred", False) is True
+        assert result is True
+        signer._run_classic_chat.assert_awaited_once_with(chat)
+        signer._run_pulseflow_chat.assert_not_called()
+        assert any(
+            "[EMERGENCY_OVERRIDE]" in c[0][0] and c[1].get("level") == "CRITICAL"
+            for c in signer.log.call_args_list
+        )
 
 
 @pytest.mark.asyncio
@@ -440,7 +457,7 @@ async def test_user_signer_workflow_steps_explicit_v3_override_and_env_override(
         res = await signer.sign_a_chat(chat_v3)
         assert res is True or res is None
         log_msgs = [call[0][0] for call in signer.log.call_args_list]
-        assert not any("PulseFlow (v4)" in m for m in log_msgs)
+        assert any("PulseFlow (v4)" in m for m in log_msgs)
         assert signer.context.workflow_path == ["step1"]
 
     # 2. 环境变量 PULSEFLOW_ENGINE_OVERRIDE=v3 强控
@@ -527,6 +544,4 @@ async def test_user_signer_side_effect_barrier_blocks_fallback_and_retry():
     # 验证：严禁回退 Classic 经典引擎执行
     assert getattr(signer.context, "pulseflow_fallback_occurred", False) is False
     log_msgs = [call[0][0] for call in signer.log.call_args_list]
-    assert any(
-        "已产生外部副作用" in m and "禁止自动回退 Classic" in m for m in log_msgs
-    )
+    assert any("已产生外部副作用" in m for m in log_msgs)
