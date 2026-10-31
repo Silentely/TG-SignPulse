@@ -474,7 +474,7 @@ class TelegramNodeExecutor:
                     exc = retry_exc
             else:
                 is_transient_fn = getattr(self.runner, "_is_transient_step_error", None)
-                if callable(is_transient_fn) and is_transient_fn(exc):
+                if callable(is_transient_fn) and is_transient_fn(exc) is True:
                     from tg_signer.log_utils import safe_text_preview
 
                     step_label = (
