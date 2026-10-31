@@ -9,10 +9,15 @@ import pytest
 
 from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import (
+    PluginConnectionResetError,
     PluginContext,
     PluginExecutionIdentity,
+    PluginFloodWaitError,
+    PluginMessageNotFoundError,
+    PluginNotSupportedError,
     PluginPermissionDeniedError,
     PluginRegistry,
+    PluginTimeoutError,
 )
 
 
@@ -62,6 +67,61 @@ def _register_worker_fixtures() -> None:
     )
     async def handle_read_chat_history(ctx: PluginContext) -> bool:
         return await ctx.read_chat_history(max_id=0)
+
+    PluginRegistry._plugins.pop("real_ipc_flood_wait", None)
+
+    @PluginRegistry.register(
+        name="real_ipc_flood_wait",
+        mode="active",
+        context_version=2,
+        plugin_api="2.0",
+    )
+    async def handle_flood_wait(ctx: PluginContext) -> bool:
+        raise PluginFloodWaitError(42)
+
+    PluginRegistry._plugins.pop("real_ipc_not_supported", None)
+
+    @PluginRegistry.register(
+        name="real_ipc_not_supported",
+        mode="active",
+        context_version=2,
+        plugin_api="2.0",
+    )
+    async def handle_not_supported(ctx: PluginContext) -> bool:
+        raise PluginNotSupportedError("Action not supported on channel")
+
+    PluginRegistry._plugins.pop("real_ipc_message_not_found", None)
+
+    @PluginRegistry.register(
+        name="real_ipc_message_not_found",
+        mode="active",
+        context_version=2,
+        plugin_api="2.0",
+    )
+    async def handle_message_not_found(ctx: PluginContext) -> bool:
+        raise PluginMessageNotFoundError("Target message 999 deleted")
+
+    PluginRegistry._plugins.pop("real_ipc_timeout_err", None)
+
+    @PluginRegistry.register(
+        name="real_ipc_timeout_err",
+        mode="active",
+        context_version=2,
+        plugin_api="2.0",
+    )
+    async def handle_timeout_err(ctx: PluginContext) -> bool:
+        raise PluginTimeoutError("Operation timed out after 15s")
+
+    PluginRegistry._plugins.pop("real_ipc_disconnected_err", None)
+
+    @PluginRegistry.register(
+        name="real_ipc_disconnected_err",
+        mode="active",
+        context_version=2,
+        plugin_api="2.0",
+    )
+    async def handle_disconnected_err(ctx: PluginContext) -> bool:
+        raise PluginConnectionResetError("Worker IPC pipe terminated")
 
 
 _register_worker_fixtures()
@@ -127,15 +187,11 @@ async def test_real_subprocess_rpc_permission_denied_raises_typed_error():
         timeout=10.0,
     )
 
-    with pytest.raises((RuntimeError, PluginPermissionDeniedError)) as exc_info:
+    with pytest.raises(PluginPermissionDeniedError) as exc_info:
         await host.execute()
 
-    err_text = str(exc_info.value)
-    assert (
-        "PluginPermissionDeniedError" in err_text
-        or "PLUGIN_CAPABILITY_DENIED" in err_text
-    )
-    assert "message_write" in err_text or "PLUGIN_CAPABILITY_DENIED" in err_text
+    assert isinstance(exc_info.value, PluginPermissionDeniedError)
+    assert "PLUGIN_CAPABILITY_DENIED" in str(exc_info.value)
     mock_app.send_chat_action.assert_not_called()
 
 
@@ -207,3 +263,50 @@ async def test_real_subprocess_community_plugin_dice_roller():
     assert call_args[0] == 12345
     assert "骰子掷出了" in call_args[1]
     assert call_kwargs.get("reply_to_message_id") == 888
+
+
+@pytest.mark.asyncio
+async def test_real_subprocess_worker_reconstructs_typed_exceptions():
+    """Verify all 5 other typed exceptions from subprocess worker are reconstructed as typed instances on host."""
+    cases = [
+        ("real_ipc_flood_wait", PluginFloodWaitError, lambda exc: exc.seconds == 42),
+        (
+            "real_ipc_not_supported",
+            PluginNotSupportedError,
+            lambda exc: "Action not supported" in str(exc),
+        ),
+        (
+            "real_ipc_message_not_found",
+            PluginMessageNotFoundError,
+            lambda exc: "Target message 999 deleted" in str(exc),
+        ),
+        (
+            "real_ipc_timeout_err",
+            PluginTimeoutError,
+            lambda exc: "timed out" in str(exc),
+        ),
+        (
+            "real_ipc_disconnected_err",
+            PluginConnectionResetError,
+            lambda exc: "terminated" in str(exc),
+        ),
+    ]
+
+    for plugin_name, expected_cls, check_fn in cases:
+        ctx = PluginContext(
+            app=MagicMock(),
+            chat_id=12345,
+            plugin_name=plugin_name,
+            identity=_make_identity(12345),
+            context_version=2,
+            logger=MagicMock(spec=["log"]),
+        )
+        host = PluginProcessHost(plugin_name=plugin_name, ctx=ctx, timeout=5.0)
+        with pytest.raises(expected_cls) as exc_info:
+            await host.execute()
+        assert isinstance(exc_info.value, expected_cls), (
+            f"Expected {expected_cls}, got {type(exc_info.value)}"
+        )
+        assert check_fn(exc_info.value), (
+            f"Check failed for {plugin_name}: {exc_info.value}"
+        )

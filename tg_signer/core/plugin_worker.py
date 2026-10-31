@@ -683,9 +683,45 @@ async def run_worker_loop(
         send_payload_sync(
             {"type": "return", "success": False, "error": f"{hint}\n\n{exc_str}"}
         )
-    except Exception:
+    except Exception as exc:
         exc_str = traceback.format_exc()
-        send_payload_sync({"type": "return", "success": False, "error": exc_str})
+        error_type = type(exc).__name__
+        error_code = None
+        error_message = str(exc)
+        seconds = getattr(exc, "seconds", None)
+
+        if isinstance(exc, PluginPermissionDeniedError):
+            error_code = "permission_denied"
+        elif isinstance(exc, PluginFloodWaitError):
+            error_code = "flood_wait"
+            if seconds is None:
+                try:
+                    seconds = int(error_message)
+                except (ValueError, TypeError):
+                    seconds = 0
+        elif isinstance(exc, PluginNotSupportedError):
+            error_code = "unsupported"
+        elif isinstance(exc, PluginMessageNotFoundError):
+            error_code = "message_not_found"
+        elif isinstance(exc, PluginTimeoutError):
+            error_code = "timeout"
+        elif isinstance(
+            exc, (PluginConnectionResetError, ConnectionResetError, BrokenPipeError)
+        ):
+            error_code = "ipc_disconnected"
+
+        resp = {
+            "type": "return",
+            "success": False,
+            "error": exc_str,
+            "error_type": error_type,
+            "error_message": error_message,
+        }
+        if error_code:
+            resp["error_code"] = error_code
+        if seconds is not None:
+            resp["seconds"] = seconds
+        send_payload_sync(resp)
     finally:
         await asyncio.sleep(0)
         await flush_writer()

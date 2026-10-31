@@ -19,11 +19,14 @@ from tg_signer.core.plugin_ipc import (
     serialize_plugin_identity,
 )
 from tg_signer.core.plugins import (
+    PluginConnectionResetError,
     PluginContext,
+    PluginFloodWaitError,
     PluginMessageNotFoundError,
     PluginNotSupportedError,
     PluginPermissionDeniedError,
     PluginRegistry,
+    PluginTimeoutError,
     is_whitelisted_legacy_plugin,
     normalize_permissions,
     resolve_plugin_params,
@@ -722,11 +725,59 @@ class PluginProcessHost:
                                         result_future.set_exception(exc)
                             else:
                                 if not result_future.done():
-                                    result_future.set_exception(
-                                        RuntimeError(
-                                            payload.get("error", "Unknown worker error")
+                                    err_code = payload.get("error_code")
+                                    err_type = payload.get("error_type")
+                                    err_msg = payload.get(
+                                        "error_message"
+                                    ) or payload.get("error", "Unknown worker error")
+                                    exc_to_raise: Exception
+                                    if (
+                                        err_code == "permission_denied"
+                                        or err_type == "PluginPermissionDeniedError"
+                                    ):
+                                        exc_to_raise = PluginPermissionDeniedError(
+                                            err_msg
                                         )
-                                    )
+                                    elif (
+                                        err_code == "flood_wait"
+                                        or err_type == "PluginFloodWaitError"
+                                    ):
+                                        secs = payload.get("seconds", 0)
+                                        if not secs:
+                                            try:
+                                                secs = int(err_msg)
+                                            except (ValueError, TypeError):
+                                                secs = 0
+                                        exc_to_raise = PluginFloodWaitError(secs)
+                                    elif (
+                                        err_code == "unsupported"
+                                        or err_type == "PluginNotSupportedError"
+                                    ):
+                                        exc_to_raise = PluginNotSupportedError(err_msg)
+                                    elif (
+                                        err_code == "message_not_found"
+                                        or err_type == "PluginMessageNotFoundError"
+                                    ):
+                                        exc_to_raise = PluginMessageNotFoundError(
+                                            err_msg
+                                        )
+                                    elif (
+                                        err_code == "timeout"
+                                        or err_type == "PluginTimeoutError"
+                                    ):
+                                        exc_to_raise = PluginTimeoutError(err_msg)
+                                    elif (
+                                        err_code == "ipc_disconnected"
+                                        or err_type == "PluginConnectionResetError"
+                                    ):
+                                        exc_to_raise = PluginConnectionResetError(
+                                            err_msg
+                                        )
+                                    else:
+                                        exc_to_raise = RuntimeError(
+                                            payload.get("error", err_msg)
+                                        )
+                                    result_future.set_exception(exc_to_raise)
                         elif msg_type == "call_cancel":
                             cancel_id = payload.get("id")
                             if cancel_id in active_rpc_tasks:
