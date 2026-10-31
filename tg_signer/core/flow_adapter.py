@@ -474,45 +474,57 @@ class TelegramNodeExecutor:
                     exc = retry_exc
             else:
                 is_transient_fn = getattr(self.runner, "_is_transient_step_error", None)
+                runner_ctx = self.compat.runner_context
+                has_side_effect = (
+                    getattr(runner_ctx, "pulseflow_side_effect_started", False) is True
+                    or getattr(self.runner, "pulseflow_side_effect_started", False)
+                    is True
+                )
                 if callable(is_transient_fn) and is_transient_fn(exc) is True:
-                    from tg_signer.log_utils import safe_text_preview
+                    if has_side_effect:
+                        self._log(
+                            f"步骤 [{node.id}] 发生瞬时错误，但检测到已产生外部发送副作用（pulseflow_side_effect_started=True），为避免重复发送拒绝重新重发动作: {exc}",
+                            level="WARNING",
+                        )
+                    else:
+                        from tg_signer.log_utils import safe_text_preview
 
-                    step_label = (
-                        self.runner._current_action_step_label()
-                        if hasattr(self.runner, "_current_action_step_label")
-                        else f"步骤 [{node.id}]"
-                    )
-                    self._log(
-                        f"{step_label}瞬时错误，1/2 次重试: "
-                        f"{type(exc).__name__}: {safe_text_preview(exc, 120)}",
-                        level="WARNING",
-                    )
-                    await asyncio.sleep(1.0)
-                    try:
-                        res = await self._runner_wait_for(
-                            self.chat,
-                            exec_action,
-                            step_timeout=step_timeout,
-                            next_action=next_action,
+                        step_label = (
+                            self.runner._current_action_step_label()
+                            if hasattr(self.runner, "_current_action_step_label")
+                            else f"步骤 [{node.id}]"
                         )
-                        if res is not False:
-                            self.compat.mark_side_effect_started()
-                        matched_term = self.compat.consume_stop_signal()
-                        output_text = self.compat.output_text(
-                            res=res, action=exec_action
+                        self._log(
+                            f"{step_label}瞬时错误，1/2 次重试: "
+                            f"{type(exc).__name__}: {safe_text_preview(exc, 120)}",
+                            level="WARNING",
                         )
-                        if res is not False:
-                            self._log(
-                                f"步骤 [{node.id}] 执行完成（成功）", level="INFO"
+                        await asyncio.sleep(1.0)
+                        try:
+                            res = await self._runner_wait_for(
+                                self.chat,
+                                exec_action,
+                                step_timeout=step_timeout,
+                                next_action=next_action,
                             )
-                            return StepOutcome(
-                                node_id=node.id,
-                                status=NodeStatus.SUCCESS,
-                                matched_terminal=matched_term,
-                                output_text=output_text,
+                            if res is not False:
+                                self.compat.mark_side_effect_started()
+                            matched_term = self.compat.consume_stop_signal()
+                            output_text = self.compat.output_text(
+                                res=res, action=exec_action
                             )
-                    except Exception as retry_exc:
-                        exc = retry_exc
+                            if res is not False:
+                                self._log(
+                                    f"步骤 [{node.id}] 执行完成（成功）", level="INFO"
+                                )
+                                return StepOutcome(
+                                    node_id=node.id,
+                                    status=NodeStatus.SUCCESS,
+                                    matched_terminal=matched_term,
+                                    output_text=output_text,
+                                )
+                        except Exception as retry_exc:
+                            exc = retry_exc
 
             self._log(f"步骤 {node.id} 执行抛出异常: {exc}", level="ERROR")
             if cont_on_error:
