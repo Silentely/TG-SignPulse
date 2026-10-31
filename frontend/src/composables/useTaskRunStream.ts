@@ -352,6 +352,9 @@ export function useTaskRunStream(options: {
           realtimeLogs.value = []
           seenRunSeqs.clear()
         }
+        if (msgRunId) {
+          lastRunId = msgRunId
+        }
         if (typeof msg.seq === 'number') {
           const dedupKey = `${msgRunId || ''}:${msg.seq}`
           if (seenRunSeqs.has(dedupKey)) {

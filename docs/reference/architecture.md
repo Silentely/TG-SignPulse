@@ -123,7 +123,7 @@ AI 请求汇聚在 `tg_signer/ai_tools.py` 的 `_create_visual_completion`：
 
 执行体系已全面切流至 **PulseFlow (v4)** 引擎单轨运行，具备以下核心架构契约：
 
-- **单轨执行与拓扑编译**：签到任务与工作流统一通过 `ExecutionGraph.compile()` 编译为确定性 DAG 拓扑并由 `PulseFlowEngine` 执行。配置支持保留紧急回滚闸门 `PULSEFLOW_ENGINE_OVERRIDE=classic`，可在特殊运维场景下一键回滚经典分支并记录 Critical 级别告警。
+- **单轨执行与拓扑编译**：签到任务与工作流统一通过 `ExecutionGraph.compile()` 编译为确定性 DAG 拓扑并由 `PulseFlowEngine` 执行。配置支持保留紧急回滚闸门 `PULSEFLOW_ENGINE_OVERRIDE=classic`，可在特殊运维场景下一键回滚经典分支并记录 Critical 级别告警（注：若任务配置为 `flow_graph` 图结构，经典引擎因不支持图结构将显式抛出异常拒绝，指引移除回滚开关以恢复 PulseFlow 执行）。
 - **FlowResult 唯一契约与结构化捕获**：`PulseFlowEngine.run()` 返回统一的 `FlowResult`（继承自 `MutableMapping`，100% 字典兼容器），严格承载执行轨迹与四字段提取结果。Telegram 进站事件统一采集为 `TargetMessage` 结构化对象（支持多目标、频道话题 thread_id、媒体类型及采集来源），彻底解耦自由格式字典。
 - **日志多任务隔离与无归属拦截**：内部日志流基于 `(account, task, run_id)` 三元组结合 `ContextVar` 实现多线程与异步任务间严格隔离；对外 REST 与 WebSocket 接口维持 `(account, task)` 二元组平滑向下兼容。未关联特定执行上下文的底层系统日志（无归属日志）被确定性拦截丢弃，杜绝跨任务串台污染。
 - **插件全领域解耦**：`backend/api/routes/plugins.py` 完成全面轻量化，所有 37 个 API 领域操作下沉至 `backend/services/plugins.py` 中的 `PluginService`，实现进程生命周期、热重载原子文件锁、市场下载与动态沙箱调用的领域驱动设计。

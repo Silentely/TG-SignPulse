@@ -76,6 +76,7 @@ environment:
 | `SIGN_TASK_LAST_TARGET_HISTORY_LIMIT` | `8` | 回填 last_target 时拉取聊天历史条数 |
 | `SIGN_TASK_HISTORY_LOOKBACK` | `12` | 执行中查找按钮/回退处理时拉取的最近消息条数 |
 | `SIGN_TASK_POST_SEND_TERMINAL_TIMEOUT` | `3` | 发送文本/骰子后等待 bot「已签到/签到成功」的秒数；`0` 关闭 |
+| `PULSEFLOW_ENGINE_OVERRIDE` | （空=PulseFlow v4） | 紧急回退开关。设为 `classic` 或 `v3` 触发紧急回滚 Classic 引擎运行并记录 Critical 级别告警；若任务为 `flow_graph` 图结构任务则显式拒绝抛错 |
 
 > 说明：已移除「签到前扫历史今日终态即跳过」。手动/定时均直接执行动作流；若 bot 在执行过程中返回「已签到 / 签到成功」等，再停止后续步骤。定时是否当日应跑仍由本地 `sign_record`（`get_now()` / `TZ`·`APP_TIMEZONE`，默认香港时区）控制。
 
