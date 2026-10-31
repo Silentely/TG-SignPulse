@@ -559,14 +559,23 @@ async def test_12_legacy_action_without_reply_confirmation():
 
 
 @pytest.mark.asyncio
-async def test_13_classic_v3_regression_and_routing():
-    """TEST 13: 普通 actions 任务默认保持 v3 / 开启 wait_for_reply 自动升级"""
+async def test_13_classic_v3_regression_and_routing(monkeypatch):
+    """TEST 13: 普通 actions 任务单轨走 v4，显式 PULSEFLOW_ENGINE_OVERRIDE=classic 降级走 v3"""
     from tg_signer.core.flow_routing import resolve_execution_engine
 
-    # 未开启 wait_for_reply
+    # 默认单轨收敛走 v4
+    chat_default = SignChatV3(
+        chat_id=123, actions=[SendTextAction(action=1, text="/hello")]
+    )
+    res_default = resolve_execution_engine(chat_default)
+    assert res_default.engine_code == "v4"
+
+    # 显式 override 走 v3
+    monkeypatch.setenv("PULSEFLOW_ENGINE_OVERRIDE", "classic")
     chat_v3 = SignChatV3(chat_id=123, actions=[SendTextAction(action=1, text="/hello")])
     res_v3 = resolve_execution_engine(chat_v3)
     assert res_v3.engine_code == "v3"
+    monkeypatch.delenv("PULSEFLOW_ENGINE_OVERRIDE", raising=False)
 
     # 开启 wait_for_reply
     chat_v4 = SignChatV3(

@@ -386,7 +386,10 @@ async def test_pulseflow_failure_keeps_topic_received_text_scoped(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("engine", ["classic", "workflow"])
-async def test_legacy_threaded_flow_reads_and_writes_only_its_topic(engine):
+async def test_legacy_threaded_flow_reads_and_writes_only_its_topic(
+    monkeypatch, engine
+):
+    monkeypatch.setenv("PULSEFLOW_ENGINE_OVERRIDE", "classic")
     signer = UserSigner.__new__(UserSigner)
     signer._account = "account"
     signer.app = SimpleNamespace(get_chat=AsyncMock())
