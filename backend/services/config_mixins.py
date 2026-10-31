@@ -188,11 +188,11 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     if "execution_engine" in normalized:
         raw_eng = normalized["execution_engine"]
         if raw_eng is None or str(raw_eng).strip() == "":
-            normalized["execution_engine"] = "v3"
+            normalized["execution_engine"] = "v4"
         else:
             val_eng = str(raw_eng).strip().lower()
             normalized["execution_engine"] = (
-                val_eng if val_eng in {"v4", "v3"} else "v3"
+                val_eng if val_eng in {"v4", "v3"} else "v4"
             )
 
     if "webdav_skip_ssl_verify" in normalized:

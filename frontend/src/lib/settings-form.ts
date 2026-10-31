@@ -112,7 +112,7 @@ export function buildGeneralPayload(s: SettingsFormState): {
     device_keepalive_enabled: s.deviceKeepaliveEnabled,
     device_keepalive_interval_days: clampNumber(s.deviceKeepaliveIntervalDays, 1, 170) ?? 30,
     timezone: s.timezone,
-    execution_engine: s.executionEngine || 'v3',
+    execution_engine: s.executionEngine || 'v4',
   }
 }
 
@@ -191,7 +191,7 @@ export function snapSection(
         deviceKeepaliveEnabled: s.deviceKeepaliveEnabled,
         deviceKeepaliveIntervalDays: s.deviceKeepaliveIntervalDays,
         timezone: s.timezone,
-        executionEngine: s.executionEngine || 'v3',
+        executionEngine: s.executionEngine || 'v4',
       })
     case 'bot':
       return JSON.stringify({
@@ -349,7 +349,7 @@ export function applyGlobalSettingsToForm(
   s.botTaskSuccess = res.telegram_bot_task_success_enabled || false
   s.quietEnabled = res.telegram_bot_quiet_hours_enabled || false
   s.quietStart = res.telegram_bot_quiet_hours_start || '23:00'
-  s.executionEngine = res.execution_engine || 'v3'
+  s.executionEngine = res.execution_engine || 'v4'
   s.quietEnd = res.telegram_bot_quiet_hours_end || '07:00'
   s.botToken = ''
   s.botChatId = res.telegram_bot_chat_id || ''

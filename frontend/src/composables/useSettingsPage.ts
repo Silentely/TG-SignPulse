@@ -80,7 +80,7 @@ export function useSettingsPage() {
     webdavSkipSslVerify: false,
     webdavAllowPrivate: false,
     backupTarget: 'auto',
-    executionEngine: 'v3',
+    executionEngine: 'v4',
   })
 
   // 时区选项列表

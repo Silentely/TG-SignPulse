@@ -1059,8 +1059,8 @@ class RuntimeStatusResponse(BaseModel):
     monitor_shard: str = ""
     monitor_allowlist: str = ""
     uptime_seconds: int = 0
-    execution_engine: str = "v3"
-    execution_engine_name: str = "Classic (v3)"
+    execution_engine: str = "v4"
+    execution_engine_name: str = "PulseFlow (v4)"
     execution_engine_source: str = "default"
 
 
