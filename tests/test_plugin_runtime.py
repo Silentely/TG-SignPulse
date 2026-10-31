@@ -32,6 +32,9 @@ def _register_worker_fixtures():
     @PluginRegistry.register(
         name="test_calc_plugin",
         mode="reactive",
+        context_version=2,
+        plugin_api="2.0",
+        min_app_version="1.0.0",
     )
     def calc_handler(ctx: PluginContext):
         x = ctx.get_param("x", 10, int)
@@ -44,6 +47,9 @@ def _register_worker_fixtures():
     @PluginRegistry.register(
         name="test_hang_plugin",
         mode="reactive",
+        context_version=2,
+        plugin_api="2.0",
+        min_app_version="1.0.0",
     )
     def hang_handler(ctx: PluginContext):
 

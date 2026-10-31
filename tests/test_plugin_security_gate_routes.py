@@ -86,7 +86,7 @@ def test_route_put_source_blocks_malicious_code(api_client, tmp_path, monkeypatc
     plugin_file = custom_dir / "demo_plugin.py"
     safe_code = (
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('demo_plugin', mode='reactive')\n"
+        "@PluginRegistry.register('demo_plugin', mode='reactive', context_version=2, plugin_api='2.0', min_app_version='1.0.0')\n"
         "def demo_handler(ctx):\n"
         "    return True\n"
     )

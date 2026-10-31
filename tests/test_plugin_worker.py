@@ -17,7 +17,7 @@ def test_import_single_plugin_source_file(tmp_path):
     pfile = tmp_path / "custom_sample.py"
     pfile.write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        '@PluginRegistry.register(name="tmp_sample_worker_file", mode="active")\n'
+        '@PluginRegistry.register(name="tmp_sample_worker_file", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         "def handle(ctx): return 42\n"
     )
     meta = import_single_plugin_source(str(pfile), "tmp_sample_worker_file")
@@ -31,7 +31,7 @@ def test_import_single_plugin_source_dir(tmp_path):
     pdir.mkdir()
     (pdir / "main.py").write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        '@PluginRegistry.register(name="tmp_sample_worker_dir", mode="active")\n'
+        '@PluginRegistry.register(name="tmp_sample_worker_dir", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         "def handle(ctx): return 99\n"
     )
     meta = import_single_plugin_source(str(pdir), "tmp_sample_worker_dir")
@@ -155,7 +155,7 @@ async def test_run_worker_loop_in_memory_success(tmp_path):
     pfile = tmp_path / "sync_worker_plugin.py"
     pfile.write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        '@PluginRegistry.register(name="sync_worker_plugin", mode="active")\n'
+        '@PluginRegistry.register(name="sync_worker_plugin", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         "def handle(ctx):\n"
         '    ctx.log("doing work")\n'
         "    return True\n"
@@ -276,7 +276,7 @@ async def test_run_worker_loop_in_memory_exception_traceback(tmp_path):
     pfile = tmp_path / "failing_worker_plugin.py"
     pfile.write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        '@PluginRegistry.register(name="failing_worker_plugin", mode="active")\n'
+        '@PluginRegistry.register(name="failing_worker_plugin", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         "async def handle(ctx):\n"
         '    raise ZeroDivisionError("intentional division by zero")\n'
     )
@@ -320,7 +320,7 @@ async def test_run_worker_loop_host_eof_cancels_pending_rpc(tmp_path):
     pfile = tmp_path / "rpc_hanging_plugin.py"
     pfile.write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        '@PluginRegistry.register(name="rpc_hanging_plugin", mode="active")\n'
+        '@PluginRegistry.register(name="rpc_hanging_plugin", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         "async def handle(ctx):\n"
         '    await ctx.reply("will hang")\n'
         "    return True\n"
@@ -364,7 +364,7 @@ async def test_worker_subprocess_end_to_end(tmp_path):
     pfile = tmp_path / "subprocess_plugin.py"
     pfile.write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        '@PluginRegistry.register(name="subprocess_plugin", mode="active")\n'
+        '@PluginRegistry.register(name="subprocess_plugin", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         "async def handle(ctx):\n"
         '    ctx.log(msg="logging with kwarg from child process")\n'
         '    rep = await ctx.reply("hi host")\n'

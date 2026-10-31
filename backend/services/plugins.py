@@ -1623,11 +1623,15 @@ class PluginService:
             storage_prefix="test:",
         )
         # 调试执行与重置共用独立的测试命名空间，与生产持久化数据（{chat_id}:{name}）完全隔离
-        if ctx.context_version == 1:
-            ctx.storage = PluginStorageClient(
-                namespace=_plugin_test_namespace(eff_chat_id, name)
-            )
+        test_storage = PluginStorageClient(
+            namespace=_plugin_test_namespace(eff_chat_id, name)
+        )
+        ctx.storage = test_storage
+        ctx._scoped_storage["chat"] = test_storage
+        ctx._scoped_storage["account"] = test_storage
+        ctx._scoped_storage["task"] = test_storage
         ctx.global_storage = PluginStorageClient(namespace=f"global_test:{name}")
+        ctx._scoped_storage["global"] = ctx.global_storage
 
         if req.timeout is not None and req.timeout > 0:
             # 双重钳制：即便模型校验被绕过也限制在 300s 内
@@ -2140,6 +2144,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "{version}"
 UPDATED_AT = "{today}"
 AUTHOR = {author!r}
+PERMISSIONS = ["message_write"]
 
 PARAMS_SCHEMA = [
     {{
@@ -2156,9 +2161,13 @@ PARAMS_SCHEMA = [
     mode="active",
     description={description!r},
     params_schema=PARAMS_SCHEMA,
+    permissions=PERMISSIONS,
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     params = ctx.params or {{}}
@@ -2174,7 +2183,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "{version}"
 UPDATED_AT = "{today}"
 AUTHOR = {author!r}
-PERMISSIONS = ["storage"]
+PERMISSIONS = ["storage", "message_write"]
 
 PARAMS_SCHEMA = []
 
@@ -2187,6 +2196,9 @@ PARAMS_SCHEMA = []
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     count = await ctx.storage.increment("total_trigger_count", 1)
@@ -2226,9 +2238,13 @@ PARAMS_SCHEMA = [
     mode="reactive",
     description={description!r},
     params_schema=PARAMS_SCHEMA,
+    permissions=["message_write"],
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     msg = ctx.message
@@ -2279,6 +2295,9 @@ PARAMS_SCHEMA = [
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     msg = ctx.message
@@ -2343,6 +2362,9 @@ PARAMS_SCHEMA = [
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     endpoint = (ctx.params or {{}}).get("api_endpoint", "https://api.github.com/zen")
@@ -2371,7 +2393,7 @@ from tg_signer.core.plugins import PluginContext, PluginRegistry
 VERSION = "{version}"
 UPDATED_AT = "{today}"
 AUTHOR = {author!r}
-PERMISSIONS = ["storage"]
+PERMISSIONS = ["storage", "message_write"]
 
 PARAMS_SCHEMA = [
     {{
@@ -2392,6 +2414,9 @@ PARAMS_SCHEMA = [
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     msg = ctx.message
@@ -2450,9 +2475,13 @@ PARAMS_SCHEMA = [
     mode="reactive",
     description={description!r},
     params_schema=PARAMS_SCHEMA,
+    permissions=["message_write"],
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     msg = ctx.message
@@ -2496,9 +2525,13 @@ PARAMS_SCHEMA = [
     mode="reactive",
     description={description!r},
     params_schema=PARAMS_SCHEMA,
+    permissions=["message_write"],
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
 )
 async def {req.name}_handler(ctx: PluginContext) -> bool:
     msg = ctx.message
@@ -2517,6 +2550,21 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
             plugin_dir.mkdir(parents=True, exist_ok=True)
             dest_file = plugin_dir / "main.py"
             dest_file.write_text(code_text, encoding="utf-8")
+            manifest_data = {
+                "id": req.name,
+                "name": req.name,
+                "version": version,
+                "mode": req.mode or "reactive",
+                "description": description,
+                "author": author,
+                "context_version": 2,
+                "plugin_api": "2.0",
+                "min_app_version": "1.0.0",
+            }
+            (plugin_dir / "plugin.json").write_text(
+                json.dumps(manifest_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         except Exception as exc:
             shutil.rmtree(plugin_dir, ignore_errors=True)
             raise HTTPException(status_code=500, detail=f"写入插件文件失败: {exc}")
@@ -2794,6 +2842,14 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
             new_code = re.sub(
                 r'description\s*=\s*["\'][^"\']*["\']',
                 lambda _m: f"description={description!r}",
+                new_code,
+                count=1,
+            )
+
+        if "context_version" not in new_code:
+            new_code = re.sub(
+                r"@PluginRegistry\.register\s*\(",
+                '@PluginRegistry.register(\n    context_version=2,\n    plugin_api="2.0",\n    min_app_version="1.0.0",\n',
                 new_code,
                 count=1,
             )

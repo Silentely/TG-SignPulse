@@ -42,7 +42,7 @@ async def test_install_remote_plugin(tmp_path: Path):
     mock_resp.text = """
 from tg_signer.core.plugins import PluginRegistry
 
-@PluginRegistry.register(name="downloaded_plugin", mode="reactive", description="Downloaded from remote", permissions=["storage"])
+@PluginRegistry.register(name="downloaded_plugin", mode="reactive", description="Downloaded from remote", permissions=["storage"], context_version=2, plugin_api="2.0", min_app_version="1.0.0")
 def handler(ctx):
     ctx.log("running downloaded plugin")
 """

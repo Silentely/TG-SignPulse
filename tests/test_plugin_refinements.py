@@ -159,13 +159,16 @@ def test_plugin_json_auto_loading(tmp_path: Path):
         "author": "Alice",
         "version": "2.1.0",
         "description": "A fun game plugin",
+        "context_version": 2,
+        "plugin_api": "2.0",
+        "min_app_version": "1.0.0",
     }
     (plugin_dir / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
 
     code = """
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
-@PluginRegistry.register(name="custom_manifest_plugin", mode="reactive")
+@PluginRegistry.register(name="custom_manifest_plugin", mode="reactive", context_version=2, plugin_api="2.0", min_app_version="1.0.0")
 async def handler(ctx: PluginContext):
     return True
 """

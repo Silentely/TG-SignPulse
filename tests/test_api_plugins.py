@@ -19,6 +19,7 @@ def _register_sandbox_worker_fixtures():
         name="test_sync_hang_sandbox",
         mode="reactive",
         description="沙箱同步死循环挂起测试插件",
+        context_version=2,
     )
     def hang_sandbox_handler(ctx: PluginContext):
         import time
@@ -31,6 +32,7 @@ def _register_sandbox_worker_fixtures():
     @PluginRegistry.register(
         name="test_crashing_plugin",
         mode="reactive",
+        context_version=2,
     )
     def crash_handler(ctx: PluginContext):
         raise RuntimeError("模拟插件执行崩溃")
@@ -41,6 +43,8 @@ def _register_sandbox_worker_fixtures():
         name="test_async_echo_sandbox",
         mode="reactive",
         description="沙箱异步回显测试插件",
+        context_version=2,
+        permissions=["message_write"],
     )
     async def async_echo_handler(ctx: PluginContext):
         if ctx.message and ctx.message.text:
@@ -345,7 +349,7 @@ def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tm
     math_dir.mkdir()
     math_code = (
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('test_real_builtin_pkg', mode='reactive')\n"
+        "@PluginRegistry.register('test_real_builtin_pkg', mode='reactive', context_version=2)\n"
         "def pkg_handler(ctx):\n"
         "    return True\n"
     )
@@ -353,7 +357,7 @@ def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tm
 
     single_code = (
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('test_real_builtin_single', mode='active')\n"
+        "@PluginRegistry.register('test_real_builtin_single', mode='active', context_version=2)\n"
         "def single_handler(ctx):\n"
         "    return True\n"
     )
@@ -366,7 +370,7 @@ def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tm
     custom_pkg.mkdir()
     custom_pkg_code = (
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('test_real_custom_pkg', mode='reactive')\n"
+        "@PluginRegistry.register('test_real_custom_pkg', mode='reactive', context_version=2)\n"
         "def custom_pkg_handler(ctx):\n"
         "    return True\n"
     )
@@ -374,7 +378,7 @@ def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tm
 
     custom_single_code = (
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('test_real_custom_single', mode='active')\n"
+        "@PluginRegistry.register('test_real_custom_single', mode='active', context_version=2)\n"
         "def custom_single_handler(ctx):\n"
         "    return True\n"
     )
@@ -459,7 +463,7 @@ def test_update_plugin_source_force_allows_audited_high_risk_source(
     plugin_file = custom_dir / "vuln_plugin.py"
     safe_code = (
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('vuln_plugin', mode='reactive')\n"
+        "@PluginRegistry.register('vuln_plugin', mode='reactive', context_version=2)\n"
         "def vuln_handler(ctx):\n"
         "    return True\n"
     )

@@ -37,7 +37,7 @@ VERSION = "1.3.0"
 UPDATED_AT = "2026-09-01"
 AUTHOR = "Bob Developer"
 
-@PluginRegistry.register(name="sample_globals_plugin")
+@PluginRegistry.register(name="sample_globals_plugin", context_version=2, plugin_api="2.0", min_app_version="1.0.0")
 async def handle_sample(ctx: PluginContext):
     return True
 """,
@@ -60,7 +60,7 @@ def test_plugin_metadata_fallback_to_defaults_and_mtime():
             """
 from tg_signer.core.plugins import PluginRegistry, PluginContext
 
-@PluginRegistry.register(name="sample_mtime_plugin")
+@PluginRegistry.register(name="sample_mtime_plugin", context_version=2, plugin_api="2.0", min_app_version="1.0.0")
 async def handle_sample(ctx: PluginContext):
     return True
 """,
@@ -94,6 +94,9 @@ AUTHOR = "Global Author"
 
 @PluginRegistry.register(
     name="sample_priority_plugin",
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
     version="2.0.0",
     updated_at="2026-05-01",
     author="Decorator Author",

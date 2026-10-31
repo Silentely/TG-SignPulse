@@ -237,7 +237,7 @@ def test_api_plugin_upload_and_validation():
     valid_code = b'''"""Uploaded test plugin"""
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
-@PluginRegistry.register(name="uploaded_test_plug", description="Test upload")
+@PluginRegistry.register(name="uploaded_test_plug", description="Test upload", context_version=2, plugin_api="2.0", min_app_version="1.0.0")
 async def uploaded_test_plug_handler(ctx: PluginContext) -> bool:
     return True
 '''
@@ -679,7 +679,7 @@ def test_api_export_all_and_import_bundle_zip():
         code_imported = """\"\"\"从压缩包导入的插件\"\"\"
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
-@PluginRegistry.register(name="bundle_imported", mode="reactive")
+@PluginRegistry.register(name="bundle_imported", mode="reactive", context_version=2, plugin_api="2.0", min_app_version="1.0.0")
 async def bundle_imported_handler(ctx: PluginContext) -> bool:
     return True
 """
@@ -1226,7 +1226,7 @@ f(["ls"])
         zf.writestr(
             "safe_plug_bundle.py",
             """from tg_signer.core.plugins import PluginRegistry, PluginContext
-@PluginRegistry.register(name="safe_plug_bundle")
+@PluginRegistry.register(name="safe_plug_bundle", context_version=2, plugin_api="2.0", min_app_version="1.0.0")
 async def safe_plug_bundle_handler(ctx: PluginContext) -> bool:
     return True
 """,

@@ -291,7 +291,7 @@ def test_api_import_bundle_accepts_directory_layout():
     code = (
         '"""目录型插件"""\n'
         "from tg_signer.core.plugins import PluginContext, PluginRegistry\n\n"
-        '@PluginRegistry.register(name="dir_bundle_plug", mode="reactive")\n'
+        '@PluginRegistry.register(name="dir_bundle_plug", mode="reactive", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         "async def dir_bundle_plug_handler(ctx: PluginContext) -> bool:\n"
         "    return True\n"
     )
@@ -381,7 +381,7 @@ def test_register_allows_reexecution_of_same_file(tmp_path):
 def _write_plugin(tmp_path, stem: str, mode: str, body: str) -> None:
     (tmp_path / f"{stem}.py").write_text(
         "from tg_signer.core.plugins import PluginContext, PluginRegistry\n\n"
-        f'@PluginRegistry.register(name="{stem}", mode="{mode}")\n'
+        f'@PluginRegistry.register(name="{stem}", mode="{mode}", context_version=2, plugin_api="2.0", min_app_version="1.0.0")\n'
         f"async def {stem}_handler(ctx: PluginContext) -> bool:\n"
         f"{body}\n",
         encoding="utf-8",
