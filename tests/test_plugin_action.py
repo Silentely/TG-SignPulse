@@ -35,6 +35,7 @@ def _register_action_worker_fixtures():
     @PluginRegistry.register(
         name="sync_hang_plugin_auto",
         mode="active",
+        context_version=2,
     )
     def hang_handler(ctx: PluginContext):
         import time
@@ -44,7 +45,7 @@ def _register_action_worker_fixtures():
 
     PluginRegistry._plugins.pop("sync_fail_plugin", None)
 
-    @PluginRegistry.register("sync_fail_plugin", mode="active")
+    @PluginRegistry.register("sync_fail_plugin", mode="active", context_version=2)
     def sync_fail_handler(ctx: PluginContext):
         return False
 
@@ -206,7 +207,7 @@ def test_plugin_registry_isolation_on_broken_plugin():
         valid_dir.mkdir()
         (valid_dir / "main.py").write_text(
             "from tg_signer.core.plugins import PluginRegistry\n"
-            "@PluginRegistry.register('valid_one', mode='reactive')\n"
+            "@PluginRegistry.register('valid_one', mode='reactive', context_version=2)\n"
             "def handler(ctx):\n    return True\n",
             encoding="utf-8",
         )
@@ -216,7 +217,7 @@ def test_plugin_registry_isolation_on_broken_plugin():
         init_dir.mkdir()
         (init_dir / "__init__.py").write_text(
             "from tg_signer.core.plugins import PluginRegistry\n"
-            "@PluginRegistry.register('init_one', mode='active')\n"
+            "@PluginRegistry.register('init_one', mode='active', context_version=2)\n"
             "def handler(ctx):\n    return True\n",
             encoding="utf-8",
         )
@@ -224,7 +225,7 @@ def test_plugin_registry_isolation_on_broken_plugin():
         # 3. 单文件插件 (*.py)
         (root / "single_file.py").write_text(
             "from tg_signer.core.plugins import PluginRegistry\n"
-            "@PluginRegistry.register('single_one', mode='active')\n"
+            "@PluginRegistry.register('single_one', mode='active', context_version=2)\n"
             "def handler(ctx):\n    return True\n",
             encoding="utf-8",
         )
@@ -261,7 +262,7 @@ def test_plugin_registry_load_all_configured_plugins(monkeypatch, tmp_path):
     plugins_dir.mkdir()
     (plugins_dir / "test_env_plugin.py").write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('env_plugin', mode='reactive')\n"
+        "@PluginRegistry.register('env_plugin', mode='reactive', context_version=2)\n"
         "def handler(ctx):\n    return True\n",
         encoding="utf-8",
     )
@@ -279,14 +280,14 @@ def test_plugin_registry_idempotency_and_name_sanitization(monkeypatch, tmp_path
     plugin_dir.mkdir()
     (plugin_dir / "main.py").write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('hyphen_plugin', mode='reactive')\n"
+        "@PluginRegistry.register('hyphen_plugin', mode='reactive', context_version=2)\n"
         "def handler(ctx):\n    return True\n",
         encoding="utf-8",
     )
     # 单文件插件名含破折号 (single-dash.py)
     (tmp_path / "single-dash.py").write_text(
         "from tg_signer.core.plugins import PluginRegistry\n"
-        "@PluginRegistry.register('dash_plugin', mode='active')\n"
+        "@PluginRegistry.register('dash_plugin', mode='active', context_version=2)\n"
         "def handler(ctx):\n    return True\n",
         encoding="utf-8",
     )
@@ -592,7 +593,7 @@ def test_directory_plugin_with_sibling_import(tmp_path):
     code = (
         "from tg_signer.core.plugins import PluginRegistry\n"
         "import helper\n\n"
-        "@PluginRegistry.register('multi_file', mode='active')\n"
+        "@PluginRegistry.register('multi_file', mode='active', context_version=2)\n"
         "def run(ctx):\n"
         "    return helper.MAGIC_NUM\n"
     )
@@ -614,7 +615,7 @@ def test_directory_plugin_with_relative_import(tmp_path):
     code = (
         "from .helper import MAGIC_NUM\n"
         "from tg_signer.core.plugins import PluginRegistry\n\n"
-        "@PluginRegistry.register('relative_multi_file', mode='active')\n"
+        "@PluginRegistry.register('relative_multi_file', mode='active', context_version=2)\n"
         "def run(ctx):\n"
         "    return MAGIC_NUM\n"
     )
@@ -645,7 +646,7 @@ def test_directory_plugins_with_same_name_keep_isolated_relative_imports(tmp_pat
         (plugin_dir / "main.py").write_text(
             "from .helper import VALUE\n"
             "from tg_signer.core.plugins import PluginRegistry\n\n"
-            f"@PluginRegistry.register({name!r}, mode='active')\n"
+            f"@PluginRegistry.register({name!r}, mode='active', context_version=2)\n"
             "def run(ctx):\n"
             "    return VALUE\n",
             encoding="utf-8",
@@ -1472,3 +1473,68 @@ async def test_stock_sniper_web_debug_text_fallback(tmp_path, monkeypatch):
     # 应该被成功识别并判定为 sold_out
     res = await meta.handler(ctx)
     assert res is True
+
+
+@pytest.mark.asyncio
+async def test_dispatch_reactive_plugin_message_raises_typed_exceptions():
+    """Verify reactive plugin exceptions (FloodWait, PermissionDenied) are not swallowed into False."""
+    from tg_signer.core.plugins import (
+        PluginFloodWaitError,
+        PluginMeta,
+        PluginPermissionDeniedError,
+    )
+
+    PluginRegistry._plugins["reactive_mock_test"] = PluginMeta(
+        name="reactive_mock_test",
+        handler=lambda ctx: True,
+        mode="reactive",
+        description="",
+        version="1.0.0",
+        updated_at="2026-10-31",
+        author="tester",
+        source_path="",
+        params_schema=[],
+        context_version=2,
+    )
+    signer = DummySigner()
+    action = PluginAction(plugin_name="reactive_mock_test", mode="reactive")
+    chat = SignChatV3(chat_id=123, actions=[action])
+    msg = MagicMock()
+    msg.text = "test message"
+
+    # 1. Plugin raises FloodWait: must NOT be swallowed into return False
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host_cls:
+        mock_host_cls.return_value.execute = AsyncMock(
+            side_effect=PluginFloodWaitError(30)
+        )
+        with pytest.raises(PluginFloodWaitError) as exc_info:
+            await signer._dispatch_reactive_plugin_message(
+                action, chat, msg, eff_timeout=5.0
+            )
+        assert exc_info.value.seconds == 30
+
+    # 2. Plugin raises PermissionDenied: must NOT be swallowed into return False
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host_cls:
+        mock_host_cls.return_value.execute = AsyncMock(
+            side_effect=PluginPermissionDeniedError("no write")
+        )
+        with pytest.raises(PluginPermissionDeniedError):
+            await signer._dispatch_reactive_plugin_message(
+                action, chat, msg, eff_timeout=5.0
+            )
+
+    # 3. Plugin actively returns False (unhandled message): must return False cleanly
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host_cls:
+        mock_host_cls.return_value.execute = AsyncMock(return_value=False)
+        res = await signer._dispatch_reactive_plugin_message(
+            action, chat, msg, eff_timeout=5.0
+        )
+        assert res is False
+
+    # 4. Plugin actively returns True (handled message): must return True
+    with patch("tg_signer.core.signer_actions.PluginProcessHost") as mock_host_cls:
+        mock_host_cls.return_value.execute = AsyncMock(return_value=True)
+        res = await signer._dispatch_reactive_plugin_message(
+            action, chat, msg, eff_timeout=5.0
+        )
+        assert res is True

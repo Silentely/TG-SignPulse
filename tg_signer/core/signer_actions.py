@@ -1103,16 +1103,13 @@ class SignerActionsMixin:
                 timeout=eff_timeout,
                 trigger_type="reactive",
             )
-            try:
-                res = await host.execute()
-                from tg_signer.core.plugin_runtime import adapt_plugin_result
+            res = await host.execute()
+            from tg_signer.core.plugin_runtime import adapt_plugin_result
 
-                adapted = adapt_plugin_result(res, identity=ctx.identity)
-                if getattr(self, "context", None) is not None:
-                    self.context.last_plugin_result = adapted
-                return bool(adapted.handled) and adapted.outcome != "failed"
-            except Exception:
-                return False
+            adapted = adapt_plugin_result(res, identity=ctx.identity)
+            if getattr(self, "context", None) is not None:
+                self.context.last_plugin_result = adapted
+            return bool(adapted.handled) and adapted.outcome != "failed"
 
         from tg_signer.core.plugin_runtime import get_plugin_runtime
 
@@ -1126,17 +1123,14 @@ class SignerActionsMixin:
         )
         if not plugin_res.success:
             if plugin_res.is_timeout:
-                msg_kind = "单条历史消息" if is_history else "单条消息"
-                self.log(
-                    f"插件「{action.plugin_name}」处理{msg_kind}超时", level="WARNING"
+                raise PluginTimeoutError(
+                    f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s"
                 )
-            else:
-                msg_kind = "历史消息" if is_history else "消息"
-                self.log(
-                    f"插件「{action.plugin_name}」处理{msg_kind}异常: {plugin_res.error}",
-                    level="WARNING",
-                )
-            return False
+            if plugin_res.exception is not None:
+                raise plugin_res.exception
+            raise RuntimeError(
+                f"Plugin '{action.plugin_name}' execution failed: {plugin_res.error}"
+            )
         from tg_signer.core.plugin_runtime import adapt_plugin_result
 
         adapted = adapt_plugin_result(plugin_res.return_value, identity=ctx.identity)

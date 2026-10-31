@@ -38,6 +38,7 @@ class PluginResult:
     outcome: Literal["confirmed", "failed", "skipped", "unknown"] = "unknown"
     outputs: Dict[str, Any] = field(default_factory=dict)
     evidence: List[Dict[str, Any]] = field(default_factory=list)
+    exception: Optional[BaseException] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -399,7 +400,7 @@ class TestMockAdapter(PluginRuntime):
                 outputs=adapted.outputs,
                 evidence=adapted.evidence,
             )
-        except (asyncio.TimeoutError, TimeoutError):
+        except (asyncio.TimeoutError, TimeoutError) as exc:
             duration = time.perf_counter() - start_time
             return PluginResult(
                 success=False,
@@ -408,6 +409,7 @@ class TestMockAdapter(PluginRuntime):
                 error=f"Plugin '{plugin_name}' timed out after {timeout}s",
                 execution_time=duration,
                 is_timeout=True,
+                exception=exc,
             )
         except Exception as exc:
             duration = time.perf_counter() - start_time
@@ -417,6 +419,7 @@ class TestMockAdapter(PluginRuntime):
                 logs=captured_logs,
                 error=str(exc),
                 execution_time=duration,
+                exception=exc,
             )
 
     @staticmethod
