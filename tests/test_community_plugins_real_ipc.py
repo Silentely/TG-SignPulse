@@ -70,18 +70,10 @@ _register_worker_fixtures()
 @pytest.fixture(autouse=True)
 def clean_registry():
     """Cleanup and re-register test plugins before and after each test."""
-    if hasattr(PluginRegistry, "_plugins"):
-        PluginRegistry._plugins.clear()
-    metadata = getattr(PluginRegistry, "_metadata", None)
-    if isinstance(metadata, dict):
-        metadata.clear()
+    PluginRegistry.clear()
     _register_worker_fixtures()
     yield
-    if hasattr(PluginRegistry, "_plugins"):
-        PluginRegistry._plugins.clear()
-    metadata = getattr(PluginRegistry, "_metadata", None)
-    if isinstance(metadata, dict):
-        metadata.clear()
+    PluginRegistry.clear()
     _register_worker_fixtures()
 
 
@@ -176,7 +168,7 @@ async def test_real_subprocess_rpc_read_chat_history_success():
 @pytest.mark.asyncio
 async def test_real_subprocess_community_plugin_dice_roller():
     """Test real community plugin (dice_roller) executes in subprocess with IPC reply."""
-    community_dir = Path("community_plugins")
+    community_dir = Path(__file__).resolve().parent.parent / "community_plugins"
     if not community_dir.is_dir():
         pytest.skip("community_plugins directory not found")
 

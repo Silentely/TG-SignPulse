@@ -400,5 +400,6 @@ def test_community_plugins_metadata_and_registry():
     assert set(cleaner_manifest["permissions"]) == {"telegram_send"}
 
     # Registry checks
+    PluginRegistry.load_plugins_from_dir(base_dir)
     assert "checkin_observer" in PluginRegistry._plugins
     assert "chat_cleaner" in PluginRegistry._plugins

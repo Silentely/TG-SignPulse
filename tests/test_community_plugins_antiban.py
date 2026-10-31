@@ -312,6 +312,7 @@ def test_antiban_plugins_registered():
     """All 3 plugins must be registered in PluginRegistry with mode='active'."""
     expected_plugins = ["typing_simulator", "jitter_delay", "auto_read_marker"]
     base_dir = Path(__file__).resolve().parent.parent / "community_plugins"
+    PluginRegistry.load_plugins_from_dir(base_dir)
 
     for pid in expected_plugins:
         assert pid in PluginRegistry._plugins, (
