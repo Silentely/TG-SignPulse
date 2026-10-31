@@ -1177,6 +1177,15 @@ async def test_concurrent_tasks_log_isolation_multithread():
         logs_a = svc.get_active_logs("task_a", "acc_a")
         logs_b = svc.get_active_logs("task_b", "acc_b")
 
+        # 线程内 emit 的日志 run_id == 发起任务的 run_id
+        active_by_run = getattr(svc, "_active_logs_by_run", {})
+        if active_by_run:
+            logs_run_a = active_by_run.get((task_key_a[0], task_key_a[1], "run_a"), [])
+            logs_run_b = active_by_run.get((task_key_b[0], task_key_b[1], "run_b"), [])
+            assert any("Task A thread" in line for line in logs_run_a)
+            assert any("Task B thread" in line for line in logs_run_b)
+            assert not any("Task B thread" in line for line in logs_run_a)
+            assert not any("Task A thread" in line for line in logs_run_b)
         assert len([line for line in logs_a if "Task B" in line]) == 0
         assert len([line for line in logs_b if "Task A" in line]) == 0
         assert any("Task A step" in line for line in logs_a)

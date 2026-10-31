@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
+from tg_signer.async_utils import run_in_thread
 from tg_signer.core.plugin_storage import PluginStore
 
 _logger = logging.getLogger("tg_signer.plugins")
@@ -77,7 +78,7 @@ class PluginStorageClient:
     async def get(self, key: str, default: Any = None) -> Any:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._migrate_key, key, default)
+            return await run_in_thread(self._migrate_key, key, default, loop=loop)
         except RuntimeError:
             return self._migrate_key(key, default)
 
@@ -86,8 +87,8 @@ class PluginStorageClient:
     ) -> None:
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, self._store.set, self.namespace, key, value, ttl
+            await run_in_thread(
+                self._store.set, self.namespace, key, value, ttl, loop=loop
             )
         except RuntimeError:
             self._store.set(self.namespace, key, value, ttl)
@@ -104,8 +105,8 @@ class PluginStorageClient:
         step = delta if delta is not None else amount
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, self._increment_migrating, key, step, default, ttl
+            return await run_in_thread(
+                self._increment_migrating, key, step, default, ttl, loop=loop
             )
         except RuntimeError:
             return self._increment_migrating(key, step, default, ttl)
@@ -124,7 +125,7 @@ class PluginStorageClient:
     async def delete(self, key: str) -> bool:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._delete_all, key)
+            return await run_in_thread(self._delete_all, key, loop=loop)
         except RuntimeError:
             return self._delete_all(key)
 
@@ -137,7 +138,7 @@ class PluginStorageClient:
     async def clear(self) -> int:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._clear_all)
+            return await run_in_thread(self._clear_all, loop=loop)
         except RuntimeError:
             return self._clear_all()
 
@@ -150,8 +151,8 @@ class PluginStorageClient:
     async def keys(self, prefix: str = "") -> List[str]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, lambda: sorted(self._migrate_all(prefix))
+            return await run_in_thread(
+                lambda: sorted(self._migrate_all(prefix)), loop=loop
             )
         except RuntimeError:
             return sorted(self._migrate_all(prefix))
@@ -162,8 +163,8 @@ class PluginStorageClient:
     async def mget(self, keys: List[str]) -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, lambda: {key: self._migrate_key(key) for key in keys}
+            return await run_in_thread(
+                lambda: {key: self._migrate_key(key) for key in keys}, loop=loop
             )
         except RuntimeError:
             return {key: self._migrate_key(key) for key in keys}
@@ -173,8 +174,8 @@ class PluginStorageClient:
     ) -> None:
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, self._store.mset, self.namespace, mapping, ttl
+            await run_in_thread(
+                self._store.mset, self.namespace, mapping, ttl, loop=loop
             )
         except RuntimeError:
             self._store.mset(self.namespace, mapping, ttl)
@@ -182,14 +183,14 @@ class PluginStorageClient:
     async def get_all(self, prefix: str = "") -> Dict[str, Any]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._migrate_all, prefix)
+            return await run_in_thread(self._migrate_all, prefix, loop=loop)
         except RuntimeError:
             return self._migrate_all(prefix)
 
     async def get_all_records(self) -> List[Dict[str, Any]]:
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._migrate_all_records)
+            return await run_in_thread(self._migrate_all_records, loop=loop)
         except RuntimeError:
             return self._migrate_all_records()
 

@@ -101,3 +101,25 @@ def create_logged_task(
 
     task.add_done_callback(_handle_done)
     return task
+
+
+async def run_in_thread(
+    func: Callable[..., Any],
+    *args: Any,
+    loop: asyncio.AbstractEventLoop | None = None,
+    executor: Any = None,
+    **kwargs: Any,
+) -> Any:
+    """在后台工作线程中执行同步可调用对象，显式拷贝并传播当前 ContextVar 上下文。
+
+    标准库 asyncio.to_thread 会调用 contextvars.copy_context()；针对自定义 executor
+    或 loop.run_in_executor 场景，本函数显式使用 ctx.run 绑定，确保调用方的
+    current_run_context 等上下文变量 100% 穿透至工作线程中，防止日志/追踪丢失。
+    """
+    import contextvars
+    import functools
+
+    current_loop = loop or asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    call = functools.partial(ctx.run, func, *args, **kwargs)
+    return await current_loop.run_in_executor(executor, call)
