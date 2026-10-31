@@ -1,0 +1,66 @@
+{
+  "id": "typing_simulator",
+  "name": "拟人打字状态模拟器",
+  "version": "1.0.0",
+  "mode": "active",
+  "category": "utility",
+  "description": "模拟真实用户在发送消息前的打字状态动画，提高防封与拟人化安全。",
+  "author": "TG-SignPulse",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "keyboard",
+  "tags": ["antiban", "typing", "humanize", "safety"],
+  "min_app_version": "1.9.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
+  "permissions": ["telegram_send"],
+  "params_schema": [
+    {
+      "name": "duration_seconds",
+      "label": "打字持续时间(秒)",
+      "type": "number",
+      "default": 3.0,
+      "required": false,
+      "description": "模拟打字持续时间，范围 0.5 - 15.0 秒"
+    },
+    {
+      "name": "randomize",
+      "label": "随机浮动抖动",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否在基础打字时长上引入随机抖动浮动"
+    },
+    {
+      "name": "action_type",
+      "label": "动作类型",
+      "type": "select",
+      "default": "typing",
+      "required": false,
+      "description": "Telegram 会话动作类型",
+      "options": [
+        {
+          "label": "打字中 (typing)",
+          "value": "typing"
+        },
+        {
+          "label": "挑选贴纸 (choose_sticker)",
+          "value": "choose_sticker"
+        },
+        {
+          "label": "录制语音 (record_voice)",
+          "value": "record_voice"
+        },
+        {
+          "label": "上传照片 (upload_photo)",
+          "value": "upload_photo"
+        }
+      ]
+    }
+  ],
+  "description_en": "Simulates human typing status animations before sending messages to enhance anti-ban protection and natural interaction.",
+  "features": [
+    "Simulates realistic human typing animations",
+    "Configurable duration with safety clamping (0.5s - 15.0s)",
+    "Supports multiple Telegram chat actions and randomized jitter"
+  ]
+}

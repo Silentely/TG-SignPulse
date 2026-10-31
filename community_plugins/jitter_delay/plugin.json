@@ -1,0 +1,58 @@
+{
+  "id": "jitter_delay",
+  "name": "拟人随机延迟抖动",
+  "version": "1.0.0",
+  "mode": "active",
+  "category": "utility",
+  "description": "在打卡指令执行前注入拟人化的随机停顿与思考延迟，消除定时请求特征。",
+  "author": "TG-SignPulse",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "clock",
+  "tags": ["jitter", "delay", "antiban", "timing", "humanize"],
+  "min_app_version": "1.9.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
+  "permissions": [],
+  "params_schema": [
+    {
+      "name": "min_seconds",
+      "label": "最小延迟(秒)",
+      "type": "number",
+      "default": 1.0,
+      "required": false,
+      "description": "随机延迟等待时长的下限"
+    },
+    {
+      "name": "max_seconds",
+      "label": "最大延迟(秒)",
+      "type": "number",
+      "default": 5.0,
+      "required": false,
+      "description": "随机延迟等待时长的上限"
+    },
+    {
+      "name": "distribution",
+      "label": "分布模型",
+      "type": "select",
+      "default": "uniform",
+      "required": false,
+      "description": "随机数采样概率分布模型",
+      "options": [
+        {
+          "label": "均匀分布 (uniform)",
+          "value": "uniform"
+        },
+        {
+          "label": "高斯正态分布 (gaussian)",
+          "value": "gaussian"
+        }
+      ]
+    }
+  ],
+  "description_en": "Injects randomized pause and thinking jitter delay before signing actions to eliminate fixed-interval timing fingerprints.",
+  "features": [
+    "Uniform and Gaussian randomized delay sampling",
+    "Automatic min/max bound swapping and non-negative clamping",
+    "Eliminates fixed-interval timing fingerprints"
+  ]
+}

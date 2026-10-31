@@ -1,0 +1,40 @@
+{
+  "id": "auto_read_marker",
+  "name": "会话智能已读标记器",
+  "version": "1.0.0",
+  "mode": "active",
+  "category": "message",
+  "description": "在打卡动作执行前主动清除未读红点，还原真人点击会话并阅读的自然行为。",
+  "author": "TG-SignPulse",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "check-circle",
+  "tags": ["read", "marker", "antiban", "humanize", "message"],
+  "min_app_version": "1.9.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
+  "permissions": ["telegram_read"],
+  "params_schema": [
+    {
+      "name": "delay_seconds",
+      "label": "等待时长(秒)",
+      "type": "number",
+      "default": 0.0,
+      "required": false,
+      "description": "标记已读前等待的秒数 (0 为立即标记)"
+    },
+    {
+      "name": "private_only",
+      "label": "仅私聊生效",
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "description": "是否仅对一对一私聊生效，群组和频道跳过"
+    }
+  ],
+  "description_en": "Proactively marks chat messages as read to clear unread badges before actions, mimicking natural human reading behavior.",
+  "features": [
+    "Automatically marks chat history as read",
+    "Optional reading pause delay",
+    "Configurable private chat filter"
+  ]
+}
