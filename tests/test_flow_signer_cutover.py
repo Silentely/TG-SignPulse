@@ -545,3 +545,27 @@ async def test_user_signer_side_effect_barrier_blocks_fallback_and_retry():
     assert getattr(signer.context, "pulseflow_fallback_occurred", False) is False
     log_msgs = [call[0][0] for call in signer.log.call_args_list]
     assert any("已产生外部副作用" in m for m in log_msgs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("override_val", ["classic", "v3"])
+async def test_classic_override_rejects_flow_graph_with_readable_error(override_val):
+    """PULSEFLOW_ENGINE_OVERRIDE=classic/v3 时遇到 flow_graph 任务必须明确拒绝并给出可读错误。"""
+    signer = UserSigner.__new__(UserSigner)
+    signer._account = "test_acc"
+    signer.app = MagicMock()
+    signer.app.get_chat = AsyncMock()
+    signer.context = MagicMock()
+    signer.log = MagicMock()
+
+    chat = SignChatV3(
+        chat_id=88888,
+        flow_graph={"nodes": {}, "entry_node_id": "start"},
+    )
+
+    with patch.dict("os.environ", {"PULSEFLOW_ENGINE_OVERRIDE": override_val}):
+        with pytest.raises(RuntimeError) as exc_info:
+            await signer.sign_a_chat(chat)
+        err_msg = str(exc_info.value)
+        assert "不支持执行 flow_graph" in err_msg
+        assert "PULSEFLOW_ENGINE_OVERRIDE" in err_msg

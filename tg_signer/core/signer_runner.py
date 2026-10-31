@@ -269,6 +269,15 @@ class SignerRunnerMixin:
 
         override_engine = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
         if override_engine in {"classic", "v3"}:
+            if getattr(chat, "flow_graph", None):
+                err_msg = (
+                    f"任务 (chat_id={chat.chat_id}) 配置为 flow_graph 图结构任务，"
+                    "旧版经典引擎 (classic/v3) 不支持执行 flow_graph，"
+                    "请移除 PULSEFLOW_ENGINE_OVERRIDE 环境变量以使用 PulseFlow 引擎"
+                )
+                logger.error(err_msg)
+                self.log(err_msg, level="ERROR")
+                raise RuntimeError(err_msg)
             logger.critical("[EMERGENCY_OVERRIDE] 触发紧急回滚 Classic 引擎运行")
             self.log(
                 "[EMERGENCY_OVERRIDE] 触发紧急回滚 Classic 引擎运行", level="CRITICAL"
@@ -289,6 +298,15 @@ class SignerRunnerMixin:
 
     async def _run_classic_chat(self, chat: SignChatV3):
         """Classic (v3) 紧急回退执行逻辑。"""
+        if getattr(chat, "flow_graph", None):
+            err_msg = (
+                f"任务 (chat_id={chat.chat_id}) 配置为 flow_graph 图结构任务，"
+                "旧版经典引擎 (classic/v3) 不支持执行 flow_graph，"
+                "请移除 PULSEFLOW_ENGINE_OVERRIDE 环境变量以使用 PulseFlow 引擎"
+            )
+            logger.error(err_msg)
+            self.log(err_msg, level="ERROR")
+            raise RuntimeError(err_msg)
         if getattr(chat, "steps", None) is not None:
             # 与旧版 actions 流程保持一致：任务级 retry_count 控制整个工作流重试次数。
             max_workflow_attempts = max(
@@ -1273,6 +1291,15 @@ class SignerRunnerMixin:
     ) -> bool:
         override_engine = os.getenv("PULSEFLOW_ENGINE_OVERRIDE", "").strip().lower()
         if override_engine in {"classic", "v3"}:
+            if getattr(chat, "flow_graph", None):
+                err_msg = (
+                    f"任务 (chat_id={chat.chat_id}) 配置为 flow_graph 图结构任务，"
+                    "旧版经典引擎 (classic/v3) 不支持执行 flow_graph，"
+                    "请移除 PULSEFLOW_ENGINE_OVERRIDE 环境变量以使用 PulseFlow 引擎"
+                )
+                logger.error(err_msg)
+                self.log(err_msg, level="ERROR")
+                raise RuntimeError(err_msg)
             logger.critical("[EMERGENCY_OVERRIDE] 触发紧急回滚 Classic 引擎运行")
             return await self._run_classic_chat(chat)
 
