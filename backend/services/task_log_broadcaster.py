@@ -87,15 +87,6 @@ class TaskLogBroadcaster:
         if after_seq is not None:
             with self._lock:
                 backlog = list(self._history.get(key, ()))
-                if not backlog and not key.run_id:
-                    for stream_k, hist in self._history.items():
-                        if (
-                            stream_k.account_name == key.account_name
-                            and stream_k.task_name == key.task_name
-                            and hist
-                        ):
-                            backlog = list(hist)
-                            break
             for event in backlog:
                 if event.get("seq", 0) > after_seq:
                     self._deliver_to_queue(key, q, event)

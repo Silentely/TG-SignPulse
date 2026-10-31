@@ -357,3 +357,107 @@ async def test_task_log_broadcaster_wildcard_subscription_matches_published_run_
     assert event["run_id"] == "run_real_999"
 
     broadcaster.unsubscribe(wildcard_key, queue)
+
+
+@pytest.mark.asyncio
+async def test_task_log_broadcaster_empty_run_id_does_not_replay_other_run_history():
+    """空 run_id 订阅绝不跨 run 回放其他历史 run 的日志。"""
+    broadcaster = TaskLogBroadcaster(max_queue_size=10)
+    old_key = StreamKey(
+        account_name="iso_acc", task_name="iso_task", run_id="old_run_001"
+    )
+    await broadcaster.publish(
+        old_key, {"type": "logs", "text": "old run log", "seq": 1}
+    )
+
+    empty_key = StreamKey(account_name="iso_acc", task_name="iso_task", run_id="")
+    queue = broadcaster.subscribe(empty_key, after_seq=0)
+    assert queue.empty(), "Empty run_id subscription replayed other run history!"
+    broadcaster.unsubscribe(empty_key, queue)
+
+
+def test_sign_task_logs_ws_empty_run_id_does_not_replay_prior_run():
+    """路由级：WebSocket 客户端以空 run_id 接入时，不回放上一次历史运行的日志。"""
+    client = TestClient(app)
+    ticket_store = get_stream_ticket_store()
+    task_name = "ws_iso_task"
+    account_name = "ws_iso_account"
+    old_run_id = "ws_iso_run_old"
+
+    svc = get_sign_task_service()
+    svc._set_run_status(account_name, task_name, run_id=old_run_id, state="finished")
+
+    broadcaster = get_task_log_broadcaster()
+    old_key = StreamKey(
+        account_name=account_name, task_name=task_name, run_id=old_run_id
+    )
+    broadcaster.publish_nowait(
+        old_key,
+        {
+            "type": "logs",
+            "data": ["prior run log line"],
+            "run_id": old_run_id,
+            "seq": 1,
+        },
+    )
+
+    ticket = ticket_store.issue(
+        user_id=1,
+        username="admin",
+        purpose=PURPOSE_TASK_RUN_WS,
+        resource=task_name,
+    )
+
+    url = f"/api/sign-tasks/ws/{task_name}?ticket={ticket}&account_name={account_name}"
+    with client.websocket_connect(url) as ws:
+        msg = ws.receive_json()
+        assert msg["type"] != "logs" or "prior run log line" not in msg.get("data", [])
+
+
+def test_sign_task_logs_ws_run_switching_and_deduplication():
+    """路由级：空 run_id 建连 -> 任务启动赋予 run_id 切换订阅 -> 续传去重不重复投递。"""
+    client = TestClient(app)
+    ticket_store = get_stream_ticket_store()
+    task_name = "ws_dedup_task"
+    account_name = "ws_dedup_acc"
+    new_run_id = "ws_dedup_run_101"
+
+    svc = get_sign_task_service()
+    svc._active_tasks[(account_name, task_name)] = True
+    svc._set_run_status(account_name, task_name, run_id=None, state="starting")
+
+    ticket = ticket_store.issue(
+        user_id=1,
+        username="admin",
+        purpose=PURPOSE_TASK_RUN_WS,
+        resource=task_name,
+    )
+
+    broadcaster = get_task_log_broadcaster()
+    url = f"/api/sign-tasks/ws/{task_name}?ticket={ticket}&account_name={account_name}"
+    with client.websocket_connect(url) as ws:
+        run_key = StreamKey(
+            account_name=account_name, task_name=task_name, run_id=new_run_id
+        )
+        broadcaster.publish_nowait(
+            run_key,
+            {"type": "logs", "data": ["step 1 log"], "run_id": new_run_id, "seq": 1},
+        )
+
+        msg1 = ws.receive_json()
+        assert msg1["type"] == "logs"
+        assert "step 1 log" in msg1["data"]
+        assert msg1.get("seq") == 1
+
+        svc._set_run_status(account_name, task_name, run_id=new_run_id, state="running")
+
+        broadcaster.publish_nowait(
+            run_key,
+            {"type": "logs", "data": ["step 2 log"], "run_id": new_run_id, "seq": 2},
+        )
+
+        msg2 = ws.receive_json()
+        assert msg2["type"] == "logs"
+        assert "step 2 log" in msg2["data"]
+        assert "step 1 log" not in msg2["data"]
+        assert msg2.get("seq") == 2

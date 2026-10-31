@@ -93,6 +93,7 @@ export function useTaskRunStream(options: {
   // 从 seq=0 全量重放导致已保留的日志重复
   let lastSeq: number | undefined
   let lastRunId: string | undefined
+  const seenRunSeqs = new Set<string>()
 
   const handleSocketFailure = () => {
     if (failureHandled) return
@@ -309,6 +310,7 @@ export function useTaskRunStream(options: {
       liveState.value = runAccount ? 'running' : null
       lastSeq = undefined
       lastRunId = undefined
+      seenRunSeqs.clear()
     }
     isRunning.value = !!runAccount
 
@@ -344,6 +346,23 @@ export function useTaskRunStream(options: {
       try {
         const msg = JSON.parse(event.data)
         applyStatusPayload(msg)
+        const msgRunId = msg.run_id ? String(msg.run_id) : undefined
+        if (msgRunId && lastRunId && msgRunId !== lastRunId) {
+          // 切换到不同的 run_id，重置实时日志和去重集合
+          realtimeLogs.value = []
+          seenRunSeqs.clear()
+        }
+        if (typeof msg.seq === 'number') {
+          const dedupKey = `${msgRunId || ''}:${msg.seq}`
+          if (seenRunSeqs.has(dedupKey)) {
+            return
+          }
+          seenRunSeqs.add(dedupKey)
+          if (seenRunSeqs.size > 5000) {
+            seenRunSeqs.clear()
+            seenRunSeqs.add(dedupKey)
+          }
+        }
         if (msg.type === 'logs' && Array.isArray(msg.data)) {
           realtimeLogs.value.push(...msg.data)
           const overflow = realtimeLogs.value.length - MAX_REALTIME_LOG_LINES
@@ -363,6 +382,7 @@ export function useTaskRunStream(options: {
           backoffDelayMs.value = 0
           lastSeq = undefined
           lastRunId = undefined
+          seenRunSeqs.clear()
           if (!liveState.value || liveState.value === 'running') {
             liveState.value = msg.state || 'finished'
           }
@@ -409,6 +429,9 @@ export function useTaskRunStream(options: {
     isRunning.value = false
     livePhase.value = null
     livePhaseDetail.value = ''
+    lastSeq = undefined
+    lastRunId = undefined
+    seenRunSeqs.clear()
   }
 
   const resetLiveFailure = () => {
@@ -423,6 +446,7 @@ export function useTaskRunStream(options: {
 
   const clearRealtimeLogs = () => {
     realtimeLogs.value = []
+    seenRunSeqs.clear()
   }
 
   // 组件卸载或 effect 作用域注销时自动断开实时流与轮询句柄，防止孤儿连接与内存泄漏

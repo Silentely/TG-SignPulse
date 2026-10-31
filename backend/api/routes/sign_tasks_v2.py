@@ -1013,6 +1013,25 @@ async def sign_task_logs_ws(
         stream_key,
         after_seq=0 if after_seq is None else after_seq,
     )
+    delivered_max_seq: int = 0 if after_seq is None else after_seq
+    delivered_event_ids: set[tuple[str, int]] = set()
+
+    def _is_duplicate_and_track(evt: dict[str, Any]) -> bool:
+        nonlocal delivered_max_seq
+        evt_seq = evt.get("seq")
+        if evt_seq is None:
+            return False
+        evt_run = str(evt.get("run_id") or stream_key.run_id or "")
+        dedup_key = (evt_run, int(evt_seq))
+        if dedup_key in delivered_event_ids:
+            return True
+        delivered_event_ids.add(dedup_key)
+        if len(delivered_event_ids) > 10000:
+            delivered_event_ids.clear()
+            delivered_event_ids.add(dedup_key)
+        if int(evt_seq) > delivered_max_seq:
+            delivered_max_seq = int(evt_seq)
+        return False
 
     # 兜底：广播器历史为空（如被 max_streams 淘汰）时补发内存中的实时日志。
     # 仅在已确定 run_id 时补发，避免把“上一次运行”的遗留 active_logs 当作
@@ -1052,7 +1071,10 @@ async def sign_task_logs_ws(
                         task_name=task_name,
                         run_id=new_run_id,
                     )
-                    queue = broadcaster.subscribe(stream_key, after_seq=0)
+                    queue = broadcaster.subscribe(
+                        stream_key,
+                        after_seq=delivered_max_seq,
+                    )
 
             is_running = get_sign_task_service().is_task_running(
                 task_name,
@@ -1099,6 +1121,8 @@ async def sign_task_logs_ws(
                 continue
 
             seen_activity = True
+            if _is_duplicate_and_track(event):
+                continue
             event_type = event.get("type", "logs")
 
             if event_type == "done":
@@ -1128,6 +1152,8 @@ async def sign_task_logs_ws(
                         except asyncio.QueueFull:
                             pass
                         break
+                    if _is_duplicate_and_track(next_evt):
+                        continue
                     nxt_lines = next_evt.get("data") or (
                         [next_evt.get("text")]
                         if next_evt.get("text") is not None
@@ -1135,6 +1161,9 @@ async def sign_task_logs_ws(
                     )
                     lines.extend(nxt_lines)
                     last_seq = next_evt.get("seq")
+
+                if not lines:
+                    continue
 
                 is_running = get_sign_task_service().is_task_running(
                     task_name,
