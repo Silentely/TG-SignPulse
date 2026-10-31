@@ -444,46 +444,64 @@ class TelegramNodeExecutor:
                 output_text=output_text,
             )
         except Exception as exc:
+            from tg_signer.core.operation_receipts import (
+                OperationAttemptState,
+                current_operation,
+            )
+
+            current_rcpt = current_operation.get()
+            runner_ctx = self.compat.runner_context
+            has_side_effect = (
+                getattr(runner_ctx, "pulseflow_side_effect_started", False) is True
+                or getattr(self.runner, "pulseflow_side_effect_started", False) is True
+                or (
+                    current_rcpt is not None
+                    and current_rcpt.state != OperationAttemptState.NOT_STARTED
+                )
+            )
+
             flood_sec = self._extract_flood_wait_seconds(exc)
             if flood_sec is not None and flood_sec <= 60:
-                self._log(
-                    f"步骤 {node.id} 触发 Telegram FloodWait ({flood_sec}s)，自适应休眠后重试...",
-                    level="WARNING",
-                )
-                await asyncio.sleep(flood_sec + 1)
-                try:
-                    res = await self._runner_wait_for(
-                        self.chat,
-                        exec_action,
-                        step_timeout=step_timeout,
-                        next_action=next_action,
+                if has_side_effect:
+                    self._log(
+                        f"步骤 {node.id} 触发 Telegram FloodWait ({flood_sec}s)，但检测到已产生外部发送副作用或操作已进入执行状态 (receipt={getattr(current_rcpt, 'state', None)})，为避免重复发送拒绝重试: {exc}",
+                        level="WARNING",
                     )
-                    if res is not False:
-                        self.compat.mark_side_effect_started()
-                    matched_term = self.compat.consume_stop_signal()
-                    output_text = self.compat.output_text(res=res, action=exec_action)
-                    if res is not False:
-                        self._log(f"步骤 {node.id} FloodWait 休眠后重试执行成功")
-                        return StepOutcome(
-                            node_id=node.id,
-                            status=NodeStatus.SUCCESS,
-                            matched_terminal=matched_term,
-                            output_text=output_text,
+                else:
+                    self._log(
+                        f"步骤 {node.id} 触发 Telegram FloodWait ({flood_sec}s)，自适应休眠后重试...",
+                        level="WARNING",
+                    )
+                    await asyncio.sleep(flood_sec + 1)
+                    try:
+                        res = await self._runner_wait_for(
+                            self.chat,
+                            exec_action,
+                            step_timeout=step_timeout,
+                            next_action=next_action,
                         )
-                except Exception as retry_exc:
-                    exc = retry_exc
+                        if res is not False:
+                            self.compat.mark_side_effect_started()
+                        matched_term = self.compat.consume_stop_signal()
+                        output_text = self.compat.output_text(
+                            res=res, action=exec_action
+                        )
+                        if res is not False:
+                            self._log(f"步骤 {node.id} FloodWait 休眠后重试执行成功")
+                            return StepOutcome(
+                                node_id=node.id,
+                                status=NodeStatus.SUCCESS,
+                                matched_terminal=matched_term,
+                                output_text=output_text,
+                            )
+                    except Exception as retry_exc:
+                        exc = retry_exc
             else:
                 is_transient_fn = getattr(self.runner, "_is_transient_step_error", None)
-                runner_ctx = self.compat.runner_context
-                has_side_effect = (
-                    getattr(runner_ctx, "pulseflow_side_effect_started", False) is True
-                    or getattr(self.runner, "pulseflow_side_effect_started", False)
-                    is True
-                )
                 if callable(is_transient_fn) and is_transient_fn(exc) is True:
                     if has_side_effect:
                         self._log(
-                            f"步骤 [{node.id}] 发生瞬时错误，但检测到已产生外部发送副作用（pulseflow_side_effect_started=True），为避免重复发送拒绝重新重发动作: {exc}",
+                            f"步骤 [{node.id}] 发生瞬时错误，但检测到已产生外部发送副作用或操作已进入执行状态 (receipt={getattr(current_rcpt, 'state', None)})，为避免重复发送拒绝重新重发动作: {exc}",
                             level="WARNING",
                         )
                     else:

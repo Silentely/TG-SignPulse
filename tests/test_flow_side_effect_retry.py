@@ -124,3 +124,127 @@ async def test_transient_error_does_not_resend_when_side_effect_already_started(
     assert send_attempts == 1, f"Expected 1 send attempt, got {send_attempts}"
     # 断言：产生警告日志明确指出避免重复发送
     assert any("避免重复发送" in log[1] for log in runner.logs)
+
+
+@pytest.mark.asyncio
+async def test_transient_error_does_not_resend_when_receipt_is_attempted():
+    """反例断言：发送前脉冲标记 pulseflow_side_effect_started 为 False，
+    但底层调用 mark_operation_attempted 使得 receipt.state == ATTEMPTED，
+    此后发生瞬时网络异常（如 TimeoutError），adapter 必须依据 receipt 守卫拒绝重试，
+    断言只发送一次，且由 __call__ 包装为 UnknownOperationResult 并标记 receipt 为 UNKNOWN。"""
+    from tg_signer.core.operation_receipts import (
+        OperationAttemptState,
+        UnknownOperationResult,
+        mark_operation_attempted,
+    )
+
+    send_attempts = 0
+
+    class MockSigner:
+        def __init__(self):
+            self.context = SimpleNamespace(pulseflow_side_effect_started=False)
+            self.logs = []
+
+        def _is_transient_step_error(self, exc):
+            return isinstance(exc, TimeoutError)
+
+        def _current_action_step_label(self):
+            return "[Step 1]"
+
+        def log(self, msg, level="INFO"):
+            self.logs.append((level, msg))
+
+        async def wait_for(self, chat, action, next_action=None, step_timeout=None):
+            nonlocal send_attempts
+            send_attempts += 1
+            # 故意不碰 pulseflow_side_effect_started，专门通过 receipt.state = ATTEMPTED 模拟
+            mark_operation_attempted()
+            raise TimeoutError("Request sent but connection timed out")
+
+    runner = MockSigner()
+    chat = SignChatV3(chat_id=123, actions=[SendTextAction(text="hello")])
+    graph = ExecutionGraph(
+        entry_node_id="send",
+        nodes={
+            "send": ActionNode(
+                id="send",
+                action_type="SEND_TEXT",
+                params={"text": "hello"},
+                retry_policy=RetryPolicy(max_attempts=1),
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+    executor = TelegramNodeExecutor(runner, chat, graph)
+
+    with pytest.raises(UnknownOperationResult) as exc_info:
+        await executor(graph.nodes["send"], ctx)
+
+    # 1. 断言：没有发生第 2 次重试
+    assert send_attempts == 1
+    # 2. 断言：产生了拒绝重发的日志
+    assert any("为避免重复发送拒绝重新重发动作" in log[1] for log in runner.logs)
+    # 3. 断言：receipt 被置为 UNKNOWN
+    assert ctx.operation_receipts[-1].state == OperationAttemptState.UNKNOWN
+    assert "External operation result is unknown" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_flood_wait_does_not_resend_when_receipt_is_attempted():
+    """反例断言：在执行过程中 receipt 进入 ATTEMPTED 状态后抛出 FloodWait，
+    adapter 同样必须依据 receipt 守卫拒绝重试，断言只发送一次。"""
+    from tg_signer.core.operation_receipts import (
+        OperationAttemptState,
+        UnknownOperationResult,
+        mark_operation_attempted,
+    )
+
+    class FakeFloodWait(Exception):
+        def __init__(self, value=5):
+            self.value = value
+            super().__init__(f"A wait of {value} seconds is required")
+
+    send_attempts = 0
+
+    class MockSigner:
+        def __init__(self):
+            self.context = SimpleNamespace(pulseflow_side_effect_started=False)
+            self.logs = []
+
+        def _current_action_step_label(self):
+            return "[Step 1]"
+
+        def log(self, msg, level="INFO"):
+            self.logs.append((level, msg))
+
+        async def wait_for(self, chat, action, next_action=None, step_timeout=None):
+            nonlocal send_attempts
+            send_attempts += 1
+            mark_operation_attempted()
+            raise FakeFloodWait(5)
+
+    runner = MockSigner()
+    chat = SignChatV3(chat_id=123, actions=[SendTextAction(text="hello")])
+    graph = ExecutionGraph(
+        entry_node_id="send",
+        nodes={
+            "send": ActionNode(
+                id="send",
+                action_type="SEND_TEXT",
+                params={"text": "hello"},
+                retry_policy=RetryPolicy(max_attempts=1),
+            )
+        },
+    )
+    ctx = ScopedFlowContext()
+    executor = TelegramNodeExecutor(runner, chat, graph)
+
+    with pytest.raises(UnknownOperationResult):
+        await executor(graph.nodes["send"], ctx)
+
+    assert send_attempts == 1
+    assert any(
+        "FloodWait" in log[1] and "为避免重复发送拒绝重试" in log[1]
+        for log in runner.logs
+    )
+    assert ctx.operation_receipts[-1].state == OperationAttemptState.UNKNOWN
