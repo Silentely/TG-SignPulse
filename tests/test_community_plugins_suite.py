@@ -52,18 +52,6 @@ def _discover_plugin_dirs() -> list[Path]:
     )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _adjust_coverage_fail_under(pytestconfig):
-    """Allow single-suite test execution without triggering repository-wide fail-under coverage."""
-    cov = pytestconfig.pluginmanager.get_plugin("_cov")
-    if cov:
-        cov.options.cov_fail_under = 0
-        if hasattr(cov, "cov_controller") and cov.cov_controller:
-            cov.cov_controller.cov.config.fail_under = 0
-            if hasattr(cov.cov_controller, "combining_cov"):
-                cov.cov_controller.combining_cov.config.fail_under = 0
-
-
 @pytest.fixture(scope="module")
 def schema_manifest() -> dict:
     """Load JSON Schema definition for community plugins."""
