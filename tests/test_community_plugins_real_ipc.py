@@ -310,3 +310,124 @@ async def test_real_subprocess_worker_reconstructs_typed_exceptions():
         assert check_fn(exc_info.value), (
             f"Check failed for {plugin_name}: {exc_info.value}"
         )
+
+
+@pytest.mark.asyncio
+async def test_production_runtime_path_propagates_typed_exceptions_and_marks_attempted_receipt_unknown():
+    """生产路径端到端测试（不使用测试替身，使用默认 SubprocessPluginAdapter）：
+    构造真实子进程分别抛出 flood_wait / permission_denied / IPC断开 三种情况，
+    断言 signer_actions 拿到的是对应的 typed 异常（isinstance），
+    并且 ATTEMPTED 状态的 receipt 在 flow_adapter 中会被置为 UNKNOWN。
+    """
+    from tg_signer.config import PluginAction, SignChatV3
+    from tg_signer.core.flow_adapter import TelegramNodeExecutor
+    from tg_signer.core.flow_context import ScopedFlowContext
+    from tg_signer.core.flow_models import ActionNode, ExecutionGraph, RetryPolicy
+    from tg_signer.core.operation_receipts import (
+        OperationAttemptState,
+        UnknownOperationResult,
+        mark_operation_attempted,
+    )
+    from tg_signer.core.plugin_runtime import (
+        SubprocessPluginAdapter,
+        get_plugin_runtime,
+    )
+    from tg_signer.core.signer_actions import SignerActionsMixin
+
+    # 1. 确保生产默认运行时为 SubprocessPluginAdapter
+    runtime = get_plugin_runtime()
+    assert isinstance(runtime, SubprocessPluginAdapter)
+
+    cases = [
+        ("real_ipc_flood_wait", PluginFloodWaitError, lambda exc: exc.seconds == 42),
+        (
+            "real_ipc_permission_denied",
+            PluginPermissionDeniedError,
+            lambda exc: "PLUGIN_CAPABILITY_DENIED" in str(exc),
+        ),
+        (
+            "real_ipc_disconnected_err",
+            PluginConnectionResetError,
+            lambda exc: "terminated" in str(exc),
+        ),
+    ]
+
+    class ProductionSigner(SignerActionsMixin):
+        def __init__(self):
+            self.app = MagicMock()
+            self.app.send_chat_action = AsyncMock(return_value=True)
+            self.log_entries = []
+            self.context = MagicMock()
+            self.context.chat_messages = {}
+            self.context.waiting_message = None
+            self.context.last_callback_answer = None
+
+        def log(self, msg, level="INFO"):
+            self.log_entries.append((level, msg))
+
+        def _message_matches_chat_thread(self, message, chat):
+            return True
+
+        def _message_is_actionable_target(self, message):
+            return True
+
+        def _log_received_target_message(self, message):
+            pass
+
+        def _describe_action(self, action):
+            return str(action)
+
+        def _current_action_step_label(self):
+            return "第 1 步"
+
+        async def wait_for(self, chat, action, next_action=None, step_timeout=None):
+            # 标记 operation receipt 进入 ATTEMPTED 状态，模拟执行过程中发生副作用/已发起调用
+            mark_operation_attempted()
+            # 走真实生产路径的 _dispatch_reactive_plugin_message
+            mock_msg = MagicMock()
+            mock_msg.text = "test_trigger"
+            return await self._dispatch_reactive_plugin_message(
+                action, chat, mock_msg, eff_timeout=5.0
+            )
+
+    for plugin_name, expected_cls, check_fn in cases:
+        action = PluginAction(plugin_name=plugin_name, mode="reactive")
+        chat = SignChatV3(chat_id=12345, actions=[action])
+        signer = ProductionSigner()
+
+        # 直接调用 signer._dispatch_reactive_plugin_message：断言抛出 typed 异常（严格 isinstance）
+        mock_msg = MagicMock()
+        mock_msg.text = "trigger"
+        with pytest.raises(expected_cls) as exc_info:
+            await signer._dispatch_reactive_plugin_message(
+                action, chat, mock_msg, eff_timeout=5.0
+            )
+        assert isinstance(exc_info.value, expected_cls)
+        assert check_fn(exc_info.value)
+
+        # 结合 flow_adapter 运行：在 ATTEMPTED 状态下抛出 typed 异常，断言转为 UnknownOperationResult 且 receipt.state == UNKNOWN
+        graph = ExecutionGraph(
+            entry_node_id="act",
+            nodes={
+                "act": ActionNode(
+                    id="act",
+                    action_type="CUSTOM_PLUGIN",
+                    params={"plugin_name": plugin_name, "mode": "reactive"},
+                    retry_policy=RetryPolicy(max_attempts=1),
+                )
+            },
+        )
+        ctx = ScopedFlowContext()
+        executor = TelegramNodeExecutor(signer, chat, graph)
+
+        with pytest.raises(UnknownOperationResult) as unk_info:
+            await executor(graph.nodes["act"], ctx)
+
+        # 确认引起 UnknownOperationResult 的原因就是我们抛出的 typed 异常
+        cause = unk_info.value.__cause__
+        assert isinstance(cause, expected_cls)
+        assert check_fn(cause)
+
+        # 核心断言：ATTEMPTED 状态的 receipt 必须转为 UNKNOWN
+        assert len(ctx.operation_receipts) >= 1
+        assert ctx.operation_receipts[-1].state == OperationAttemptState.UNKNOWN

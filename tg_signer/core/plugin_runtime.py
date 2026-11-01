@@ -251,6 +251,7 @@ class SubprocessPluginAdapter(PluginRuntime):
                 or f"Plugin '{plugin_name}' timed out after {effective_timeout}s",
                 execution_time=duration,
                 is_timeout=True,
+                exception=exc,
             )
         except asyncio.CancelledError:
             # 外部协程被取消时，子进程已在 host 终结，保留协程取消语义
@@ -263,6 +264,7 @@ class SubprocessPluginAdapter(PluginRuntime):
                 logs=captured_logs,
                 error=str(exc),
                 execution_time=duration,
+                exception=exc,
             )
 
     @staticmethod
