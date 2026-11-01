@@ -52,6 +52,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.5.0",
     "pytest-timeout>=2.2.0",
+    "jsonschema>=4.0.0",
 ]
 speedup = [
     "tgcrypto"

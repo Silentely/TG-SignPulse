@@ -12,7 +12,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import jsonschema
 import pytest
 from packaging.version import Version
 
@@ -22,6 +21,8 @@ from tg_signer.core.plugins import (
     PluginRegistry,
     audit_plugin_source,
 )
+
+jsonschema = pytest.importorskip("jsonschema")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMMUNITY_PLUGINS_DIR = REPO_ROOT / "community_plugins"
