@@ -163,6 +163,7 @@ git_show_head*.txt
 
 # agent
 .claude
+skills/
 .omx
 .omc
 .ace-tool/
