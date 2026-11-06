@@ -40,4 +40,59 @@ test.describe('Plugins Center & Legacy Redirects', () => {
     });
   });
 
+  test('should filter plugins list via search query', async ({ page }) => {
+    await page.goto('/plugins');
+    await expect(page).toHaveURL(/.*\/plugins/);
+
+    const searchInput = page.getByPlaceholder(/(搜索插件名称|Search plugin name)/i);
+    await expect(searchInput).toBeVisible();
+
+    await test.step('Filter by math_solver keyword', async () => {
+      await searchInput.fill('math_solver');
+      await expect(page.getByText('math_solver').first()).toBeVisible();
+      await expect(page.getByText('daily_checkin_helper')).toBeHidden();
+    });
+
+    await test.step('Clear search keyword and verify all plugins restored', async () => {
+      await searchInput.fill('');
+      await expect(page.getByText('math_solver').first()).toBeVisible();
+      await expect(page.getByText('daily_checkin_helper').first()).toBeVisible();
+    });
+  });
+
+  test('should open plugin source modal and dismiss', async ({ page }) => {
+    await page.goto('/plugins');
+    await expect(page).toHaveURL(/.*\/plugins/);
+
+    await test.step('Open source code modal from plugin card', async () => {
+      const sourceBtn = page.getByRole('button', { name: /(查看源码|View Source)/i }).first();
+      await expect(sourceBtn).toBeVisible();
+      await sourceBtn.click();
+
+      const sourceModal = page.getByRole('dialog');
+      await expect(sourceModal).toBeVisible();
+      await expect(sourceModal.getByText(/(插件源码查看|Plugin Source Code)/i)).toBeVisible();
+
+      await page.keyboard.press('Escape');
+      await expect(sourceModal).toBeHidden();
+    });
+  });
+
+  test('should support deep-link query to open plugin debug playground', async ({ page }) => {
+    await page.goto('/plugins?testPlugin=math_solver&testInput=2%2B2%3D%3F');
+    await expect(page).toHaveURL(/.*\/plugins/);
+
+    await test.step('Verify test playground modal auto-opened by query param', async () => {
+      const playgroundModal = page.getByRole('dialog');
+      await expect(playgroundModal).toBeVisible();
+      await expect(playgroundModal.getByText(/(插件调试|Plugin Debugger)/i)).toBeVisible();
+
+      const testInput = playgroundModal.locator('textarea');
+      await expect(testInput).toHaveValue('2+2=?');
+
+      await page.keyboard.press('Escape');
+      await expect(playgroundModal).toBeHidden();
+    });
+  });
+
 });

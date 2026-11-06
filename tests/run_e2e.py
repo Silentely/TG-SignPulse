@@ -17,7 +17,7 @@ def cleanup_data_dir():
     TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def wait_for_url(url: str, timeout: float = 20.0) -> bool:
+def wait_for_url(url: str, timeout: float = 45.0) -> bool:
     start = time.time()
     while time.time() - start < timeout:
         try:
@@ -88,12 +88,12 @@ def main():
     success = False
     try:
         print("⏳ 等待后端健康检查 (http://127.0.0.1:8080/health)...")
-        if not wait_for_url("http://127.0.0.1:8080/health", timeout=20.0):
+        if not wait_for_url("http://127.0.0.1:8080/health", timeout=45.0):
             raise RuntimeError("后端服务启动超时")
         print("✅ 后端服务已就绪")
 
         print("⏳ 等待前端 Vite 服务 (http://127.0.0.1:5173/)...")
-        if not wait_for_url("http://127.0.0.1:5173/", timeout=20.0):
+        if not wait_for_url("http://127.0.0.1:5173/", timeout=30.0):
             raise RuntimeError("前端服务启动超时")
         print("✅ 前端服务已就绪")
 
