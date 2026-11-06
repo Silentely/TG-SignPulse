@@ -13,7 +13,7 @@
    复制 `community_plugins/_template` 目录并重命名为你自己的插件唯一标识（如 `community_plugins/my_custom_tool/`）。
    - 插件标识必须为 3-32 位小写字母、数字或下划线（正则：`^[a-z0-9_]{3,32}$`）。
 3. **完善元数据 (`plugin.json`)**：
-   根据 [`schema.json`](./schema.json) 补齐你的插件名称、作者、版本、模式、分类及参数定义。
+   根据 [`schema.json`](./schema.json) 补齐你的插件名称、作者、版本、模式、分类及参数定义（注意：社区插件必须声明 `"context_version": 2` 与 `"plugin_api": "2.0"`）。
 4. **编写核心代码 (`main.py`)**：
    实现处理函数并使用 `@PluginRegistry.register` 完成注册。
 5. **编写插件文档 (`README.md`)**：
@@ -54,6 +54,8 @@ community_plugins/
   "icon": "sparkles",
   "tags": ["example", "demo"],
   "min_app_version": "1.8.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
   "permissions": ["storage", "telegram_send"],
   "params_schema": [
     {
@@ -74,6 +76,20 @@ community_plugins/
 - `captcha`：验证码秒答与挑战辅助
 - `helper`：签到辅助与状态跟踪
 - `entertainment`：互动娱乐（抽签、掷骰子、成语接龙）
+
+### 权限 (Permissions) 取值
+按需在 `permissions` 数组中声明插件所需能力：
+- `network`：允许发起外部 HTTP/HTTPS 网络请求
+- `storage`：允许读写当前会话/账号隔离存储（`ctx.storage`）
+- `global_storage`：允许读写全局插件持久化存储（`ctx.global_storage`）
+- `telegram_read`：允许读取 Telegram 消息与会话历史（`read_chat_history`、`get_messages`）
+- `telegram_send`：允许向 Telegram 发送文本、图片或文档
+- `message_read`：允许读取触发事件消息内容
+- `message_write`：允许编辑、删除、转发消息或置顶消息
+- `chat_action`：允许发送 Telegram 正在输入/正在阅读等动作状态（`send_chat_action`）
+- `cron`：允许配置定时调度触发
+- `buttons`：允许解析并模拟点击 Telegram 内联键盘按钮（`ctx.click`）
+- `reactions`：允许为消息添加表情表态（`ctx.react`）
 
 ---
 

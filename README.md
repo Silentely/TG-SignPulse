@@ -52,7 +52,7 @@ TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页中管
 | **动作流与 AI 验证配置**<br>· 拖拽式编排动作序列：文本指令、内联按钮点击<br>· AI 视觉集成：OCR 识别、算术题推理与自动点按<br>· 单步重试、容错跳过与延迟间隔细粒度调控 | <a href="docs/public/screenshots/task-editor.png"><img src="docs/public/screenshots/task-editor.png" width="560" alt="动作流与 AI 验证配置"></a> |
 | **多账号管理与设备指纹**<br>· 多账号会话统一维护，网络延迟与心跳监控<br>· 独立 SOCKS5/HTTP 代理绑定与出口 IP 校验<br>· 设备指纹伪装（macOS / Android / Windows）与批量巡检 | <a href="docs/public/screenshots/accounts.png"><img src="docs/public/screenshots/accounts.png" width="560" alt="多账号管理与设备指纹"></a> |
 | **快捷扫码与会话导入**<br>· 官方二维码一键扫码登录，免输入手机号<br>· 支持 Telethon / Pyrogram `.session` 与 StringSession 免收码导入<br>· 密码 2FA 二次校验与会话有效性即时检测 | <a href="docs/public/screenshots/account-modal.png"><img src="docs/public/screenshots/account-modal.png" width="560" alt="快捷扫码与会话导入"></a> |
-| **实时运行日志与可观测**<br>· SSE 实时流式日志推送，毫秒级状态同步<br>· 11 类细粒度失败分类与自动排障建议<br>· 支持按账号、任务、时间范围快速检索与一键导出 | <a href="docs/public/screenshots/logs.png"><img src="docs/public/screenshots/logs.png" width="560" alt="实时运行日志与可观测"></a> |
+| **实时运行日志与可观测**<br>· SSE 实时流式日志推送，毫秒级状态同步<br>· 15 类细粒度失败分类与自动排障建议<br>· 支持按账号、任务、时间范围快速检索与一键导出 | <a href="docs/public/screenshots/logs.png"><img src="docs/public/screenshots/logs.png" width="560" alt="实时运行日志与可观测"></a> |
 | **系统设置与 WebDAV 灾备**<br>· 多渠道通知矩阵（Telegram Bot、飞书、钉钉、Discord）<br>· 坚果云 / Nextcloud 自动加密灾备（`.spbak` 格式）<br>· 全局调度并发、防风控静默时段与 API 参数热更新 | <a href="docs/public/screenshots/settings.png"><img src="docs/public/screenshots/settings.png" width="560" alt="系统设置与 WebDAV 灾备"></a> |
 | **PWA 移动端自适应**<br>· 原生级移动端流式布局，完美适配手机触摸屏<br>· 支持添加至主屏幕（PWA），随时随地查看看板与启停任务 | <p align="center"><a href="docs/public/screenshots/mobile.png"><img src="docs/public/screenshots/mobile.png" width="280" alt="PWA 移动端自适应"></a></p> |
 

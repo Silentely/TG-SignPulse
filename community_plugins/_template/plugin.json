@@ -10,6 +10,8 @@
   "icon": "puzzle",
   "tags": ["custom", "starter"],
   "min_app_version": "1.8.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
   "permissions": ["storage"],
   "params_schema": [
     {

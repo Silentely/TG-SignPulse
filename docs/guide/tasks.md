@@ -48,8 +48,13 @@
 | `target_not_found` | 目标未找到 | 目标群组/频道/机器人不存在、无访问权限或已被封禁 |
 | `network_proxy` | 网络/代理 | 代理不可达、网络连接中断或 DNS 解析失败 |
 | `timeout` | 超时 | 任务整体执行超时或协程等待超时 |
+| `reply_timeout` | 等待回复超时 | 等待机器人消息回复超时 |
+| `retry_exhausted` | 关键词重试耗尽 | 遇到关键词重试提示且重试次数达到上限 |
 | `strong_failure` | 业务失败 | 消息文本明确包含签到失败、操作异常等业务错误语义 |
 | `task_loop_exceeded` | 工作流循环熔断 | 工作流 DAG 步数达到全局上限、循环次数超限或触发非法环路 |
+| `semantic_review_required` | 语义人工审查 | JEV 语义决策判断置信度不足或需人工复核 |
+| `semantic_stop_requested` | 语义终止请求 | JEV 语义决策要求中止后续动作执行 |
+| `other` | 其他 | 其他已知但非上述专类的异常错误 |
 | `unknown` | 未知失败 | 未命中上述规则的其他异常 |
 
 相关 API：

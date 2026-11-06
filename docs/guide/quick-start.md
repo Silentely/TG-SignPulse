@@ -15,7 +15,7 @@
 
 | 环境 | 镜像 |
 |------|------|
-| 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.3.0` |
+| 生产 | `ghcr.io/silentely/tg-signpulse:latest` 或 `ghcr.io/silentely/tg-signpulse:v2.7.0` |
 | 稳定主干 | `ghcr.io/silentely/tg-signpulse:main` 或 `…:main-<sha>` |
 | 预发/开发 | `ghcr.io/silentely/tg-signpulse:dev` |
 

@@ -23,12 +23,13 @@
 
 ## 元数据与版本规范
 
-系统支持声明版本、更新日期与作者信息（优先读取装饰器参数与模块级全局变量；未声明时版本缺省为 `1.0.0`，更新日期自动回退为文件最后修改时间 `mtime`）：
+系统支持声明版本、更新日期、作者与权限信息。除官方白名单内置插件外，所有自定义插件均通过安全门禁强制要求声明 Context v2 规范（未声明时版本缺省为 `1.0.0`，更新日期自动回退为文件最后修改时间 `mtime`）：
 
 ```python
 VERSION = "1.0.0"
 UPDATED_AT = "2026-09-11"
-AUTHOR = "TG-SignPulse Team"
+AUTHOR = "Developer"
+PERMISSIONS = ["storage", "message_write"]
 
 @PluginRegistry.register(
     name="my_plugin",
@@ -37,6 +38,10 @@ AUTHOR = "TG-SignPulse Team"
     version=VERSION,
     updated_at=UPDATED_AT,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
+    permissions=PERMISSIONS,
     params_schema=[...],
 )
 ```
@@ -70,9 +75,9 @@ TG-SignPulse 随包提供了丰富的开箱即用官方插件，用户可在前�
   - **模式**：`active`
   - **参数**：`webhook_url`（必填，HTTP/HTTPS Webhook 目标地址），`auth_token`（可选，Bearer 鉴权令牌），`custom_message`（可选，附加通知附言）。
 
-详细插件开发指南与 API 说明请查阅：[TG-SignPulse 官方文档 - 自定义 Action 插件扩展机制](../docs/guide/plugins.md)。
-
 - **[`stock_sniper`](./stock_sniper/main.py)**：
   Telegram 商店机器人商品库存监控与补货秒杀助手。智能解析商店内联键盘菜单中的商品按钮，监控售罄标识（如 `Sold out`）；支持状态反转防骚扰告警（缺货变有货时才通知）、多渠道 Webhook / Bark 报警，以及可选的自动模拟点击抢购。
   - **模式**：`reactive`
   - **参数**：`target_keyword`（商品关键词，如 `31B Token`），`sold_out_tag`（售罄标识，如 `Sold out`），`notify_webhook`（可选告警通知 URL），`auto_checkout`（可选是否自动点击抢购）。
+
+详细插件开发指南与 API 说明请查阅：[TG-SignPulse 官方文档 - 自定义 Action 插件扩展机制](../docs/guide/plugins.md)。

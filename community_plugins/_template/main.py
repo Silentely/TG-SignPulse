@@ -14,6 +14,10 @@ AUTHOR = "Contributor"
     description="简要描述此插件的功能与特性",
     version=VERSION,
     author=AUTHOR,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="1.0.0",
+    permissions=["storage"],
     params_schema=[
         {
             "name": "example_param",

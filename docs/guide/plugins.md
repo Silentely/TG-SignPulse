@@ -62,7 +62,7 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
    - **上下文初始化**：宿主将插件名称、源码路径、当前 Telegram 消息摘要（`message`）、会话 ID（`chat_id`）及自定义参数（`params`）通过子进程 `stdin` 发送；
    - **双向透明代理**：
      - **日志实时透传 (`type: "log"`)**：Worker 内通过 `ctx.log()` 输出的各级别日志实时回传至宿主，并无缝归档到账号运行日志与前端 SSE 流；子进程内代码的普通 `print` 输出会被捕获为调试日志，不会破坏 IPC 管道数据；
-     - **RPC 逆向调用 (`type: "call"`)**：当插件调用 `await ctx.reply()`、`await ctx.send_message()`、`await ctx.click()`、`await ctx.react()`、`await ctx.edit_message()` 或 `await ctx.delete_message()` 时，Worker 发送 RPC 请求至宿主，宿主在真实的 Pyrogram 客户端会话上下文中执行真正的 Telegram 网络请求，并将消息模型序列化后响应给 Worker；
+     - **RPC 逆向调用 (`type: "call"`)**：当插件调用 `await ctx.reply()`、`await ctx.send_message()`、`await ctx.click()`、`await ctx.react()`、`await ctx.send_chat_action()`、`await ctx.read_chat_history()` 等方法时，Worker 发送 RPC 请求至宿主，宿主在真实的 Pyrogram 客户端会话上下文中执行真正的 Telegram 网络请求，并将消息模型序列化后响应给 Worker；
      - **执行结果交付 (`type: "return"`)**：插件函数执行完成并返回布尔值结果，宿主接收后完成本次动作调度。
 3. **超时硬终止（Hard Kill）与彻底回收**：
    - 传统方案痛点：在单一进程线程池模型下，`asyncio.wait_for` 超时只能放弃等待协程，底层运行在线程中的同步死循环（如 `while True: pass`）依然占用 CPU 与 Python GIL，无法强制中断，最终拖垮整个主服务。
@@ -111,14 +111,15 @@ plugins/
 
 ### 1. 注册装饰器与元数据声明
 
-使用 `@PluginRegistry.register` 装饰器注册插件处理函数：
+除 6 款官方历史内置白名单插件外，所有第三方及自定义扩展插件均受安全门禁约束，必须显式声明 **Context v2** 规范（`context_version=2`、`plugin_api="2.0"` 与 `permissions` 权限数组）：
 
 ```python
 from tg_signer.core.plugins import PluginContext, PluginRegistry
 
 VERSION = "1.0.0"
-UPDATED_AT = "2026-09-11"
+UPDATED_AT = "2026-11-06"
 AUTHOR = "Developer"
+PERMISSIONS = ["storage", "message_write"]
 
 @PluginRegistry.register(
     name="my_plugin",         # 插件唯一标识名（与任务配置中的 plugin_name 一致）
@@ -127,6 +128,10 @@ AUTHOR = "Developer"
     version=VERSION,          # 版本号（默认 1.0.0）
     updated_at=UPDATED_AT,    # 更新日期（未填自动读取文件修改日期 mtime）
     author=AUTHOR,            # 开发者署名
+    context_version=2,        # 必须显式声明为 2，启用严格能力沙箱控制
+    plugin_api="2.0",         # 插件运行时契约版本（当前标准为 2.0）
+    min_app_version="1.0.0",  # 最低支持的 TG-SignPulse 版本
+    permissions=PERMISSIONS,  # 声明所需能力清单
     params_schema=[...],      # 可选：前端动态参数表单 Schema
 )
 async def my_handler(ctx: PluginContext) -> bool:
@@ -139,25 +144,35 @@ async def my_handler(ctx: PluginContext) -> bool:
 | 模式 | 适用场景 | 触发时机 | 返回值约定 |
 | :--- | :--- | :--- | :--- |
 | **`reactive`（监听响应）** | 验证码秒答、Bot 挑战问题应答、表情表态 | 收到目标会话推送的新消息时触发；若未及时收到，超时前会自动从最近历史消息中回退重试 | 返回 `True` 表示命中并应答完毕，流程推进到下一步；返回 `False` 表示非目标消息，继续等待下条消息 |
-| **`active`（主动执行）** | 主动发起请求、调用外部 API / Webhook、本地状态统计 | 任务流水线调度到该动作时立即调用一次 | 返回 `True` / 非 False 表示执行成功；返回 `False` 表示执行失败 |
+| **`active`（主动执行）** | 主动发起请求、调用外部 API / Webhook、本地状态统计、前置模拟 | 任务流水线调度到该动作时立即调用一次 | 返回 `True` / 非 False 表示执行成功；返回 `False` 表示执行失败 |
 
 ### 3. `PluginContext` 运行时 API
 
 插件函数的唯一入参为 `ctx: PluginContext`，提供以下完整上下文能力：
 
-| 属性 / 方法 | 说明 |
-| :--- | :--- |
-| `ctx.message` | 当前收到的 Telegram 消息对象（`pyrogram.types.Message`）。包含 `text`、`photo`、`id` 等。 |
-| `ctx.chat_id` | 当前会话 ID（`int`）。 |
-| `ctx.params` | 任务配置中透传的自定义参数字典（`dict`）。 |
-| `await ctx.reply(text: str, **kwargs)` | 快捷引用当前消息进行回复，自动继承会话重试与 FloodWait 退避。 |
-| `await ctx.send_message(text: str, **kwargs)` | 向当前会话主动发送新文本消息。 |
-| `await ctx.click(text_or_index: str \| int, **kwargs)` | 点击当前消息上的内联按钮。 |
-| `await ctx.react(emoji: str)` | 为当前消息打上 Telegram Emoji 表态（如 👍/🎉）。 |
-| `await ctx.edit_message(text: str, message_id: Optional[int] = None, **kwargs)` | 编辑指定消息内容（默认编辑当前上下文触发的消息）。 |
-| `await ctx.delete_message(message_id: Optional[int] = None, **kwargs)` | 删除指定消息（默认删除当前上下文触发的消息）。 |
-| `ctx.storage` | 针对当前插件隔离的键值存储引擎（`get` / `set` / `increment`）。 |
-| `ctx.log(msg: str, level="INFO")` | 记录日志，自动打通至账户运行日志、Web 调试窗口及前端 SSE 实时流。 |
+| 属性 / 方法 | 说明 | 所需权限 |
+| :--- | :--- | :--- |
+| `ctx.message` | 当前收到的 Telegram 消息对象（`pyrogram.types.Message`）。包含 `text`、`photo`、`id` 等。 | `message_read` |
+| `ctx.chat_id` | 当前会话 ID（`int`）。 | 无 |
+| `ctx.params` | 任务配置中透传的自定义参数字典（`dict`）。 | 无 |
+| `await ctx.reply(text: str, **kwargs)` | 快捷引用当前消息进行回复，自动继承会话重试与 FloodWait 退避。 | `message_write` 或 `telegram_send` |
+| `await ctx.send_message(text: str, **kwargs)` | 向当前会话主动发送新文本消息。 | `telegram_send` |
+| `await ctx.click(text_or_index: str \| int, **kwargs)` | 点击当前消息上的内联键盘按钮。 | `buttons` |
+| `await ctx.react(emoji: str, message_id=None)` | 为指定消息打上 Telegram Emoji 表态（如 👍/🎉）。 | `reactions` |
+| `await ctx.edit_message(text: str, message_id=None)` | 编辑指定消息内容（默认编辑当前上下文触发的消息）。 | `message_write` |
+| `await ctx.delete_message(message_id=None)` | 删除指定消息（默认删除当前上下文触发的消息）。 | `message_write` |
+| `await ctx.send_chat_action(action="typing")` | 广播 Telegram 交互状态（如 `typing` 正在输入）。 | `chat_action` |
+| `await ctx.read_chat_history(max_id=0)` | 标记会话已读，主动消除客户端未读红点。 | `telegram_read` |
+| `await ctx.send_photo(photo, caption=None)` | 发送图片文件或 bytes 数据至当前会话。 | `telegram_send` |
+| `await ctx.send_document(document, caption=None)` | 发送文档文件或二进制数据。 | `telegram_send` |
+| `await ctx.pin_message(message_id=None)` | 置顶当前或指定消息。 | `message_write` |
+| `await ctx.unpin_message(message_id=None)` | 取消置顶当前或指定消息。 | `message_write` |
+| `await ctx.get_messages(message_ids)` | 获取单条或批量历史消息对象。 | `telegram_read` |
+| `await ctx.forward_messages(chat_id, from_chat_id, message_ids)` | 跨会话转发消息。 | `message_write` |
+| `ctx.storage` | 针对当前插件与会话隔离的持久化键值存储（`get` / `set` / `increment`）。 | `storage` |
+| `ctx.global_storage` | 全局跨账号与跨任务共享的插件持久化存储。 | `global_storage` |
+| `ctx.storage_for(scope)` | 按作用域获取存储客户端（支持 `"chat"`、`"account"`、`"task"`、`"global"`）。 | `storage` |
+| `ctx.log(msg: str, level="INFO")` | 记录日志，自动打通至账户运行日志、Web 调试窗口及前端 SSE 实时流。 | 无 |
 
 ---
 
@@ -213,28 +228,46 @@ TG-SignPulse 官方预置了 6 个经过严格单测与实战验证的生产级�
 
 ---
 
+## 社区插件市场精选库 (Marketplace)
+
+除内置插件外，官方维护了社区插件市场（位于 `community_plugins/` 目录），提供经过静态安全审计的即插即用扩展。可在 Web 界面 **扩展插件** → **插件市场** 标签页一键安装：
+
+| 插件标识 | 名称 | 模式 | 分类 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| **`auto_read_marker`** | 会话智能已读标记器 | `active` | 消息编排 | 在签到前主动清除未读红点，还原真人点击会话并阅读的自然行为 |
+| **`bing_daily_quote`** | 必应每日一图与名言 | `active` | 实用工具 | 获取必应每日一图背景故事与格言，发送晨安图文消息 |
+| **`chat_cleaner`** | 会话消息自动清理器 | `active` | 实用工具 | 定期批量检索并静默删除会话历史消息，保护隐私不留痕迹 |
+| **`checkin_observer`** | 签到状态探测与指标记录 | `reactive` | 签到辅助 | 深度解析打卡机器人回执内容，沉淀连续签到天数与积分趋势 |
+| **`crypto_price_tracker`** | 主流加密货币即时行情 | `active` | 通知推送 | 聚合主流交易所公开行情接口，定时推送行情变动卡片 |
+| **`dice_roller`** | 幸运大转盘与随机掷骰 | `active` | 互动娱乐 | 发送 Telegram 官方原生动画表情（🎲/🎯/🎳）并判定点数 |
+| **`jitter_delay`** | 拟人化毫秒随机抖动延迟 | `active` | 实用工具 | 在关键步骤间插入拟人化微量耗时，打散机械化调用规律 |
+| **`typing_simulator`** | 拟人化正在输入状态模拟 | `active` | 实用工具 | 在发送消息或点击前广播 typing 状态，最大程度降低风控风险 |
+
+开发者欢迎向官方仓库的 `dev` 分支提交 PR 贡献插件，详细指引参见：[TG-SignPulse 社区插件贡献指南](https://github.com/Silentely/TG-SignPulse/blob/dev/community_plugins/README.md)。
+
+---
+
 ## Web 界面全生命周期管理
 
 进入 Web 管理面板侧边栏 **扩展插件**，即可体验完整的插件开发与维护中心：
 
-1. **元数据与状态可视化**：
+1. **已安装插件与市场双标签**：
+   - 顶部提供「已安装插件」与「插件市场」标签切换。在插件市场中可按分类检索、查看详情，一键拉取安装与热更新。
+2. **元数据与状态可视化**：
    - 直观展示每个插件的运行模式（`reactive` / `active`）、版本徽章（`v1.0.0`）、更新日期、开发者署名及启停状态。
-2. **在线「新建插件」**：
+3. **在线「新建插件」**：
    - 点击右上角 **新建插件**，选择基础模板（响应式监听、主动执行型、状态计数型），一键在 `/data/plugins` 生成插件脚手架代码。
-3. **安全「查看源码」**：
-   - 点击任意插件卡片上的 **查看源码**，即可在只读高亮模式下查看当前代码，并支持一键复制。
-4. **安全「删除」**：
+4. **安全「查看源码」与代码编辑**：
+   - 点击任意插件卡片上的 **查看源码**，即可在只读高亮模式下查看当前代码，并支持一键复制；对于自定义插件还支持代码编辑与语法校验。
+5. **安全「删除」**：
    - 自定义插件卡片提供 **删除** 按钮，二次确认后安全物理删除对应目录或文件；官方内置插件受内核保护，禁止删除。
-5. **免打卡「调试」**：
+6. **免打卡「调试」**：
    - 点击插件右侧的 **调试** 按钮，输入模拟文本即可实时观察匹配结果、回复内容、Reaction 表态以及运行日志，秒级验证业务逻辑。
-   - 调试执行的持久化存储与重置均作用于独立的测试命名空间（`__test__:{chat_id}:{插件名}`），与生产持久化数据（`{chat_id}:{插件名}`）完全隔离，调试不会污染线上状态。
+   - 调试执行的持久化存储与重置均作用于独立的测试命名空间（`__test__:{chat_id}:{插件名}`），与生产持久化数据完全隔离，调试不会污染线上状态。
    - 单次调试超时可通过 `timeout` 参数自定义，契约上限为 300 秒。
-6. **开发者参考**：
-   - 点击右上角 **开发参考**，随时调阅 `PluginContext` API 与核心规范。
 7. **运行指标与执行历史**：
    - 面板展示每个插件的调用次数、成功率、平均耗时与最近执行结果脉冲；执行历史保留最近 30 条。
    - 指标按触发来源区分：`manual_test`（调试台模拟）、`reactive`（消息监听任务）、`active`（主动定时任务）。
-   - 注意：指标与执行历史目前仅存于后端进程内存，进程重启后清零；多进程部署时各进程指标相互独立。
 
 ---
 
@@ -244,7 +277,13 @@ TG-SignPulse 官方预置了 6 个经过严格单测与实战验证的生产级�
 | :--- | :--- | :--- |
 | `/api/plugins` | `GET` | 获取当前所有已加载插件的元数据列表（含名称、模式、描述、版本、更新时间、作者、源码路径、参数 Schema）。 |
 | `/api/plugins/reload` | `POST` | 清空当前加载缓存并重新全量扫描加载所有配置目录下的插件，返回最新状态。 |
+| `/api/plugins/market` | `GET` | 获取插件市场中的社区插件目录清单。 |
+| `/api/plugins/market/{id}/install` | `POST` | 一键安装并热加载指定的社区市场插件。 |
+| `/api/plugins/market/{id}/update` | `POST` | 检查并热更新指定的社区市场插件至最新版本。 |
 | `/api/plugins/{name}/source` | `GET` | 安全只读获取指定插件的 Python 源代码（含路径遍历防范与 2MB 限制）。 |
+| `/api/plugins/{name}/source` | `PUT` | 安全保存修改后的插件源代码（触发安全门禁与语法校验）。 |
 | `/api/plugins/create` | `POST` | 根据选定脚手架模板（reactive / active / storage）在线创建新插件并自动热加载。 |
 | `/api/plugins/{name}` | `DELETE` | 安全删除指定自定义插件文件/目录并热重载（官方内置插件禁止删除，返回 403）。 |
 | `/api/plugins/{name}/test` | `POST` | Web 调试接口：模拟传入消息文本和参数，在沙箱隔离环境中执行测试，返回匹配结果、回复内容、日志、耗时以及子进程硬终止状态（killed）。 |
+| `/api/plugins/{name}/storage` | `GET` | 查看指定插件在各命名空间下的持久化键值存储记录。 |
+| `/api/plugins/{name}/storage` | `DELETE` | 清空指定插件在各命名空间下的持久化存储数据。 |
