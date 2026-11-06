@@ -219,18 +219,60 @@ async def _start_restore_services() -> None:
         semantic._generation = -1
         semantic.start_workers()
     await jobs.sync_jobs()
-    await get_keyword_monitor_service().restart_from_tasks()
+    if jobs.has_scheduler_lock():
+        await get_keyword_monitor_service().restart_from_tasks()
+        get_chatops_worker().start()
+    else:
+        logger.info(
+            "Restore: replica node without scheduler lock; skipping keyword monitor and chatops start"
+        )
     get_sign_task_service()._draining = False
-    get_chatops_worker().start()
     if jobs.scheduler is not None and jobs.scheduler.running:
         jobs.scheduler.resume()
+
+
+def _can_rename_parent(data_dir: Path) -> bool:
+    try:
+        if os.path.ismount(str(data_dir)):
+            return False
+        if not os.access(str(data_dir.parent), os.W_OK):
+            return False
+        if (
+            data_dir.exists()
+            and data_dir.stat().st_dev != data_dir.parent.stat().st_dev
+        ):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _swap_dir_contents(
+    src: Path, dst: Path, exclude_names: set[str] | None = None
+) -> None:
+    """Move all items from src into dst, creating dst if needed."""
+    exclude = exclude_names or set()
+    dst.mkdir(parents=True, exist_ok=True)
+    items = list(src.iterdir())
+    for item in items:
+        if item.name in exclude:
+            continue
+        target = dst / item.name
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        shutil.move(str(item), str(target))
 
 
 async def _activate_staged_restore(data_dir: Path, staging_dir: Path) -> None:
     global _restore_maintenance
     _ensure_single_process_restore()
-    old = data_dir.parent / f".{data_dir.name}.restore-old-{uuid.uuid4().hex}"
-    failed = data_dir.parent / f".{data_dir.name}.restore-failed-{uuid.uuid4().hex}"
+    use_parent = _can_rename_parent(data_dir)
+    parent_dir = data_dir.parent if use_parent else data_dir
+    old = parent_dir / f".{data_dir.name}.restore-old-{uuid.uuid4().hex}"
+    failed = parent_dir / f".{data_dir.name}.restore-failed-{uuid.uuid4().hex}"
     moved = False
     healthy = True
     _restore_maintenance = True
@@ -245,24 +287,38 @@ async def _activate_staged_restore(data_dir: Path, staging_dir: Path) -> None:
             await asyncio.sleep(0.05)
         healthy = False
         await _stop_restore_services()
-        data_dir.rename(old)
-        moved = True
-        staging_dir.rename(data_dir)
+        if use_parent:
+            data_dir.rename(old)
+            moved = True
+            staging_dir.rename(data_dir)
+        else:
+            old.mkdir(parents=True, exist_ok=True)
+            exclude = {old.name, failed.name, staging_dir.name, ".restore.lock"}
+            _swap_dir_contents(data_dir, old, exclude_names=exclude)
+            moved = True
+            _swap_dir_contents(staging_dir, data_dir)
         await _start_restore_services()
         healthy = True
     except BaseException:
         if moved:
             # Stop any services that partially reopened against the new directory.
             await _stop_restore_services()
-            if data_dir.exists():
-                data_dir.rename(failed)
-            old.rename(data_dir)
+            if use_parent:
+                if data_dir.exists():
+                    data_dir.rename(failed)
+                old.rename(data_dir)
+            else:
+                exclude = {old.name, failed.name, staging_dir.name, ".restore.lock"}
+                _swap_dir_contents(data_dir, failed, exclude_names=exclude)
+                _swap_dir_contents(old, data_dir)
         if not healthy:
             await _start_restore_services()
             healthy = True
         raise
     else:
         shutil.rmtree(old, ignore_errors=True)
+        if not use_parent and staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
     finally:
         # If rollback itself fails, retain both directories and keep maintenance on.
         if healthy:
@@ -768,9 +824,10 @@ async def import_backup_archive(
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="tg-signpulse-restore-"))
     tmp_file = tmp_dir / "upload_archive"
+    staging_parent = data_dir.parent if _can_rename_parent(data_dir) else data_dir
     staging_dir = Path(
         tempfile.mkdtemp(
-            prefix=f".{data_dir.name}.restore-staging-", dir=data_dir.parent
+            prefix=f".{data_dir.name}.restore-staging-", dir=staging_parent
         )
     )
     switched = False
@@ -819,7 +876,12 @@ async def import_backup_archive(
         if auth_session is not None:
             auth_session.close()
 
-        restore_lock = FileLock(str(data_dir.parent / f".{data_dir.name}.restore.lock"))
+        lock_path = (
+            data_dir.parent / f".{data_dir.name}.restore.lock"
+            if os.access(str(data_dir.parent), os.W_OK)
+            else data_dir / ".restore.lock"
+        )
+        restore_lock = FileLock(str(lock_path))
         try:
             restore_lock.acquire(timeout=0)
             try:

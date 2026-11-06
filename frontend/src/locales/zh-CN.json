@@ -122,7 +122,8 @@
       "unknown": "未知失败",
       "semantic_review_required": "语义人工审查",
       "semantic_stop_requested": "语义终止请求",
-      "circuit_breaker_open": "JEV 熔断阻断"
+      "circuit_breaker_open": "JEV 熔断阻断",
+      "task_loop_exceeded": "工作流循环熔断"
     },
     "activeRuns": "活跃运行",
     "noActiveRuns": "当前无运行中任务",

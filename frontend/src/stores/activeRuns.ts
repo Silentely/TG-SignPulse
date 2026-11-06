@@ -91,6 +91,12 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
     document.addEventListener('visibilitychange', handleVisibilityChange)
   }
 
+  const unbindVisibilityListener = () => {
+    if (!visibilityBound || typeof document === 'undefined') return
+    visibilityBound = false
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }
+
   /** 从任务列表 raw.active_run 种子化（避免首屏空窗） */
   const seedFromTaskActiveRuns = (flat: ActiveRunSummary[]) => {
     const inProgress = flat.filter((r) => isRunInProgress(r))
@@ -117,6 +123,7 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
     consumers = Math.max(0, consumers - 1)
     if (consumers === 0) {
       stopPolling()
+      unbindVisibilityListener()
     }
   }
 

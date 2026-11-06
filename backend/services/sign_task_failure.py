@@ -342,6 +342,8 @@ _FAILURE_CATEGORY_LABELS = {
     FailureCategory.OTHER: "其他",
     FailureCategory.STRONG_FAILURE: "业务失败",
     FailureCategory.TASK_LOOP_EXCEEDED: "工作流循环熔断",
+    FailureCategory.SEMANTIC_REVIEW_REQUIRED: "语义人工审查",
+    FailureCategory.SEMANTIC_STOP_REQUESTED: "语义终止请求",
     FailureCategory.UNKNOWN: "未知失败",
 }
 

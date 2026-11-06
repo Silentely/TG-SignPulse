@@ -13,6 +13,7 @@ from backend.core.auth import (
     authenticate_user,
     create_access_token,
     get_user_by_username,
+    revoke_user_tokens,
     verify_totp,
 )
 from backend.core.config import get_settings
@@ -243,6 +244,7 @@ def reset_totp(
 
     had_totp_enabled = bool(user.totp_secret)
     user.totp_secret = None
+    revoke_user_tokens(db, user)
     db.commit()
     try:
         from backend.api.routes.user import clear_pending_totp_secret

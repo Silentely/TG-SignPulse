@@ -99,6 +99,11 @@ class ChangeUsernameResponse(BaseModel):
     access_token: Optional[str] = None
 
 
+class TOTPStatusResponse(BaseModel):
+    enabled: bool
+    secret: Optional[str] = None
+
+
 class EnableTOTPRequest(BaseModel):
     totp_code: str
 
@@ -117,11 +122,6 @@ class DisableTOTPResponse(BaseModel):
     message: str
 
 
-class TOTPStatusResponse(BaseModel):
-    enabled: bool
-    secret: Optional[str] = None
-
-
 @router.put("/password", response_model=ChangePasswordResponse)
 def change_password(
     request: ChangePasswordRequest,
@@ -134,19 +134,21 @@ def change_password(
             detail="旧密码错误",
         )
 
-    if len(request.new_password) < 6:
+    if not request.new_password or len(request.new_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="新密码长度至少为 6 个字符",
+            detail="新密码长度不能少于 6 位",
         )
 
     current_user.password_hash = hash_password(request.new_password)
-    # 改密后吊销此前签发的所有令牌，防止已泄露的旧令牌继续可用
+    # 修改密码后立即自增 token_epoch，吊销此前的所有 JWT 令牌
     revoke_user_tokens(db, current_user)
-    if current_user.username == "admin":
-        cleanup_bootstrap_password_file()
+    cleanup_bootstrap_password_file()
 
-    return ChangePasswordResponse(success=True, message="密码修改成功")
+    return ChangePasswordResponse(
+        success=True,
+        message="密码修改成功，其他已登录会话已失效，请重新登录",
+    )
 
 
 @router.put("/username", response_model=ChangeUsernameResponse)
@@ -155,44 +157,47 @@ def change_username(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    new_username = request.new_username.strip()
+    if not new_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名不能为空",
+        )
+
+    if len(new_username) < 3 or len(new_username) > 32:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名长度必须在 3 到 32 个字符之间",
+        )
+
     if not verify_password(request.password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="密码错误",
         )
 
-    new_username = request.new_username.strip()
-    if len(new_username) < 3:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名长度至少为 3 个字符",
-        )
-    if len(new_username) > 50:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名长度最多为 50 个字符",
-        )
+    if new_username == current_user.username:
+        return ChangeUsernameResponse(success=True, message="用户名未变更")
 
-    existing_user = get_user_by_username(db, new_username)
-    if existing_user and existing_user.id != current_user.id:
+    existing = get_user_by_username(db, new_username)
+    if existing and existing.id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该用户名已被使用",
+            detail="用户名已被使用",
         )
 
     current_user.username = new_username
     db.commit()
 
-    # 重新签发的令牌必须嵌入当前世代号，否则默认 epoch=1 会与
-    # 此前自增过的 token_epoch 不符而被判为已吊销
-    new_token = create_access_token(
-        data={"sub": new_username},
+    access_token = create_access_token(
+        data={"sub": current_user.username},
         token_epoch=int(current_user.token_epoch or 1),
     )
+
     return ChangeUsernameResponse(
         success=True,
         message="用户名修改成功",
-        access_token=new_token,
+        access_token=access_token,
     )
 
 
@@ -307,6 +312,7 @@ def disable_totp(
         )
 
     current_user.totp_secret = None
+    revoke_user_tokens(db, current_user)
     db.commit()
     clear_pending_totp_secret(current_user.id)
 
@@ -324,6 +330,7 @@ def reset_totp(
             detail="已启用两步验证的用户无法直接重置，请调用 /totp/disable 进行验证关闭",
         )
     current_user.totp_secret = None
+    revoke_user_tokens(db, current_user)
     db.commit()
     clear_pending_totp_secret(current_user.id)
     return DisableTOTPResponse(success=True, message="两步验证已重置")

@@ -40,11 +40,11 @@ type CustomFixtures = {
 
 export const test = base.extend<CustomFixtures>({
   authedPage: async ({ page }, use) => {
-    try {
-      await loginViaUI(page);
-    } catch {
+    if (process.env.PLAYWRIGHT_MOCK_AUTH === '1') {
       await injectAuthToken(page);
       await page.goto('/dashboard');
+    } else {
+      await loginViaUI(page);
     }
     await use(page);
   },

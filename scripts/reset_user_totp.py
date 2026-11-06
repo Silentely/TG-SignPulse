@@ -30,6 +30,9 @@ def reset_totp_for_user(username: str, db: Optional[Session] = None) -> bool:
             return False
 
         user.totp_secret = None
+        from backend.core.auth import revoke_user_tokens
+
+        revoke_user_tokens(db, user)
         db.commit()
 
         try:

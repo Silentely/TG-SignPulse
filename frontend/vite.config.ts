@@ -44,7 +44,10 @@ export default defineConfig({
               !url.pathname.startsWith('/api/auth/') &&
               !url.pathname.startsWith('/api/events/') &&
               !url.pathname.startsWith('/api/ops/') &&
-              !url.pathname.startsWith('/api/keyword-hits/'),
+              !url.pathname.startsWith('/api/keyword-hits/') &&
+              !url.pathname.startsWith('/api/accounts') &&
+              !url.pathname.startsWith('/api/logs') &&
+              !url.pathname.includes('/run'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

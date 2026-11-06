@@ -122,7 +122,8 @@
       "unknown": "Unknown failure",
       "semantic_review_required": "Semantic Review Required",
       "semantic_stop_requested": "Semantic Stop Requested",
-      "circuit_breaker_open": "JEV Circuit Breaker Open"
+      "circuit_breaker_open": "JEV Circuit Breaker Open",
+      "task_loop_exceeded": "Workflow Loop Exceeded"
     },
     "activeRuns": "Active runs",
     "noActiveRuns": "No tasks running",

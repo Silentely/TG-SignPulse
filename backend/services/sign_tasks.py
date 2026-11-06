@@ -221,6 +221,16 @@ class SignTaskService(SignTaskCrudMixin):
             ):
                 self._active_logs.pop(key, None)
 
+        # Prune _active_logs_by_run for inactive runs without pending cleanup
+        if hasattr(self, "_active_logs_by_run"):
+            for run_key in list(self._active_logs_by_run.keys()):
+                task_k = (run_key[0], run_key[1])
+                if (
+                    not self._active_tasks.get(task_k, False)
+                    and task_k not in self._cleanup_tasks
+                ):
+                    self._active_logs_by_run.pop(run_key, None)
+
         # Prune completed background run tasks
         done_keys = [k for k, t in self._background_run_tasks.items() if t.done()]
         for key in done_keys:

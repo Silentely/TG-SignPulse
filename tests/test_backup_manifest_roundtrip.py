@@ -273,3 +273,31 @@ def test_restore_validates_session_encryption_key(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", "different-key")
     with pytest.raises(ValueError, match="decrypt|APP_SECRET_KEY"):
         validate_backup_manifest(tmp_path / "unused", tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_activate_staged_restore_mount_point_simulation(tmp_path, monkeypatch):
+    from backend.api.routes import ops
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "marker").write_text("old")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "marker").write_text("new")
+
+    # Simulate Docker mount point: _can_rename_parent returns False
+    monkeypatch.setattr(ops, "_can_rename_parent", lambda _: False)
+
+    async def stop():
+        pass
+
+    async def start():
+        pass
+
+    monkeypatch.setattr(ops, "_stop_restore_services", stop)
+    monkeypatch.setattr(ops, "_start_restore_services", start)
+
+    await ops._activate_staged_restore(data, stage)
+    assert (data / "marker").read_text() == "new"
+    assert not ops.restore_in_progress()

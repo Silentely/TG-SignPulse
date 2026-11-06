@@ -259,6 +259,9 @@ def _safe_request_context(request: Request) -> dict[str, str]:
 async def restore_maintenance_gate(request: Request, call_next):
     from backend.api.routes.ops import restore_in_progress, track_restore_request
 
+    if request.url.path in ("/health", "/healthz", "/readyz"):
+        return await call_next(request)
+
     if restore_in_progress():
         return JSONResponse(
             status_code=503,
@@ -477,12 +480,19 @@ async def on_startup() -> None:
     async def _post_startup() -> None:
         try:
             await sync_jobs()
-            from backend.services.keyword_monitor import get_keyword_monitor_service
+            from backend.scheduler.instance_lock import has_scheduler_lock
 
-            await get_keyword_monitor_service().restart_from_tasks()
-            from backend.services.chatops_bot import get_chatops_worker
+            if has_scheduler_lock():
+                from backend.services.keyword_monitor import get_keyword_monitor_service
 
-            get_chatops_worker().start()
+                await get_keyword_monitor_service().restart_from_tasks()
+                from backend.services.chatops_bot import get_chatops_worker
+
+                get_chatops_worker().start()
+            else:
+                logging.getLogger("backend.startup").info(
+                    "当前实例为只读/副本实例（未持有调度锁），跳过关键词监控和 ChatOps 机器人长轮询启动"
+                )
         except Exception as exc:
             # 顶层兜底：启动阶段任何未处理异常都不能让进程崩溃
             logging.getLogger("backend.startup").exception(

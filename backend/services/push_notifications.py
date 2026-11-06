@@ -5,7 +5,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -372,6 +372,42 @@ def _validate_push_target_url(url: str) -> None:
     validate_public_http_url(url)
 
 
+def _resolve_pinned_push_target(
+    url: str,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """校验外部 Webhook 推送地址仅指向公网，并返回 (pinned_url, headers, extensions) 防范 DNS 重绑定 SSRF。"""
+    from tg_signer.utils import validate_public_http_url
+
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError("URL 格式无效，必须以 http:// 或 https:// 开头")
+    pinned_ip, hostname = validate_public_http_url(url)
+    parsed_url = urlparse(url)
+    default_port = {"http": 80, "https": 443}.get(parsed_url.scheme)
+    host_for_url = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+    netloc = (
+        host_for_url if parsed_url.port is None else f"{host_for_url}:{parsed_url.port}"
+    )
+    if parsed_url.username:
+        credential = parsed_url.username
+        if parsed_url.password:
+            credential = f"{credential}:{parsed_url.password}"
+        netloc = f"{credential}@{netloc}"
+    pinned_url = parsed_url._replace(netloc=netloc).geturl()
+    formatted_host = (
+        f"[{hostname}]"
+        if ":" in hostname and not hostname.startswith("[")
+        else hostname
+    )
+    host_header = (
+        formatted_host
+        if parsed_url.port in (None, default_port)
+        else f"{formatted_host}:{parsed_url.port}"
+    )
+    headers = {"Host": host_header}
+    extensions = {"sni_hostname": hostname} if parsed_url.scheme == "https" else {}
+    return pinned_url, headers, extensions
+
+
 async def _http_post_retry_once(
     *,
     url: str,
@@ -385,15 +421,28 @@ async def _http_post_retry_once(
     HTTP 5xx and read/write failures have unknown delivery and are never replayed.
     The historical helper name and signature remain compatible.
     """
-    _validate_push_target_url(url)
+    # 统一单次公网校验与 IP 钉扎，防止 DNS 重绑定 SSRF；校验失败严格 fail-closed
+    target_url, headers, extensions = _resolve_pinned_push_target(url)
+
     last_exc: Optional[Exception] = None
     for attempt in (1, 2):
         try:
             client = _get_shared_http_client()
             if method == "GET":
-                response = await client.get(url, timeout=timeout)
+                response = await client.get(
+                    target_url,
+                    headers=headers or None,
+                    extensions=extensions or None,
+                    timeout=timeout,
+                )
             else:
-                response = await client.post(url, json=json_body, timeout=timeout)
+                response = await client.post(
+                    target_url,
+                    json=json_body,
+                    headers=headers or None,
+                    extensions=extensions or None,
+                    timeout=timeout,
+                )
             response.raise_for_status()
             return response
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
@@ -408,7 +457,7 @@ async def _http_post_retry_once(
                 logger.warning(
                     "%s 通知发送失败，准备重试: %s",
                     channel,
-                    sanitize_push_error(exc, secret_urls=(url,)),
+                    sanitize_push_error(exc, secret_urls=(url, target_url)),
                 )
                 await asyncio.sleep(1.0)
     assert last_exc is not None
