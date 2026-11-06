@@ -74,19 +74,22 @@ def _ensure_event_loop():
 def _reset_global_test_state():
     """保证每个测试前后全局单例和配置缓存彻底重置，避免多进程/多测试之间全局代理等状态污染。"""
     from backend.core import config as config_module
+    from backend.core.rate_limit import get_rate_limiter
     from backend.services import config as service_config_module
     from backend.utils.proxy import clear_proxy_probe_cache
     from backend.utils.tg_session import _account_store_cache
 
-    config_module.get_settings.cache_clear()
-    service_config_module._config_service = None
-    clear_proxy_probe_cache()
-    _account_store_cache.clear()
+    def _reset() -> None:
+        config_module.get_settings.cache_clear()
+        service_config_module._config_service = None
+        clear_proxy_probe_cache()
+        _account_store_cache.clear()
+        # 限流器是进程级单例，用例间共享登录失败计数会导致后续用例被 429 误伤
+        get_rate_limiter().reset_all()
+
+    _reset()
     yield
-    config_module.get_settings.cache_clear()
-    service_config_module._config_service = None
-    clear_proxy_probe_cache()
-    _account_store_cache.clear()
+    _reset()
 
 
 # ============================================================================

@@ -219,7 +219,7 @@ async def _start_restore_services() -> None:
         semantic._generation = -1
         semantic.start_workers()
     await jobs.sync_jobs()
-    if jobs.has_scheduler_lock():
+    if has_scheduler_lock():
         await get_keyword_monitor_service().restart_from_tasks()
         get_chatops_worker().start()
     else:
