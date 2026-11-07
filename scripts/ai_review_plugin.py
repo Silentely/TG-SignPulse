@@ -183,11 +183,12 @@ Review the following community plugin submission.
 2. **Performance & Event Loop Diagnostics**:
    - Check for blocking synchronous calls inside async methods (`time.sleep` instead of `asyncio.sleep`, `requests` instead of `httpx.AsyncClient` or `aiohttp`).
    - Check for proper exception handling (`try...except`) to ensure a single task failure does not crash the scheduler.
-3. **Metadata & Description Enrichment**:
-   - Generate an enhanced concise Chinese description (`description_zh`, 20-80 Chinese characters).
-   - Generate an enhanced concise English description (`description_en`, 15-40 words).
+3. **Metadata & Description Enrichment (Plain Human Language Rule)**:
+   - Check that plugin name (`name`), description, and params use plain, intuitive human language, not confusing robotic buzzwords.
+   - Generate an enhanced concise Chinese description (`description_zh`, 20-80 Chinese characters). MUST USE PLAIN, INTUITIVE HUMAN LANGUAGE. Strictly forbid robotic AI marketing buzzwords, vague bureaucratic jargon, or grandiose titles (e.g. NEVER use words like '全景', '卫士', '原子聚合', '闭环', '中枢', '哨兵').
+   - Generate an enhanced concise English description (`description_en`, 15-40 words). Plain, clear, user-friendly English.
    - Recommend 3 to 6 accurate lowercase search tags (`tags`).
-   - Extract 2 to 4 bullet points of core features (`features`).
+   - Extract 2 to 4 bullet points of core features (`features`) focused on practical user value.
    - Suggest the best category: 'utility', 'notification', 'message', 'captcha', 'helper', or 'entertainment'.
 4. **Final Recommendation**:
    - `verdict`: "APPROVED", "CHANGES_REQUESTED", or "NEEDS_DISCUSSION".
