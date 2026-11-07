@@ -250,6 +250,7 @@ TG-SignPulse 官方预置了 6 个经过严格单测与实战验证的生产级�
 | **`dice_roller`** | 自动掷骰子与抽签 | `reactive` | 互动娱乐 | 响应群聊或机器人中的掷骰子/抽签口令（如 /roll、/dice），自动计算点数并回复 |
 | **`jitter_delay`** | 随机等待延迟 | `active` | 实用工具 | 在执行签到前增加随机等待时间，打乱固定执行周期，避免并发请求 |
 | **`typing_simulator`** | 模拟打字输入状态 | `active` | 实用工具 | 在发送消息前向会话发送“正在输入”等状态，贴近真人行为习惯 |
+| **`mini_app_claim`** | 小程序自动签到 | `active` | 签到辅助 | 自动获取 Telegram 小程序签到凭证并完成每日打卡领奖，无需打开页面 |
 
 开发者欢迎向官方仓库的 `dev` 分支提交 PR 贡献插件，详细指引参见：[TG-SignPulse 社区插件贡献指南](https://github.com/Silentely/TG-SignPulse/blob/dev/community_plugins/README.md)。
 

@@ -1,6 +1,6 @@
 """TG-SignPulse Community Plugin: Telegram Mini App Claim.
 
-通过 RequestWebView 获取合法 Telegram Mini App 凭证并完成自动化签到。
+自动获取 Telegram 小程序签到凭证并完成每日打卡领奖，无需手动打开小程序页面。
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def _perform_http_post(
 @PluginRegistry.register(
     name="mini_app_claim",
     mode="active",
-    description="通过 RequestWebView 获取合法 Telegram Mini App 凭证并完成自动化签到",
+    description="自动获取 Telegram 小程序签到凭证并完成每日打卡领奖，无需手动打开小程序页面。",
     version=VERSION,
     author=AUTHOR,
     context_version=2,
@@ -64,35 +64,35 @@ def _perform_http_post(
     params_schema=[
         {
             "name": "bot_peer",
-            "label": "Bot Peer",
+            "label": "目标机器人用户名",
             "type": "string",
             "default": "",
             "required": False,
-            "description": "目标 Bot 用户名或 ID（留空默认当前 chat_id）",
+            "description": "小程序的所属机器人用户名（如 @example_bot），留空则默认使用当前任务所在的机器人会话",
         },
         {
             "name": "claim_url",
-            "label": "签到 API 地址",
+            "label": "签到请求地址",
             "type": "string",
             "default": "https://api.example.com/v1/claim",
             "required": True,
-            "description": "接收 initData 凭证的目标 HTTP 签到接口",
+            "description": "小程序完成签到领奖的接口网址（由抓包或项目方提供）",
         },
         {
             "name": "from_bot_menu",
-            "label": "From Bot Menu",
+            "label": "从菜单按钮启动",
             "type": "boolean",
             "default": True,
             "required": False,
-            "description": "是否以 Bot Menu 场景请求 WebApp",
+            "description": "小程序是否挂载在机器人的左下角菜单按钮中（通常保持开启即可）",
         },
         {
             "name": "max_flood_wait",
-            "label": "最大 FloodWait 容忍秒数",
+            "label": "遇到限流最大等待秒数",
             "type": "number",
             "default": 300,
             "required": False,
-            "description": "遇到 Telegram FloodWait 时最大允许等待秒数，超过则不重试",
+            "description": "当操作过于频繁被 Telegram 限流时，最大允许等待的秒数，超时则中止本次任务",
         },
     ],
 )
