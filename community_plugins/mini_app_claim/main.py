@@ -116,7 +116,7 @@ def _perform_http_post(
     author=AUTHOR,
     context_version=2,
     plugin_api="2.0",
-    min_app_version="1.8.0",
+    min_app_version="1.9.0",
     permissions=["web_app", "storage", "network"],
     params_schema=[
         {
@@ -146,7 +146,7 @@ def _perform_http_post(
         {
             "name": "max_flood_wait",
             "label": "最大 FloodWait 容忍秒数",
-            "type": "integer",
+            "type": "number",
             "default": 300,
             "required": False,
             "description": "遇到 Telegram FloodWait 时最大允许等待秒数，超过则不重试",

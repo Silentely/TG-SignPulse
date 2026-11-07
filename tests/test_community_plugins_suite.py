@@ -36,6 +36,7 @@ EXPECTED_COMMUNITY_PLUGINS = {
     "crypto_price_tracker",
     "dice_roller",
     "jitter_delay",
+    "mini_app_claim",
     "typing_simulator",
 }
 
@@ -74,7 +75,7 @@ def test_community_plugins_discovery_exact_catalog():
     assert discovered_ids == EXPECTED_COMMUNITY_PLUGINS, (
         f"Plugin catalog mismatch. Expected: {EXPECTED_COMMUNITY_PLUGINS}, Got: {discovered_ids}"
     )
-    assert len(plugin_dirs) == 8
+    assert len(plugin_dirs) == 9
 
 
 @pytest.mark.parametrize("plugin_dir", _discover_plugin_dirs(), ids=lambda p: p.name)
@@ -149,7 +150,7 @@ def test_build_marketplace_validate_plugin_passes(plugin_dir: Path):
 def test_plugin_registry_load_all_community_plugins_cleanly():
     """Verify PluginRegistry.load_plugins_from_dir registers all 8 plugins cleanly."""
     loaded_count = PluginRegistry.load_plugins_from_dir(COMMUNITY_PLUGINS_DIR)
-    assert loaded_count == 8, f"Expected 8 plugins loaded, got {loaded_count}"
+    assert loaded_count == 9, f"Expected 9 plugins loaded, got {loaded_count}"
 
     registered = PluginRegistry.list_plugins()
     assert set(registered.keys()) == EXPECTED_COMMUNITY_PLUGINS
