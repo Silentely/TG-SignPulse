@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from tg_signer.core.plugins import (
     PluginContext,
@@ -20,6 +23,72 @@ from tg_signer.core.plugins import (
 
 VERSION = "1.0.0"
 AUTHOR = "TG-Community"
+
+
+def parse_init_data(init_data_raw: str) -> Dict[str, str]:
+    """解析 initData 查询字符串为键值字典。"""
+    return dict(urllib.parse.parse_qsl(init_data_raw, keep_blank_values=True))
+
+
+def validate_init_data(
+    init_data_raw: str,
+    bot_token: str,
+    max_age_seconds: int = 86400,
+    current_time: Optional[int] = None,
+) -> Dict[str, str]:
+    """严格校验 Telegram Mini App initData 凭证合法性。
+
+    依据 Telegram WebApp 安全规范：
+    1. 校验必填字段结构（user、auth_date、hash）
+    2. 校验 hash 签名（HMAC-SHA256, secret_key=HMAC_SHA256("WebAppData", bot_token)）
+    3. 校验 auth_date 未过期
+    """
+    params = parse_init_data(init_data_raw)
+
+    auth_date_str = params.get("auth_date")
+    if not auth_date_str:
+        raise ValueError("Missing auth_date parameter")
+    try:
+        auth_date = int(auth_date_str)
+    except ValueError:
+        raise ValueError("Invalid auth_date format")
+
+    user_str = params.get("user")
+    if not user_str or not user_str.strip():
+        raise ValueError("Missing or empty user parameter")
+    try:
+        user_obj = json.loads(user_str)
+    except Exception as exc:
+        raise ValueError("Invalid user json payload") from exc
+    if not user_obj:
+        raise ValueError("Empty user json payload")
+
+    received_hash = params.get("hash")
+    if not received_hash:
+        raise ValueError("Missing hash parameter")
+
+    # 规范：剔除 hash 构造 data_check_string
+    # 针对 Telegram 新版客户端携带的 signature 字段，亦需排除以确保 HMAC 一致性
+    pairs = [
+        f"{k}={v}" for k, v in sorted(params.items()) if k not in ("hash", "signature")
+    ]
+    data_check_string = "\n".join(pairs)
+
+    secret_key = hmac.new(
+        b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256
+    ).digest()
+    calculated_hash = hmac.new(
+        secret_key, data_check_string.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(calculated_hash, received_hash):
+        raise ValueError("Invalid hash signature: HMAC mismatch")
+
+    now = int(current_time if current_time is not None else time.time())
+    if now - auth_date > max_age_seconds:
+        raise ValueError("auth_date expired")
+
+    return params
 
 
 def _perform_http_post(
@@ -156,8 +225,6 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
             data_part = fragment.split("tgWebAppData=", 1)[1]
             if "&" in data_part:
                 data_part = data_part.split("&", 1)[0]
-            import urllib.parse
-
             init_data_raw = urllib.parse.unquote(data_part)
 
     if not init_data_raw:
