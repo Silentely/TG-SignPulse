@@ -14,6 +14,7 @@ import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, Dict, List, Literal, Optional
 
 from tg_signer.core import plugin_host as _ph
@@ -22,6 +23,61 @@ from tg_signer.core.plugin_host import (
     cleanup_all_worker_processes,
 )
 from tg_signer.core.plugins import PluginContext, PluginRegistry
+
+
+class PluginErrorTier(str, Enum):
+    """插件与执行异常三层切分。"""
+
+    ACCOUNT_UNAVAILABLE = (
+        "account_unavailable"  # 账号不可用（YOU_BLOCKED_USER、USER_DEACTIVATED等）
+    )
+    TARGET_UNAVAILABLE = (
+        "target_unavailable"  # 目标不可用（BOT_INVALID、无web_app入口等）
+    )
+    CAPABILITY_UNAVAILABLE = "capability_unavailable"  # 能力不可用（协议本身不成立）
+    UNKNOWN = "unknown"
+
+
+ACCOUNT_UNAVAILABLE_MARKERS = frozenset(
+    {
+        "YOUBLOCKEDUSER",
+        "USERBLOCKED",
+        "USERDEACTIVATED",
+        "USERDEACTIVATEDBAN",
+        "SESSIONREVOKED",
+        "SESSIONEXPIRED",
+        "AUTHKEYUNREGISTERED",
+        "AUTHKEYINVALID",
+        "UNAUTHORIZED",
+        "ACCOUNTUNAVAILABLE",
+    }
+)
+
+TARGET_UNAVAILABLE_MARKERS = frozenset(
+    {
+        "BOTINVALID",
+        "PEERIDINVALID",
+        "BUTTONTYPEINVALID",
+        "BOTCOMMANDINVALID",
+        "BOTAPPINVALID",
+        "TARGETNOTFOUND",
+        "TARGETUNAVAILABLE",
+    }
+)
+
+
+def classify_plugin_error(err: Any) -> PluginErrorTier:
+    """对异常进行三层分类判定。"""
+    if err is None:
+        return PluginErrorTier.UNKNOWN
+    clean_text = "".join(ch for ch in str(err).upper() if ch.isalnum())
+    for marker in ACCOUNT_UNAVAILABLE_MARKERS:
+        if marker in clean_text:
+            return PluginErrorTier.ACCOUNT_UNAVAILABLE
+    for marker in TARGET_UNAVAILABLE_MARKERS:
+        if marker in clean_text:
+            return PluginErrorTier.TARGET_UNAVAILABLE
+    return PluginErrorTier.CAPABILITY_UNAVAILABLE
 
 
 @dataclass
@@ -39,6 +95,8 @@ class PluginResult:
     outputs: Dict[str, Any] = field(default_factory=dict)
     evidence: List[Dict[str, Any]] = field(default_factory=list)
     exception: Optional[BaseException] = None
+    error_tier: PluginErrorTier = PluginErrorTier.UNKNOWN
+    should_break: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -48,6 +106,9 @@ class PluginResult:
             "error": self.error,
             "execution_time": self.execution_time,
         }
+        if self.error_tier != PluginErrorTier.UNKNOWN:
+            d["error_tier"] = self.error_tier.value
+            d["should_break"] = self.should_break
         if self.is_timeout:
             d["is_timeout"] = True
         if self.handled is not None:
@@ -258,6 +319,9 @@ class SubprocessPluginAdapter(PluginRuntime):
             raise
         except Exception as exc:
             duration = time.perf_counter() - start_time
+            tier = classify_plugin_error(exc)
+            # 账号不可用错误只影响当前账号，不得判定能力不可用，亦不得触发熔断
+            should_break = tier != PluginErrorTier.ACCOUNT_UNAVAILABLE
             return PluginResult(
                 success=False,
                 return_value=None,
@@ -265,6 +329,8 @@ class SubprocessPluginAdapter(PluginRuntime):
                 error=str(exc),
                 execution_time=duration,
                 exception=exc,
+                error_tier=tier,
+                should_break=should_break,
             )
 
     @staticmethod

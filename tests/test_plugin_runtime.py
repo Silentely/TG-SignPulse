@@ -302,3 +302,89 @@ class TestPluginRuntimeGovernance:
         cleaned = cleanup_all_worker_processes()
         assert cleaned == 1
         assert len(get_active_worker_processes()) == 0
+
+
+@pytest.mark.asyncio
+async def test_classify_plugin_error_three_tiers():
+    from tg_signer.core.plugin_runtime import (
+        PluginErrorTier,
+        classify_plugin_error,
+    )
+
+    # Tier 1: Account unavailable
+    assert (
+        classify_plugin_error("RPCError: YOU_BLOCKED_USER")
+        == PluginErrorTier.ACCOUNT_UNAVAILABLE
+    )
+    assert (
+        classify_plugin_error("UserDeactivated") == PluginErrorTier.ACCOUNT_UNAVAILABLE
+    )
+    assert (
+        classify_plugin_error("SESSION_REVOKED") == PluginErrorTier.ACCOUNT_UNAVAILABLE
+    )
+
+    # Tier 2: Target unavailable
+    assert classify_plugin_error("BOT_INVALID") == PluginErrorTier.TARGET_UNAVAILABLE
+    assert (
+        classify_plugin_error("PEER_ID_INVALID") == PluginErrorTier.TARGET_UNAVAILABLE
+    )
+    assert (
+        classify_plugin_error("target_not_found") == PluginErrorTier.TARGET_UNAVAILABLE
+    )
+
+    # Tier 3: Capability unavailable
+    assert (
+        classify_plugin_error("SyntaxError: invalid syntax")
+        == PluginErrorTier.CAPABILITY_UNAVAILABLE
+    )
+    assert (
+        classify_plugin_error("NotImplementedError: protocol not supported")
+        == PluginErrorTier.CAPABILITY_UNAVAILABLE
+    )
+
+
+@pytest.mark.asyncio
+async def test_account_error_does_not_break():
+    from unittest.mock import MagicMock, patch
+
+    from tg_signer.core.plugin_runtime import (
+        PluginErrorTier,
+        SubprocessPluginAdapter,
+    )
+
+    adapter = SubprocessPluginAdapter()
+    mock_ctx = MagicMock()
+    mock_ctx.params = {}
+
+    with patch(
+        "tg_signer.core.plugin_host.PluginProcessHost.execute",
+        side_effect=Exception("RPCError: 400 YOU_BLOCKED_USER"),
+    ):
+        res = await adapter.execute("any_plugin", {}, mock_ctx)
+        assert res.success is False
+        assert res.error_tier == PluginErrorTier.ACCOUNT_UNAVAILABLE
+        # 严禁触发熔断断路
+        assert res.should_break is False
+
+
+@pytest.mark.asyncio
+async def test_capability_error_should_break():
+    from unittest.mock import MagicMock, patch
+
+    from tg_signer.core.plugin_runtime import (
+        PluginErrorTier,
+        SubprocessPluginAdapter,
+    )
+
+    adapter = SubprocessPluginAdapter()
+    mock_ctx = MagicMock()
+    mock_ctx.params = {}
+
+    with patch(
+        "tg_signer.core.plugin_host.PluginProcessHost.execute",
+        side_effect=RuntimeError("Protocol layer incompatible"),
+    ):
+        res = await adapter.execute("any_plugin", {}, mock_ctx)
+        assert res.success is False
+        assert res.error_tier == PluginErrorTier.CAPABILITY_UNAVAILABLE
+        assert res.should_break is True
