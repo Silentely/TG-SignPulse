@@ -65,6 +65,20 @@ TARGET_UNAVAILABLE_MARKERS = frozenset(
     }
 )
 
+CAPABILITY_UNAVAILABLE_MARKERS = frozenset(
+    {
+        "CAPABILITYUNAVAILABLE",
+        "PLUGINCAPABILITYDENIED",
+        "NOTSUPPORTED",
+        "METHODNOTALLOWED",
+        "PROTOCOLUNSUPPORTED",
+        "CAPABILITYDENIED",
+        "SYNTAXERROR",
+        "PROTOCOL",
+        "INCOMPATIBLE",
+    }
+)
+
 
 def classify_plugin_error(err: Any) -> PluginErrorTier:
     """对异常进行三层分类判定。"""
@@ -77,7 +91,10 @@ def classify_plugin_error(err: Any) -> PluginErrorTier:
     for marker in TARGET_UNAVAILABLE_MARKERS:
         if marker in clean_text:
             return PluginErrorTier.TARGET_UNAVAILABLE
-    return PluginErrorTier.CAPABILITY_UNAVAILABLE
+    for marker in CAPABILITY_UNAVAILABLE_MARKERS:
+        if marker in clean_text:
+            return PluginErrorTier.CAPABILITY_UNAVAILABLE
+    return PluginErrorTier.UNKNOWN
 
 
 @dataclass
@@ -481,6 +498,8 @@ class TestMockAdapter(PluginRuntime):
             )
         except Exception as exc:
             duration = time.perf_counter() - start_time
+            tier = classify_plugin_error(exc)
+            should_break = tier != PluginErrorTier.ACCOUNT_UNAVAILABLE
             return PluginResult(
                 success=False,
                 return_value=None,
@@ -488,6 +507,8 @@ class TestMockAdapter(PluginRuntime):
                 error=str(exc),
                 execution_time=duration,
                 exception=exc,
+                error_tier=tier,
+                should_break=should_break,
             )
 
     @staticmethod

@@ -1543,3 +1543,59 @@ async def test_dispatch_reactive_plugin_message_raises_typed_exceptions():
             action, chat, msg, eff_timeout=5.0
         )
         assert res is True
+
+
+@pytest.mark.asyncio
+async def test_account_unavailable_does_not_trip_breaker_or_raise():
+    """Verify ACCOUNT_UNAVAILABLE (e.g. YOU_BLOCKED_USER) marks stop_after_current_action, does not raise RuntimeError, and does not trip breaker."""
+    from tg_signer.core.plugin_runtime import (
+        PluginErrorTier,
+        PluginResult,
+        TestMockAdapter,
+        set_plugin_runtime,
+    )
+    from tg_signer.core.plugins import PluginMeta
+
+    PluginRegistry._plugins["account_unavail_plugin"] = PluginMeta(
+        name="account_unavail_plugin",
+        handler=lambda ctx: True,
+        mode="active",
+        description="",
+        version="1.0.0",
+        updated_at="2026-10-31",
+        author="tester",
+        source_path="",
+        params_schema=[],
+        context_version=2,
+    )
+
+    signer = DummySigner()
+    action = PluginAction(plugin_name="account_unavail_plugin", mode="active")
+    chat = SignChatV3(chat_id=123, actions=[action])
+
+    mock_runtime = TestMockAdapter()
+    mock_runtime.mock_results["account_unavail_plugin"] = PluginResult(
+        success=False,
+        error="RPCError: 400 YOU_BLOCKED_USER",
+        error_tier=PluginErrorTier.ACCOUNT_UNAVAILABLE,
+        should_break=False,
+    )
+    set_plugin_runtime(mock_runtime)
+    try:
+        # 1. Active execution: wait_for should return False without raising RuntimeError
+        res = await signer.wait_for(chat, action, timeout=1.0)
+        assert res is False
+        assert signer.context.stop_after_current_action is True
+        assert "account_unavailable" in signer.context.stop_reason
+
+        # 2. Reactive execution: _dispatch_reactive_plugin_message should return False without raising
+        signer.context.stop_after_current_action = False
+        msg = MagicMock()
+        reactive_res = await signer._dispatch_reactive_plugin_message(
+            action, chat, msg, eff_timeout=1.0
+        )
+        assert reactive_res is False
+        assert signer.context.stop_after_current_action is True
+        assert "account_unavailable" in signer.context.stop_reason
+    finally:
+        set_plugin_runtime(None)

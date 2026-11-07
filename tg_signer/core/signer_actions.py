@@ -1111,7 +1111,10 @@ class SignerActionsMixin:
                 self.context.last_plugin_result = adapted
             return bool(adapted.handled) and adapted.outcome != "failed"
 
-        from tg_signer.core.plugin_runtime import get_plugin_runtime
+        from tg_signer.core.plugin_runtime import (
+            PluginErrorTier,
+            get_plugin_runtime,
+        )
 
         runtime = get_plugin_runtime()
         plugin_res = await runtime.execute(
@@ -1126,6 +1129,21 @@ class SignerActionsMixin:
                 raise PluginTimeoutError(
                     f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s"
                 )
+            if (
+                plugin_res.error_tier == PluginErrorTier.ACCOUNT_UNAVAILABLE
+                or not plugin_res.should_break
+            ):
+                self.log(
+                    f"插件「{action.plugin_name}」账号不可用，跳过/终止执行: {plugin_res.error}",
+                    level="WARNING",
+                )
+                if getattr(self, "context", None) is not None:
+                    self.context.last_plugin_result = plugin_res
+                    self.context.stop_after_current_action = True
+                    self.context.stop_reason = (
+                        f"account_unavailable: {plugin_res.error}"
+                    )
+                return False
             if plugin_res.exception is not None:
                 raise plugin_res.exception
             raise RuntimeError(
@@ -1249,7 +1267,10 @@ class SignerActionsMixin:
                     )
                     res = await host.execute()
                 else:
-                    from tg_signer.core.plugin_runtime import get_plugin_runtime
+                    from tg_signer.core.plugin_runtime import (
+                        PluginErrorTier,
+                        get_plugin_runtime,
+                    )
 
                     runtime = get_plugin_runtime()
                     plugin_res = await runtime.execute(
@@ -1268,14 +1289,28 @@ class SignerActionsMixin:
                             raise PluginTimeoutError(
                                 f"Plugin '{action.plugin_name}' timed out after {eff_timeout}s and was killed"
                             )
-                        else:
+                        if (
+                            plugin_res.error_tier == PluginErrorTier.ACCOUNT_UNAVAILABLE
+                            or not plugin_res.should_break
+                        ):
                             self.log(
-                                f"插件「{action.plugin_name}」执行异常: {plugin_res.error}",
-                                level="ERROR",
+                                f"插件「{action.plugin_name}」账号不可用，跳过/终止执行: {plugin_res.error}",
+                                level="WARNING",
                             )
-                            raise RuntimeError(
-                                f"Plugin '{action.plugin_name}' execution failed: {plugin_res.error}"
-                            )
+                            if getattr(self, "context", None) is not None:
+                                self.context.last_plugin_result = plugin_res
+                                self.context.stop_after_current_action = True
+                                self.context.stop_reason = (
+                                    f"account_unavailable: {plugin_res.error}"
+                                )
+                            return False
+                        self.log(
+                            f"插件「{action.plugin_name}」执行异常: {plugin_res.error}",
+                            level="ERROR",
+                        )
+                        raise RuntimeError(
+                            f"Plugin '{action.plugin_name}' execution failed: {plugin_res.error}"
+                        )
                     res = plugin_res.return_value
 
                 from tg_signer.core.plugin_runtime import adapt_plugin_result
@@ -1484,6 +1519,8 @@ class SignerActionsMixin:
                 return False
 
             while time.perf_counter() - start < timeout:
+                if getattr(self.context, "stop_after_current_action", False) is True:
+                    return None
                 await asyncio.sleep(0.3)
                 messages_dict = self.context.chat_messages.get(
                     chat_scope_key(chat.chat_id, chat.message_thread_id)
@@ -1528,6 +1565,11 @@ class SignerActionsMixin:
                     if ok:
                         # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
                         messages_dict[message.id] = None
+                        return None
+                    if (
+                        getattr(self.context, "stop_after_current_action", False)
+                        is True
+                    ):
                         return None
             # Fallback: try recent history in case message handlers missed the reply.
             if isinstance(
@@ -1575,7 +1617,10 @@ class SignerActionsMixin:
                             ok = await self._dispatch_reactive_plugin_message(
                                 action, chat, message, eff_timeout, is_history=True
                             )
-                        if ok:
+                        if ok or (
+                            getattr(self.context, "stop_after_current_action", False)
+                            is True
+                        ):
                             return None
                 except Exception as e:
                     if getattr(e, "non_retryable", False):

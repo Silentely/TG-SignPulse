@@ -6,14 +6,12 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import json
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from tg_signer.core.plugins import (
     PluginContext,
@@ -28,67 +26,6 @@ AUTHOR = "TG-Community"
 def parse_init_data(init_data_raw: str) -> Dict[str, str]:
     """解析 initData 查询字符串为键值字典。"""
     return dict(urllib.parse.parse_qsl(init_data_raw, keep_blank_values=True))
-
-
-def validate_init_data(
-    init_data_raw: str,
-    bot_token: str,
-    max_age_seconds: int = 86400,
-    current_time: Optional[int] = None,
-) -> Dict[str, str]:
-    """严格校验 Telegram Mini App initData 凭证合法性。
-
-    依据 Telegram WebApp 安全规范：
-    1. 校验必填字段结构（user、auth_date、hash）
-    2. 校验 hash 签名（HMAC-SHA256, secret_key=HMAC_SHA256("WebAppData", bot_token)）
-    3. 校验 auth_date 未过期
-    """
-    params = parse_init_data(init_data_raw)
-
-    auth_date_str = params.get("auth_date")
-    if not auth_date_str:
-        raise ValueError("Missing auth_date parameter")
-    try:
-        auth_date = int(auth_date_str)
-    except ValueError:
-        raise ValueError("Invalid auth_date format")
-
-    user_str = params.get("user")
-    if not user_str or not user_str.strip():
-        raise ValueError("Missing or empty user parameter")
-    try:
-        user_obj = json.loads(user_str)
-    except Exception as exc:
-        raise ValueError("Invalid user json payload") from exc
-    if not user_obj:
-        raise ValueError("Empty user json payload")
-
-    received_hash = params.get("hash")
-    if not received_hash:
-        raise ValueError("Missing hash parameter")
-
-    # 规范：剔除 hash 构造 data_check_string
-    # 针对 Telegram 新版客户端携带的 signature 字段，亦需排除以确保 HMAC 一致性
-    pairs = [
-        f"{k}={v}" for k, v in sorted(params.items()) if k not in ("hash", "signature")
-    ]
-    data_check_string = "\n".join(pairs)
-
-    secret_key = hmac.new(
-        b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256
-    ).digest()
-    calculated_hash = hmac.new(
-        secret_key, data_check_string.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
-
-    if not hmac.compare_digest(calculated_hash, received_hash):
-        raise ValueError("Invalid hash signature: HMAC mismatch")
-
-    now = int(current_time if current_time is not None else time.time())
-    if now - auth_date > max_age_seconds:
-        raise ValueError("auth_date expired")
-
-    return params
 
 
 def _perform_http_post(
@@ -256,16 +193,51 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
     except Exception as exc:
         ctx.log(f"[mini_app_claim] 签到接口请求失败: {exc}", level="ERROR")
         if ctx.storage is not None:
-            await ctx.storage.set("last_claim_status", "failed")
-            await ctx.storage.set("last_claim_error", str(exc))
-            await ctx.storage.set("last_claim_timestamp", int(time.time()))
+            try:
+                await ctx.storage.set("last_claim_status", "failed")
+                await ctx.storage.set("last_claim_error", str(exc))
+                await ctx.storage.set("last_claim_timestamp", int(time.time()))
+            except Exception as store_exc:
+                ctx.log(
+                    f"[mini_app_claim] 状态持久化失败: {store_exc}", level="WARNING"
+                )
         return False
 
-    # 3. 结果落库持久化
+    # 业务返回校验 (P0-3)
+    code = resp_data.get("code") if isinstance(resp_data, dict) else None
+    success_field = resp_data.get("success") if isinstance(resp_data, dict) else None
+
+    if (code is not None and code != 0) or success_field is False:
+        err_msg = (
+            (resp_data.get("message") if isinstance(resp_data, dict) else None)
+            or (resp_data.get("msg") if isinstance(resp_data, dict) else None)
+            or (resp_data.get("error") if isinstance(resp_data, dict) else None)
+            or f"Business checkin failed with code {code}"
+        )
+        ctx.log(f"[mini_app_claim] 签到业务失败: {err_msg}", level="WARNING")
+        if ctx.storage is not None:
+            try:
+                await ctx.storage.set("last_claim_status", "failed")
+                await ctx.storage.set("last_claim_error", str(err_msg))
+                await ctx.storage.set("last_claim_result", resp_data)
+                await ctx.storage.set("last_claim_timestamp", int(time.time()))
+            except Exception as store_exc:
+                ctx.log(
+                    f"[mini_app_claim] 状态持久化失败: {store_exc}", level="WARNING"
+                )
+        return False
+
+    # 3. 结果落库持久化 (P1-6: 状态落库为最佳努力，落库失败不影响签到成功判定)
     ctx.log(f"[mini_app_claim] 签到接口响应成功: {resp_data}")
     if ctx.storage is not None:
-        await ctx.storage.set("last_claim_status", "success")
-        await ctx.storage.set("last_claim_result", resp_data)
-        await ctx.storage.set("last_claim_timestamp", int(time.time()))
+        try:
+            await ctx.storage.set("last_claim_status", "success")
+            await ctx.storage.set("last_claim_result", resp_data)
+            await ctx.storage.set("last_claim_timestamp", int(time.time()))
+        except Exception as store_exc:
+            ctx.log(
+                f"[mini_app_claim] 签到成功但状态持久化失败（已降级）: {store_exc}",
+                level="WARNING",
+            )
 
     return True

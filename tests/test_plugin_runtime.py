@@ -342,6 +342,16 @@ async def test_classify_plugin_error_three_tiers():
         == PluginErrorTier.CAPABILITY_UNAVAILABLE
     )
 
+    # Transient / unknown errors must default to UNKNOWN to avoid tripping capability breaker
+    assert classify_plugin_error("FloodWait: wait 30s") == PluginErrorTier.UNKNOWN
+    assert (
+        classify_plugin_error("ConnectionResetError: peer reset")
+        == PluginErrorTier.UNKNOWN
+    )
+    assert (
+        classify_plugin_error("TimeoutError: read timeout") == PluginErrorTier.UNKNOWN
+    )
+
 
 @pytest.mark.asyncio
 async def test_account_error_does_not_break():

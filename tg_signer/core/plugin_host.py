@@ -280,12 +280,14 @@ class PluginProcessHost:
         meta = PluginRegistry.get(self.plugin_name)
         source_path = getattr(meta, "source_path", None) if meta else None
         if is_whitelisted_legacy_plugin(source_path, self.plugin_name):
-            return
-        context_version = getattr(meta, "context_version", 1) if meta else 1
-        if context_version < 2:
-            raise PluginPermissionDeniedError(
-                f"Plugin '{self.plugin_name}' requires context_version >= 2 and is not whitelisted"
-            )
+            if method != "request_web_view":
+                return
+        else:
+            context_version = getattr(meta, "context_version", 1) if meta else 1
+            if context_version < 2:
+                raise PluginPermissionDeniedError(
+                    f"Plugin '{self.plugin_name}' requires context_version >= 2 and is not whitelisted"
+                )
         raw_grants = getattr(meta, "permissions", []) or []
         grants = normalize_permissions(raw_grants)
         if method.startswith("storage_"):

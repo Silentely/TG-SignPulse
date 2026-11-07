@@ -112,6 +112,19 @@ def _register_worker_fixtures() -> None:
     async def handle_timeout_err(ctx: PluginContext) -> bool:
         raise PluginTimeoutError("Operation timed out after 15s")
 
+    PluginRegistry._plugins.pop("real_ipc_request_web_view", None)
+
+    @PluginRegistry.register(
+        name="real_ipc_request_web_view",
+        mode="active",
+        context_version=2,
+        plugin_api="2.0",
+        permissions=["web_app"],
+    )
+    async def handle_request_web_view(ctx: PluginContext) -> bool:
+        res = await ctx.request_web_view(bot_peer="test_bot", from_bot_menu=True)
+        return bool(res and res.get("query_id") == 12345)
+
     PluginRegistry._plugins.pop("real_ipc_disconnected_err", None)
 
     @PluginRegistry.register(
@@ -431,3 +444,35 @@ async def test_production_runtime_path_propagates_typed_exceptions_and_marks_att
         # 核心断言：ATTEMPTED 状态的 receipt 必须转为 UNKNOWN
         assert len(ctx.operation_receipts) >= 1
         assert ctx.operation_receipts[-1].state == OperationAttemptState.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_real_subprocess_rpc_request_web_view_success():
+    """Test real subprocess worker calls request_web_view via IPC and host dispatches to mock app."""
+    mock_app = MagicMock()
+    mock_app.resolve_peer = AsyncMock(return_value="peer_test_bot")
+    mock_raw_result = MagicMock()
+    mock_raw_result.url = (
+        "https://api.example.com/wv#tgWebAppData=hash%3D123&tgWebAppVersion=7.0"
+    )
+    mock_raw_result.query_id = 12345
+    mock_app.invoke = AsyncMock(return_value=mock_raw_result)
+    mock_logger = MagicMock(spec=["log"])
+
+    ctx = PluginContext(
+        app=mock_app,
+        chat_id=12345,
+        plugin_name="real_ipc_request_web_view",
+        identity=_make_identity(12345),
+        context_version=2,
+        logger=mock_logger,
+    )
+    host = PluginProcessHost(
+        plugin_name="real_ipc_request_web_view",
+        ctx=ctx,
+        timeout=10.0,
+    )
+
+    result = await host.execute()
+    assert result is True
+    assert mock_app.invoke.call_count == 1
