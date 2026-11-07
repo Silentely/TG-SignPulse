@@ -337,8 +337,45 @@ class PluginContext:
         if self.context_version not in {1, 2}:
             self.context_version = 1
 
+    def _has_scoped_identity(self, scope: str) -> bool:
+        """作用域存储需要完整执行身份；缺失时只能回退到旧版共享命名空间。"""
+        if scope == "global":
+            return True
+        if self.identity is None or not self.identity.account_id:
+            return False
+        if scope in {"task", "chat"} and not self.identity.task_id:
+            return False
+        return True
+
+    def _legacy_storage(self) -> PluginStorageClient:
+        if not self._legacy_storage_warned:
+            if self.context_version == 2:
+                message = (
+                    "Plugin execution identity is incomplete; storage falls back "
+                    "to the legacy shared namespace."
+                )
+            else:
+                message = (
+                    "Legacy plugin storage remains shared across accounts; opt in "
+                    "to context_version=2 for scoped storage."
+                )
+            self.log(message, level="WARNING")
+            self._legacy_storage_warned = True
+        if "_legacy" not in self._scoped_storage:
+            namespace = (
+                f"{self.chat_id}:{self.plugin_name}"
+                if self.plugin_name
+                else str(self.chat_id)
+            )
+            self._scoped_storage["_legacy"] = PluginStorageClient(namespace=namespace)
+        return self._scoped_storage["_legacy"]
+
     def storage_for(self, scope: str) -> PluginStorageClient:
+        if scope not in {"global", "account", "task", "chat"}:
+            raise ValueError("PLUGIN_STORAGE_INVALID_SCOPE")
         if scope not in self._scoped_storage:
+            if not self._has_scoped_identity(scope):
+                return self._legacy_storage()
             namespace = self.storage_prefix + plugin_storage_namespace(
                 self.plugin_name, self.identity, scope
             )
@@ -357,20 +394,9 @@ class PluginContext:
     @property
     def storage(self) -> PluginStorageClient:
         if self._storage is None:
-            if self.context_version == 2:
+            if self.context_version == 2 and self._has_scoped_identity("chat"):
                 return self.storage_for("chat")
-            if not self._legacy_storage_warned:
-                self.log(
-                    "Legacy plugin storage remains shared across accounts; opt in to context_version=2 for scoped storage.",
-                    level="WARNING",
-                )
-                self._legacy_storage_warned = True
-            ns = (
-                f"{self.chat_id}:{self.plugin_name}"
-                if self.plugin_name
-                else str(self.chat_id)
-            )
-            self._storage = PluginStorageClient(namespace=ns)
+            self._storage = self._legacy_storage()
         return self._storage
 
     @storage.setter

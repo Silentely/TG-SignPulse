@@ -23,7 +23,7 @@ TAGS = ["monitor", "stock", "sniper", "telegram-bot"]
 ICON = "shopping-bag"
 
 # 显式声明插件所需核心能力，以顺利通过项目 AST 静态安全审计
-PERMISSIONS = ["storage", "buttons", "network"]
+PERMISSIONS = ["message_read", "buttons", "storage", "network"]
 
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {
@@ -74,8 +74,11 @@ class _SimulatedButton:
     author=AUTHOR,
     mode="reactive",
     description="商店 Bot 补货监控：智能识别内联键盘库存状态，支持补货报警与自动秒杀",
-    params_schema=PARAMS_SCHEMA,
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="2.8.0",
     permissions=PERMISSIONS,
+    params_schema=PARAMS_SCHEMA,
 )
 async def stock_sniper_handler(ctx: PluginContext) -> bool:
     """监听 Bot 回复消息中的内联按钮，判断目标商品库存状态并执行告警或秒杀。

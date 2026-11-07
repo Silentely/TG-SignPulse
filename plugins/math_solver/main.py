@@ -17,6 +17,8 @@ CATEGORY = "utility"
 TAGS = ["math", "captcha", "calculator"]
 ICON = "calculator"
 
+PERMISSIONS = ["message_read", "message_write"]
+
 _MATH_PATTERN = re.compile(
     r"(?<![\d\-])(\d+)\s*([\+\-\*\/\u00d7\u00f7])\s*(\d+)(?![\d\-])"
 )
@@ -63,6 +65,10 @@ PARAMS_SCHEMA = [
     author=AUTHOR,
     mode="reactive",
     description="纯文本计算题秒答插件",
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="2.8.0",
+    permissions=PERMISSIONS,
     params_schema=PARAMS_SCHEMA,
 )
 async def solve_math_challenge(ctx: PluginContext) -> bool:

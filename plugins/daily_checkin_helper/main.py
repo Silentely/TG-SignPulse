@@ -16,6 +16,8 @@ CATEGORY = "helper"
 TAGS = ["checkin", "stats", "button-click"]
 ICON = "check-circle"
 
+PERMISSIONS = ["message_read", "buttons", "storage"]
+
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {
         "name": "button_keywords",
@@ -42,6 +44,10 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
     author=AUTHOR,
     mode="reactive",
     description="日常签到助手：智能点击签到回复中的内联按钮，并自动累计签到统计",
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="2.8.0",
+    permissions=PERMISSIONS,
     params_schema=PARAMS_SCHEMA,
 )
 async def daily_checkin_helper_handler(ctx: PluginContext) -> bool:

@@ -18,6 +18,8 @@ CATEGORY = "message"
 TAGS = ["regex", "auto-reply", "matcher"]
 ICON = "code"
 
+PERMISSIONS = ["message_read", "message_write"]
+
 _REGEX_TIMEOUT_SECONDS = 0.5
 _MAX_PATTERN_LENGTH = 512
 _MAX_MESSAGE_LENGTH = 4096
@@ -71,6 +73,10 @@ PARAMS_SCHEMA = [
     author=AUTHOR,
     mode="reactive",
     description="通用正则匹配提取与回复插件（支持自定义模式与捕获组模板）",
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="2.8.0",
+    permissions=PERMISSIONS,
     params_schema=PARAMS_SCHEMA,
 )
 async def regex_reply_handler(ctx: PluginContext) -> bool:

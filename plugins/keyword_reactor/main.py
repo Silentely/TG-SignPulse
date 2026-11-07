@@ -16,6 +16,8 @@ CATEGORY = "message"
 TAGS = ["reaction", "emoji", "keyword"]
 ICON = "smile"
 
+PERMISSIONS = ["message_read", "reactions", "message_write"]
+
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {
         "name": "keyword",
@@ -62,6 +64,10 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
     author=AUTHOR,
     mode="reactive",
     description="监听消息关键词，自动添加 Emoji 表情表态并支持快捷回复",
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="2.8.0",
+    permissions=PERMISSIONS,
     params_schema=PARAMS_SCHEMA,
 )
 async def keyword_reactor_handler(ctx: PluginContext) -> bool:

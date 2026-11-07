@@ -21,11 +21,14 @@ from tg_signer.core.signer_matchers import SignerMatchersMixin
 @pytest.fixture(autouse=True)
 def _preserve_plugins_in_memory():
     saved = dict(PluginRegistry._plugins)
+    saved_loaded = set(PluginRegistry._loaded_files)
     try:
         yield
     finally:
         PluginRegistry._plugins.clear()
         PluginRegistry._plugins.update(saved)
+        PluginRegistry._loaded_files.clear()
+        PluginRegistry._loaded_files.update(saved_loaded)
 
 
 # Module-level registrations so that worker subprocess can resolve plugins when loading this file
@@ -702,6 +705,7 @@ async def test_regex_reply_sample_plugin():
 
 @pytest.mark.asyncio
 async def test_regex_reply_edge_cases_and_boundaries():
+    PluginRegistry.load_all_configured_plugins()
     meta = PluginRegistry.get("regex_reply")
     assert meta is not None
 
@@ -744,6 +748,7 @@ async def test_regex_reply_edge_cases_and_boundaries():
 
 @pytest.mark.asyncio
 async def test_regex_reply_terminates_timed_out_match(monkeypatch):
+    PluginRegistry.load_all_configured_plugins()
     meta = PluginRegistry.get("regex_reply")
     assert meta is not None
     mock_app = MagicMock()

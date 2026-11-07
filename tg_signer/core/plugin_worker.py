@@ -236,7 +236,26 @@ class ProxyPluginContext:
         if self.message:
             self.message.click = self.click
 
+    def _has_scoped_identity(self, scope: str) -> bool:
+        """与宿主侧保持一致：作用域存储缺少完整身份时回退旧版共享命名空间。"""
+        if scope == "global":
+            return True
+        if not self.identity.account_id:
+            return False
+        if scope in {"task", "chat"} and not self.identity.task_id:
+            return False
+        return True
+
     def storage_for(self, scope: str) -> ProxyStorageClient:
+        if scope not in {"global", "account", "task", "chat"}:
+            raise ValueError("PLUGIN_STORAGE_INVALID_SCOPE")
+        if not self._has_scoped_identity(scope):
+            namespace = self.storage_prefix + (
+                f"{self.chat_id}:{self.plugin_name}"
+                if self.plugin_name
+                else str(self.chat_id)
+            )
+            return ProxyStorageClient(self._rpc, namespace=namespace)
         namespace = self.storage_prefix + plugin_storage_namespace(
             self.plugin_name, self.identity, scope
         )

@@ -21,6 +21,8 @@ CATEGORY = "notification"
 TAGS = ["webhook", "http", "alert"]
 ICON = "send"
 
+PERMISSIONS = ["network"]
+
 PARAMS_SCHEMA: List[Dict[str, Any]] = [
     {
         "name": "webhook_url",
@@ -53,6 +55,10 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
     name="webhook_pusher",
     mode="active",
     description="主动执行型 Webhook 推送插件：将当前执行上下文与状态通过 HTTP POST 发送至第三方系统",
+    context_version=2,
+    plugin_api="2.0",
+    min_app_version="2.8.0",
+    permissions=PERMISSIONS,
     params_schema=PARAMS_SCHEMA,
     version=VERSION,
     updated_at=UPDATED_AT,
