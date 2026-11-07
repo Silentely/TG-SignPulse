@@ -18,6 +18,9 @@ def mock_admin_user():
 @pytest.fixture(autouse=True)
 def override_user():
     app.dependency_overrides[get_current_user] = mock_admin_user
+    # Ensure builtin plugins are loaded in PluginRegistry even if previous tests cleared the registry
+    if not PluginRegistry.list_plugins():
+        PluginRegistry.load_all_configured_plugins()
     yield
     app.dependency_overrides.clear()
 
