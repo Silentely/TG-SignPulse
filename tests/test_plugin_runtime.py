@@ -323,6 +323,41 @@ async def test_classify_plugin_error_three_tiers():
         classify_plugin_error("SESSION_REVOKED") == PluginErrorTier.ACCOUNT_UNAVAILABLE
     )
 
+    # Telegram MTProto RPC 401 Unauthorized -> ACCOUNT_UNAVAILABLE
+    assert (
+        classify_plugin_error("[401 UNAUTHORIZED]")
+        == PluginErrorTier.ACCOUNT_UNAVAILABLE
+    )
+    assert (
+        classify_plugin_error("Telegram says: [401 UNAUTHORIZED] - User unauthorized")
+        == PluginErrorTier.ACCOUNT_UNAVAILABLE
+    )
+
+    # 第三方 HTTP 401 / Web API 错误不得误判为 Telegram 账号不可用，必须归类为 UNKNOWN
+    import urllib.error
+
+    http_err = urllib.error.HTTPError(
+        url="https://api.example.com/claim",
+        code=401,
+        msg="Unauthorized",
+        hdrs={},
+        fp=None,
+    )
+    assert classify_plugin_error(http_err) == PluginErrorTier.UNKNOWN
+    assert (
+        classify_plugin_error("HTTP Error 401: Unauthorized") == PluginErrorTier.UNKNOWN
+    )
+    assert (
+        classify_plugin_error(
+            "requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://api.example.com"
+        )
+        == PluginErrorTier.UNKNOWN
+    )
+    assert (
+        classify_plugin_error("HTTP 401 Unauthorized: Invalid API Key")
+        == PluginErrorTier.UNKNOWN
+    )
+
     # Tier 2: Target unavailable
     assert classify_plugin_error("BOT_INVALID") == PluginErrorTier.TARGET_UNAVAILABLE
     assert (

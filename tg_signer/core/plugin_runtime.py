@@ -12,6 +12,7 @@ import inspect
 import json
 import math
 import time
+import urllib.error
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -22,7 +23,10 @@ from tg_signer.core.plugin_host import (
     PluginProcessHost,
     cleanup_all_worker_processes,
 )
-from tg_signer.core.plugins import PluginContext, PluginRegistry
+from tg_signer.core.plugins import (
+    PluginContext,
+    PluginRegistry,
+)
 
 
 class PluginErrorTier(str, Enum):
@@ -48,7 +52,7 @@ ACCOUNT_UNAVAILABLE_MARKERS = frozenset(
         "SESSIONEXPIRED",
         "AUTHKEYUNREGISTERED",
         "AUTHKEYINVALID",
-        "UNAUTHORIZED",
+        "401UNAUTHORIZED",
         "ACCOUNTUNAVAILABLE",
     }
 )
@@ -84,10 +88,21 @@ def classify_plugin_error(err: Any) -> PluginErrorTier:
     """对异常进行三层分类判定。"""
     if err is None:
         return PluginErrorTier.UNKNOWN
-    clean_text = "".join(ch for ch in str(err).upper() if ch.isalnum())
-    for marker in ACCOUNT_UNAVAILABLE_MARKERS:
-        if marker in clean_text:
-            return PluginErrorTier.ACCOUNT_UNAVAILABLE
+    err_str = str(err)
+    clean_text = "".join(ch for ch in err_str.upper() if ch.isalnum())
+
+    # 排除普通 HTTP / Web 接口错误（如第三方 mini app 后端返回的 401 Unauthorized）
+    is_http_err = (
+        isinstance(err, urllib.error.HTTPError)
+        or "HTTP" in clean_text
+        or getattr(err, "status_code", None) is not None
+        or getattr(err, "response", None) is not None
+    )
+    if not is_http_err:
+        for marker in ACCOUNT_UNAVAILABLE_MARKERS:
+            if marker in clean_text:
+                return PluginErrorTier.ACCOUNT_UNAVAILABLE
+
     for marker in TARGET_UNAVAILABLE_MARKERS:
         if marker in clean_text:
             return PluginErrorTier.TARGET_UNAVAILABLE
@@ -358,6 +373,8 @@ class SubprocessPluginAdapter(PluginRuntime):
 
 class TestMockAdapter(PluginRuntime):
     """测试专用适配器：直接在内存中执行注册的插件 handler 或 mock 回调，无需启动操作系统进程。"""
+
+    __test__ = False
 
     def __init__(
         self,

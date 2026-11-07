@@ -70,6 +70,27 @@ class PluginConnectionResetError(PluginError, ConnectionResetError):
     """IPC 通信管道断开或子进程异常退出。"""
 
 
+class PluginAccountUnavailableError(PluginError, RuntimeError):
+    """Telegram 账号不可用异常（如 YOU_BLOCKED_USER、USER_DEACTIVATED、SESSION_REVOKED 等）。
+
+    该异常表明当前 Telegram 账号本身不可用，不计入插件能力熔断，
+    但必须中止执行流程，不进行步骤重试，任务结果判定为中止/失败（非成功）。
+    """
+
+    failure_code = "account_unavailable"
+    failure_category = "account_unavailable"
+    non_retryable = True
+    account_unavailable = True
+
+    def __init__(self, message: str, stop_reason: str | None = None):
+        super().__init__(message)
+        self.stop_reason = stop_reason or message
+        self.non_retryable = True
+        self.failure_code = "account_unavailable"
+        self.failure_category = "account_unavailable"
+        self.account_unavailable = True
+
+
 BUILTIN_LEGACY_PLUGINS_WHITELIST = frozenset(
     {
         "math_solver",

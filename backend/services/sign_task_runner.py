@@ -355,6 +355,19 @@ async def _runner_instantiate_signer(
         no_updates=state["signer_no_updates"],
         storage_account_id=get_account_storage_id(state["account_name"]),
     )
+    from backend.services.sign_task_notify import mark_account_invalid
+
+    async def _on_account_unavailable(
+        *, account_name: str, task_name: str, message: str
+    ) -> None:
+        await mark_account_invalid(
+            account_name=account_name,
+            task_name=task_name,
+            message=message,
+            notify_on_failure=state.get("task_notify_on_failure", True),
+        )
+
+    signer.account_unavailable_alert_handler = _on_account_unavailable
     _set_ctx(state, "signer", signer)
 
 
@@ -494,8 +507,14 @@ async def _runner_execute_with_retry(
             "unknown_side_effects",
             [r for r in rows if r.get("business_status") == "unknown"],
         )
-        if aggregate in {"partial", "unknown", "failed", "needs_review"}:
+        if aggregate in {"partial", "unknown", "failed", "needs_review"} or getattr(
+            signer.context, "account_unavailable", False
+        ):
             _set_ctx(state, "success", False)
+            if getattr(signer.context, "account_unavailable", None) is True:
+                _set_ctx(state, "account_invalid_detected", True)
+                if getattr(signer.context, "stop_reason", None):
+                    _set_ctx(state, "stop_reason", signer.context.stop_reason)
             _set_ctx(
                 state,
                 "error_msg",

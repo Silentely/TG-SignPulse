@@ -30,7 +30,14 @@ def _backend_validate_init_data(
     max_age_seconds: int = 86400,
     current_time: Optional[int] = None,
 ) -> dict[str, str]:
-    """Simulated backend validation of Telegram Mini App initData."""
+    """模拟目标 Mini App 服务端（如 Bot 后端）接收客户端透传 initData 后的校验契约。
+
+    契约说明（P2）：
+    在 Telegram Mini App 体系中，HMAC-SHA256 签名校验由第三方服务端执行，
+    插件客户端严格保持「零篡改原样透传」（zero-tamper pass-through）。
+    本函数与相关测试属于「模拟服务端契约测试」（Simulated Backend Contract Test），
+    用于闭环验证由 MTProto RequestWebView 产生的原始凭证能被官方 WebApp 验签算法成功通过。
+    """
     params = parse_init_data(init_data_raw)
     auth_date_str = params.get("auth_date")
     if not auth_date_str:
@@ -423,3 +430,59 @@ async def test_claim_storage_write_failure_resilience(tmp_path):
     ):
         success = await handle_mini_app_claim(ctx)
         assert success is True
+
+
+@pytest.mark.asyncio
+async def test_claim_http_failure_storage_write_failure_resilience(tmp_path):
+    """断言 HTTP 请求失败且 storage 写入抛异常时，原始失败结果被保留，返回 False 且不被 storage 异常掩盖。"""
+    store = PluginStore(tmp_path / "storage.db")
+    ctx = _make_plugin_ctx(
+        params={
+            "bot_peer": "@example_bot",
+            "claim_url": "https://api.example.com/v1/claim",
+        },
+        store=store,
+    )
+    ctx.request_web_view = AsyncMock(
+        return_value={
+            "url": "https://api.example.com/wv",
+            "init_data_raw": "query_id=test&hash=valid",
+        }
+    )
+
+    ctx.storage.set = AsyncMock(side_effect=IOError("Storage disk full"))
+
+    with patch(
+        "community_plugins.mini_app_claim.main._perform_http_post",
+        side_effect=RuntimeError("Network timeout"),
+    ):
+        success = await handle_mini_app_claim(ctx)
+        assert success is False
+
+
+@pytest.mark.asyncio
+async def test_claim_business_failure_storage_write_failure_resilience(tmp_path):
+    """断言业务返回失败码 (code != 0) 且 storage 写入抛异常时，返回 False 且不被 storage 异常掩盖。"""
+    store = PluginStore(tmp_path / "storage.db")
+    ctx = _make_plugin_ctx(
+        params={
+            "bot_peer": "@example_bot",
+            "claim_url": "https://api.example.com/v1/claim",
+        },
+        store=store,
+    )
+    ctx.request_web_view = AsyncMock(
+        return_value={
+            "url": "https://api.example.com/wv",
+            "init_data_raw": "query_id=test&hash=valid",
+        }
+    )
+
+    ctx.storage.set = AsyncMock(side_effect=IOError("Storage disk full"))
+
+    with patch(
+        "community_plugins.mini_app_claim.main._perform_http_post",
+        return_value={"code": 1002, "msg": "reward already claimed"},
+    ):
+        success = await handle_mini_app_claim(ctx)
+        assert success is False

@@ -35,6 +35,7 @@ from tg_signer.context_vars import task_retry_count_var
 from tg_signer.core.client import Client, get_now
 from tg_signer.core.context import chat_scope_key, get_chat_text, set_chat_text
 from tg_signer.core.flow_adapter import TelegramNodeExecutor
+from tg_signer.core.plugins import PluginAccountUnavailableError
 from tg_signer.core.template import render_template, render_template_recursive
 from tg_signer.log_utils import safe_text_preview
 from tg_signer.utils import read_positive_float_env, read_positive_int_env
@@ -101,6 +102,29 @@ class _CutoverNodeExecutor(TelegramNodeExecutor):
 
 
 class SignerRunnerMixin:
+    async def _send_account_unavailable_alert(
+        self,
+        *,
+        account_name: str,
+        task_name: str,
+        message: str,
+    ) -> None:
+        """账号不可用时触发告警（通过解耦的 alert 处理器分发，保持核心库纯洁）。"""
+        import inspect
+
+        alert_handler = getattr(self, "account_unavailable_alert_handler", None)
+        if alert_handler is not None and callable(alert_handler):
+            try:
+                res = alert_handler(
+                    account_name=account_name,
+                    task_name=task_name,
+                    message=message,
+                )
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as e:
+                logger.warning("Account unavailable alert handler failed: %s", e)
+
     def _track_event_publish(self, publication) -> asyncio.Task:
         tasks = getattr(self, "_event_publish_tasks", None)
         if tasks is None:
@@ -612,7 +636,12 @@ class SignerRunnerMixin:
             except Exception as exc:
                 last_error = exc
                 self.context.waiting_message = None
-                if flow_attempt >= max_flow_attempts:
+                if (
+                    getattr(exc, "non_retryable", False)
+                    or getattr(exc, "account_unavailable", None) is True
+                    or getattr(self.context, "account_unavailable", None) is True
+                    or flow_attempt >= max_flow_attempts
+                ):
                     break
                 _resume_idx = (
                     max(1, (last_successful_index + 1) - retry_backoff_steps)
@@ -644,6 +673,10 @@ class SignerRunnerMixin:
                 )
                 await asyncio.sleep(retry_sleep)
 
+        if getattr(last_error, "account_unavailable", None) is True or getattr(
+            self.context, "account_unavailable", False
+        ):
+            raise last_error
         raise RuntimeError(
             f"脚本流程尝试 {max_flow_attempts} 次仍失败: {last_error}"
         ) from last_error
@@ -698,18 +731,49 @@ class SignerRunnerMixin:
                 target["evidence"] = getattr(self.context, "operation_receipts", [])
             except Exception as exc:
                 last_chat_error = exc
+                is_account_err = (
+                    isinstance(exc, PluginAccountUnavailableError)
+                    or getattr(exc, "account_unavailable", None) is True
+                    or getattr(self.context, "account_unavailable", None) is True
+                )
                 unknown = (
                     getattr(exc, "non_retryable", False)
                     or self.context.business_status == "unknown"
                 )
-                target.update(
-                    execution_status="failed",
-                    business_status="unknown" if unknown else "failed",
-                    failure_category=getattr(exc, "failure_code", None)
-                    or "target_failed",
-                    retry_safe=not unknown,
-                    error=str(exc),
+                stop_reason = (
+                    getattr(exc, "stop_reason", None)
+                    or getattr(self.context, "stop_reason", None)
+                    or str(exc)
                 )
+                target.update(
+                    execution_status="aborted" if is_account_err else "failed",
+                    business_status="failed"
+                    if is_account_err
+                    else ("unknown" if unknown else "failed"),
+                    failure_category="account_unavailable"
+                    if is_account_err
+                    else (getattr(exc, "failure_code", None) or "target_failed"),
+                    retry_safe=False if is_account_err else not unknown,
+                    error=str(exc),
+                    stop_reason=stop_reason if is_account_err else None,
+                )
+                if is_account_err:
+                    self.context.business_status = "failed"
+                    self.context.stop_reason = stop_reason
+                    self.context.account_unavailable = True
+                    acc_name = getattr(self, "_account", "") or target.get(
+                        "account_name", ""
+                    )
+                    task_nm = (
+                        getattr(self, "_task_name", "")
+                        or getattr(config, "name", "")
+                        or "sign_task"
+                    )
+                    await self._send_account_unavailable_alert(
+                        account_name=acc_name,
+                        task_name=task_nm,
+                        message=stop_reason,
+                    )
                 self.log(
                     f"签到失败: {exc} (chat_id={chat.chat_id})",
                     level="WARNING",
@@ -940,6 +1004,26 @@ class SignerRunnerMixin:
                             )
                             await asyncio.sleep(1.0)
                             continue
+                        if (
+                            isinstance(step_exc, PluginAccountUnavailableError)
+                            or getattr(step_exc, "account_unavailable", None) is True
+                            or getattr(self.context, "account_unavailable", None)
+                            is True
+                        ):
+                            self.context.stop_reason = (
+                                getattr(step_exc, "stop_reason", None)
+                                or getattr(self.context, "stop_reason", None)
+                                or str(step_exc)
+                            )
+                            self.context.account_unavailable = True
+                            self.context.business_status = "failed"
+                            self.log(
+                                f"步骤 {step.step_id} 账号不可用，中止工作流: {step_exc}",
+                                level="ERROR",
+                            )
+                            step_failed = True
+                            result = False
+                            break
                         if getattr(action, "continue_on_error", False):
                             self.log(
                                 f"步骤 {step.step_id} 出现错误，已配置容错继续（continue_on_error）: {step_exc}",
@@ -959,7 +1043,11 @@ class SignerRunnerMixin:
                     ctx.current_step_id = "COMPLETE"
                     return True
 
-                if result is False and getattr(action, "continue_on_error", False):
+                if (
+                    result is False
+                    and getattr(action, "continue_on_error", False)
+                    and getattr(self.context, "account_unavailable", None) is not True
+                ):
                     self.log(
                         f"步骤 {step.step_id} 执行返回失败，已配置容错继续（continue_on_error）",
                         level="WARNING",
@@ -1025,6 +1113,11 @@ class SignerRunnerMixin:
             failed_step = (
                 wf_ctx.execution_path[-1] if wf_ctx.execution_path else "unknown"
             )
+            if getattr(self.context, "account_unavailable", None) is True:
+                raise PluginAccountUnavailableError(
+                    f"工作流因账号不可用中止于步骤 {failed_step}: {self.context.stop_reason}",
+                    stop_reason=self.context.stop_reason,
+                )
             raise RuntimeError(f"工作流执行失败，终止于步骤: {failed_step}")
         return
 
@@ -1474,6 +1567,15 @@ class SignerRunnerMixin:
                         from tg_signer.semantic.models import SemanticStopRequested
 
                         last_error = SemanticStopRequested(err_detail)
+                    elif (
+                        getattr(self.context, "account_unavailable", None) is True
+                        or failure_code == "account_unavailable"
+                    ):
+                        last_error = PluginAccountUnavailableError(
+                            err_detail,
+                            stop_reason=getattr(self.context, "stop_reason", None)
+                            or err_detail,
+                        )
                     else:
                         last_error = RuntimeError(
                             f"PulseFlow 执行失败（工作流节点执行失败）: {err_detail}"

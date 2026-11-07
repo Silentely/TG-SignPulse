@@ -391,7 +391,12 @@ def is_session_invalid_error(err: BaseException | None) -> bool:
     if not text:
         return False
     upper = text.upper()
-    return any(marker in upper for marker in _SESSION_INVALID_MARKERS)
+    if getattr(err, "account_unavailable", False):
+        return True
+    return (
+        any(marker in upper for marker in _SESSION_INVALID_MARKERS)
+        or "ACCOUNT_UNAVAILABLE" in upper
+    )
 
 
 def session_check_failure(err: BaseException) -> ConnectionError:

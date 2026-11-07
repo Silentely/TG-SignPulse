@@ -24,7 +24,13 @@ AUTHOR = "TG-Community"
 
 
 def parse_init_data(init_data_raw: str) -> Dict[str, str]:
-    """解析 initData 查询字符串为键值字典。"""
+    """解析 initData 查询字符串为键值字典。
+
+    .. deprecated:: 1.0.0
+        该辅助函数已废弃且不在插件主流程中使用。Mini App 插件按 Telegram 官方规范对
+        MTProto 签发的原始凭证执行零篡改原样透传（Zero-tamper Pass-through），
+        外部服务端接口直接消费未经客户端拆解或重组的 init_data_raw。
+    """
     return dict(urllib.parse.parse_qsl(init_data_raw, keep_blank_values=True))
 
 
@@ -173,6 +179,10 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
     )
 
     # 2. 原样透传调用目标签到接口
+    # 契约说明（P2）：
+    # 在 Telegram Mini App 规范中，HMAC-SHA256 签名校验由目标服务端（Bot 后端）执行，
+    # 插件客户端严格保持「零篡改原样透传」（zero-tamper pass-through）。
+    # 测试与服务契约验证通过模拟服务端完成，插件本身禁止二次计算或修改 hash/auth_date。
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"tma {init_data_raw}",

@@ -48,6 +48,7 @@ from tg_signer.core.context import chat_scope_key
 from tg_signer.core.humanize import simulate_typing_action
 from tg_signer.core.plugin_host import PluginProcessHost
 from tg_signer.core.plugins import (
+    PluginAccountUnavailableError,
     PluginContext,
     PluginExecutionIdentity,
     PluginRegistry,
@@ -1133,17 +1134,20 @@ class SignerActionsMixin:
                 plugin_res.error_tier == PluginErrorTier.ACCOUNT_UNAVAILABLE
                 or not plugin_res.should_break
             ):
+                stop_reason = f"account_unavailable: {plugin_res.error}"
                 self.log(
-                    f"插件「{action.plugin_name}」账号不可用，跳过/终止执行: {plugin_res.error}",
-                    level="WARNING",
+                    f"插件「{action.plugin_name}」账号不可用，中止执行: {plugin_res.error}",
+                    level="ERROR",
                 )
                 if getattr(self, "context", None) is not None:
                     self.context.last_plugin_result = plugin_res
-                    self.context.stop_after_current_action = True
-                    self.context.stop_reason = (
-                        f"account_unavailable: {plugin_res.error}"
-                    )
-                return False
+                    self.context.stop_reason = stop_reason
+                    self.context.account_unavailable = True
+                    self.context.business_status = "failed"
+                raise PluginAccountUnavailableError(
+                    f"Plugin '{action.plugin_name}' account unavailable: {plugin_res.error}",
+                    stop_reason=stop_reason,
+                )
             if plugin_res.exception is not None:
                 raise plugin_res.exception
             raise RuntimeError(
@@ -1293,17 +1297,20 @@ class SignerActionsMixin:
                             plugin_res.error_tier == PluginErrorTier.ACCOUNT_UNAVAILABLE
                             or not plugin_res.should_break
                         ):
+                            stop_reason = f"account_unavailable: {plugin_res.error}"
                             self.log(
-                                f"插件「{action.plugin_name}」账号不可用，跳过/终止执行: {plugin_res.error}",
-                                level="WARNING",
+                                f"插件「{action.plugin_name}」账号不可用，中止执行: {plugin_res.error}",
+                                level="ERROR",
                             )
                             if getattr(self, "context", None) is not None:
                                 self.context.last_plugin_result = plugin_res
-                                self.context.stop_after_current_action = True
-                                self.context.stop_reason = (
-                                    f"account_unavailable: {plugin_res.error}"
-                                )
-                            return False
+                                self.context.stop_reason = stop_reason
+                                self.context.account_unavailable = True
+                                self.context.business_status = "failed"
+                            raise PluginAccountUnavailableError(
+                                f"Plugin '{action.plugin_name}' account unavailable: {plugin_res.error}",
+                                stop_reason=stop_reason,
+                            )
                         self.log(
                             f"插件「{action.plugin_name}」执行异常: {plugin_res.error}",
                             level="ERROR",

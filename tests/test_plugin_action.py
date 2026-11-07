@@ -1546,15 +1546,18 @@ async def test_dispatch_reactive_plugin_message_raises_typed_exceptions():
 
 
 @pytest.mark.asyncio
-async def test_account_unavailable_does_not_trip_breaker_or_raise():
-    """Verify ACCOUNT_UNAVAILABLE (e.g. YOU_BLOCKED_USER) marks stop_after_current_action, does not raise RuntimeError, and does not trip breaker."""
+async def test_account_unavailable_raises_typed_error_and_does_not_trip_breaker():
+    """Verify ACCOUNT_UNAVAILABLE raises PluginAccountUnavailableError, sets stop_reason, and does not trip breaker."""
     from tg_signer.core.plugin_runtime import (
         PluginErrorTier,
         PluginResult,
         TestMockAdapter,
         set_plugin_runtime,
     )
-    from tg_signer.core.plugins import PluginMeta
+    from tg_signer.core.plugins import (
+        PluginAccountUnavailableError,
+        PluginMeta,
+    )
 
     PluginRegistry._plugins["account_unavail_plugin"] = PluginMeta(
         name="account_unavail_plugin",
@@ -1582,20 +1585,26 @@ async def test_account_unavailable_does_not_trip_breaker_or_raise():
     )
     set_plugin_runtime(mock_runtime)
     try:
-        # 1. Active execution: wait_for should return False without raising RuntimeError
-        res = await signer.wait_for(chat, action, timeout=1.0)
-        assert res is False
-        assert signer.context.stop_after_current_action is True
+        # 1. Active execution: wait_for should raise PluginAccountUnavailableError
+        with pytest.raises(PluginAccountUnavailableError) as exc_info:
+            await signer.wait_for(chat, action, timeout=1.0)
+        assert "YOU_BLOCKED_USER" in str(exc_info.value)
+        assert exc_info.value.account_unavailable is True
+        assert exc_info.value.non_retryable is True
+        assert signer.context.account_unavailable is True
         assert "account_unavailable" in signer.context.stop_reason
 
-        # 2. Reactive execution: _dispatch_reactive_plugin_message should return False without raising
-        signer.context.stop_after_current_action = False
+        # 2. Reactive execution: _dispatch_reactive_plugin_message should raise PluginAccountUnavailableError
+        signer.context.account_unavailable = False
+        signer.context.stop_reason = None
         msg = MagicMock()
-        reactive_res = await signer._dispatch_reactive_plugin_message(
-            action, chat, msg, eff_timeout=1.0
-        )
-        assert reactive_res is False
-        assert signer.context.stop_after_current_action is True
+        with pytest.raises(PluginAccountUnavailableError) as exc_info:
+            await signer._dispatch_reactive_plugin_message(
+                action, chat, msg, eff_timeout=1.0
+            )
+        assert "YOU_BLOCKED_USER" in str(exc_info.value)
+        assert exc_info.value.account_unavailable is True
+        assert signer.context.account_unavailable is True
         assert "account_unavailable" in signer.context.stop_reason
     finally:
         set_plugin_runtime(None)
