@@ -2,6 +2,11 @@
 
 > 记录 TG-SignPulse 各版本的更新内容与演进历史。变更记录撰写规范参见 [CLAUDE.md](./CLAUDE.md)。
 
+## 2026-11-07 (v2.8.1)
+- **修复**：插件 Context v2 在执行身份不完整（调试、沙箱、关键词监听等场景）时不再抛出 `PLUGIN_IDENTITY_ACCOUNT_REQUIRED`，统一回退到旧版共享命名空间并只告警一次；worker 代理与宿主侧的回退行为保持一致，并统一校验存储作用域参数。
+- **修复**：官方内置插件补齐 Context v2 声明与权限清单。`daily_checkin_helper`、`keyword_reactor`、`math_solver`、`regex_reply`、`stock_sniper`、`webhook_pusher` 均声明 `context_version=2`、`plugin_api`、`min_app_version` 与 `permissions`，其中 `stock_sniper` 补上 `message_read` 权限。
+- **修复**：修复串行运行测试时插件加载缓存（`_loaded_files`）跨用例泄漏、导致内置插件注册丢失的问题。
+
 ## 2026-11-07 (v2.8.0)
 - **不兼容**：插件 Context v2 成为强制规范。第三方与自定义插件必须在注册信息与 `plugin.json` 中声明 `context_version=2`、`plugin_api`、`min_app_version` 与 `permissions`，未升级的旧插件会被拒绝加载；6 款官方内置插件保持兼容。
 - **不兼容**：任务执行引擎全面切换至 PulseFlow v4，前端移除全局与任务级引擎选择项，非图结构任务上原有的经典引擎配置不再生效。特殊场景可通过环境变量 `PULSEFLOW_ENGINE_OVERRIDE=classic` 紧急回滚，图结构任务不支持回滚。

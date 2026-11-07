@@ -2,6 +2,11 @@
 
 > 记录后端服务的主要改动。变更记录撰写规范参见 [CLAUDE.md](../CLAUDE.md)。
 
+## 2026-11-07 (v2.8.1)
+- **修复**：插件 Context v2 在身份不完整时回退旧版共享存储命名空间并输出一次性告警；worker 代理与宿主侧行为对齐，存储作用域参数统一校验。
+- **修复**：官方内置插件补齐 `context_version=2`、`plugin_api`、`min_app_version` 与权限清单。
+- **修复**：修复插件加载缓存（`_loaded_files`）跨测试用例泄漏导致内置插件注册丢失的问题。
+
 ## 2026-11-07 (v2.8.0)
 - **不兼容**：插件加载门禁强制要求 Context v2。非官方内置白名单插件必须声明 `context_version=2`、`plugin_api`、`min_app_version` 与权限数组，否则主进程与 worker 均会拒绝加载。
 - **不兼容**：执行引擎单轨切换至 PulseFlow v4。任务级与全局经典引擎配置不再参与常规路由，仅保留 `PULSEFLOW_ENGINE_OVERRIDE=classic` 紧急回滚；图结构任务在回滚时显式报错。
