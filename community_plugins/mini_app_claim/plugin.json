@@ -1,0 +1,50 @@
+{
+  "id": "mini_app_claim",
+  "name": "Mini App 签到",
+  "version": "1.0.0",
+  "mode": "active",
+  "category": "helper",
+  "description": "通过 RequestWebView 获取合法 Telegram Mini App 凭证并完成自动化签到",
+  "author": "TG-Community",
+  "homepage": "https://github.com/Silentely/TG-SignPulse",
+  "icon": "zap",
+  "tags": ["miniapp", "checkin", "web_app"],
+  "min_app_version": "1.8.0",
+  "context_version": 2,
+  "plugin_api": "2.0",
+  "permissions": ["web_app", "storage", "network"],
+  "params_schema": [
+    {
+      "name": "bot_peer",
+      "label": "Bot Peer",
+      "type": "string",
+      "default": "",
+      "required": false,
+      "description": "目标 Bot 用户名或 ID（留空默认当前 chat_id）"
+    },
+    {
+      "name": "claim_url",
+      "label": "签到 API 地址",
+      "type": "string",
+      "default": "https://api.example.com/v1/claim",
+      "required": true,
+      "description": "接收 initData 凭证的目标 HTTP 签到接口"
+    },
+    {
+      "name": "from_bot_menu",
+      "label": "From Bot Menu",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "是否以 Bot Menu 场景请求 WebApp"
+    },
+    {
+      "name": "max_flood_wait",
+      "label": "最大 FloodWait 容忍秒数",
+      "type": "integer",
+      "default": 300,
+      "required": false,
+      "description": "遇到 Telegram FloodWait 时最大允许等待秒数，超过则不重试"
+    }
+  ]
+}
