@@ -301,6 +301,8 @@ class PluginProcessHost:
             required = "buttons"
         elif method == "react":
             required = "reactions"
+        elif method == "request_web_view":
+            required = "web_app"
         elif method in ("get_messages", "read_chat_history"):
             required = "message_read"
         elif method in (
@@ -543,6 +545,8 @@ class PluginProcessHost:
                             return await self.ctx.forward_messages(
                                 target_cid, **forward_kwargs
                             )
+                        elif method == "request_web_view":
+                            return await self.ctx.request_web_view(**call_params)
                         elif method.startswith("storage_"):
                             scope = call_params.pop("scope", None)
                             is_global = bool(call_params.pop("is_global", False))

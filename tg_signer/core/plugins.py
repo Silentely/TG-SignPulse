@@ -95,6 +95,7 @@ PERMISSION_CANONICAL_MAP: Dict[str, str] = {
     "cron": "cron",
     "buttons": "buttons",
     "reactions": "reactions",
+    "web_app": "web_app",
 }
 
 
@@ -810,6 +811,66 @@ class PluginContext:
                 return bool(await res)
             return bool(res)
         raise RuntimeError("Telegram Client 不支持 read_chat_history 方法")
+
+    async def request_web_view(
+        self,
+        bot_peer: Optional[Union[int, str]] = None,
+        url: Optional[str] = None,
+        start_param: Optional[str] = None,
+        theme_params: Optional[Dict[str, Any]] = None,
+        platform: str = "android",
+        from_bot_menu: bool = False,
+    ) -> Dict[str, Any]:
+        self._mark_side_effect()
+        caller = getattr(self.logger, "request_web_view", None)
+        if caller is not None and callable(caller):
+            res = caller(
+                bot_peer=bot_peer,
+                url=url,
+                start_param=start_param,
+                theme_params=theme_params,
+                platform=platform,
+                from_bot_menu=from_bot_menu,
+            )
+            if inspect.isawaitable(res):
+                return await res
+            return res
+
+        import urllib.parse
+
+        from pyrogram import raw
+
+        target = bot_peer or self.chat_id
+        resolved = await self.app.resolve_peer(target)
+        raw_res = await self.app.invoke(
+            raw.functions.messages.RequestWebView(
+                peer=resolved,
+                bot=resolved,
+                platform=platform,
+                from_bot_menu=from_bot_menu,
+                url=url,
+                start_param=start_param,
+                theme_params=theme_params,
+            )
+        )
+        raw_url = getattr(raw_res, "url", "")
+        query_id = getattr(raw_res, "query_id", None)
+        fragment = raw_url.split("#", 1)[1] if "#" in raw_url else ""
+        init_data_raw = ""
+        if "tgWebAppData=" in fragment:
+            data_part = fragment.split("tgWebAppData=", 1)[1]
+            if "&tgWebAppVersion=" in data_part:
+                data_part = data_part.split("&tgWebAppVersion=", 1)[0]
+            elif "&" in data_part:
+                data_part = data_part.split("&", 1)[0]
+            init_data_raw = urllib.parse.unquote(data_part)
+        init_data_params = dict(urllib.parse.parse_qsl(init_data_raw))
+        return {
+            "url": raw_url,
+            "query_id": query_id,
+            "init_data_raw": init_data_raw,
+            "init_data_params": init_data_params,
+        }
 
 
 @dataclass

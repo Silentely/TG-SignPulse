@@ -485,6 +485,27 @@ class ProxyPluginContext:
         res = await self._rpc("read_chat_history", **call_params)
         return bool(res)
 
+    async def request_web_view(
+        self,
+        bot_peer: Optional[Union[int, str]] = None,
+        url: Optional[str] = None,
+        start_param: Optional[str] = None,
+        theme_params: Optional[Dict[str, Any]] = None,
+        platform: str = "android",
+        from_bot_menu: bool = False,
+    ) -> Dict[str, Any]:
+        """通过 Telegram MTProto 获取包含合法 initData 的 Webview URL。"""
+        call_params = {
+            "bot_peer": bot_peer,
+            "url": url,
+            "start_param": start_param,
+            "theme_params": theme_params,
+            "platform": platform,
+            "from_bot_menu": from_bot_menu,
+        }
+        res = await self._rpc("request_web_view", **call_params)
+        return res if isinstance(res, dict) else {}
+
 
 async def run_worker_loop(
     reader: Optional[asyncio.StreamReader] = None,
