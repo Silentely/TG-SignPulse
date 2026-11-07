@@ -1,10 +1,10 @@
 {
   "id": "crypto_price_tracker",
-  "name": "加密货币行情解析助手",
+  "name": "加密货币行情监控",
   "version": "1.0.0",
   "mode": "reactive",
   "category": "notification",
-  "description": "监听机器人或频道推送中的代币报价，自动提取 BTC/ETH/USDT 等核心指标并持久化记录到插件存储",
+  "description": "监听并解析会话中的代币行情消息，自动提取 BTC、ETH 等价格并保存到本地记录。",
   "author": "BlockExplorer",
   "homepage": "https://github.com/Silentely/TG-SignPulse",
   "icon": "trending-up",

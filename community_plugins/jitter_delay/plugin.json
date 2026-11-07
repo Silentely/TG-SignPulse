@@ -1,10 +1,10 @@
 {
   "id": "jitter_delay",
-  "name": "拟人随机延迟抖动",
+  "name": "随机等待延迟",
   "version": "1.0.0",
   "mode": "active",
   "category": "utility",
-  "description": "在打卡指令执行前注入拟人化的随机停顿与思考延迟，消除定时请求特征。",
+  "description": "在执行签到前增加随机等待时间，打乱固定执行周期，避免并发请求。",
   "author": "TG-SignPulse",
   "homepage": "https://github.com/Silentely/TG-SignPulse",
   "icon": "clock",
@@ -49,7 +49,7 @@
       ]
     }
   ],
-  "description_en": "Injects randomized pause and thinking jitter delay before signing actions to eliminate fixed-interval timing fingerprints.",
+  "description_en": "Injects randomized delay before signing actions to avoid concurrency and fixed-interval patterns.",
   "features": [
     "Uniform and Gaussian randomized delay sampling",
     "Automatic min/max bound swapping and non-negative clamping",

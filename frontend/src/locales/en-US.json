@@ -1268,7 +1268,8 @@
     "webdavSkipSslVerify": "Skip SSL Verification",
     "webdavSkipSslVerifyDesc": "Ignore SSL certificate validity. This does not allow private or intranet addresses.",
     "webdavAllowPrivate": "Allow private WebDAV address",
-    "webdavAllowPrivateDesc": "Allow WebDAV targets on a private network. Enable only for a trusted NAS or internal service."
+    "webdavAllowPrivateDesc": "Allow WebDAV targets on a private network. Enable only for a trusted NAS or internal service.",
+    "noMarketReadme": "No documentation available"
   },
   "profile": {
     "title": "Profile",

@@ -1268,7 +1268,8 @@
     "webdavSkipSslVerify": "跳过 SSL 证书校验",
     "webdavSkipSslVerifyDesc": "忽略 SSL 证书有效性，但不会允许访问私有或内网地址。",
     "webdavAllowPrivate": "允许内网 WebDAV 地址",
-    "webdavAllowPrivateDesc": "允许连接内网 WebDAV。仅在使用可信 NAS 或内部服务时开启。"
+    "webdavAllowPrivateDesc": "允许连接内网 WebDAV。仅在使用可信 NAS 或内部服务时开启。",
+    "noMarketReadme": "暂无文档说明"
   },
   "profile": {
     "title": "个人中心",

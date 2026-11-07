@@ -1,10 +1,10 @@
 {
   "id": "chat_cleaner",
-  "name": "通用对话痕迹自动清理助手",
+  "name": "会话消息自动清理",
   "version": "1.0.0",
   "mode": "reactive",
   "category": "message",
-  "description": "在响应式任务末尾自动延迟清理用户触发口令与 Bot 回复消息，保持聊天会话整洁。",
+  "description": "在签到执行完成后按配置延迟自动删除触发指令与 Bot 回复消息，保持会话整洁。",
   "author": "TG-SignPulse",
   "homepage": "https://github.com/Silentely/TG-SignPulse",
   "icon": "trash-2",
@@ -39,7 +39,7 @@
       "description": "是否删除用户发送的签到/触发命令消息"
     }
   ],
-  "description_en": "Automatically delays and cleans up user trigger commands and Bot replies at the end of reactive tasks to keep chat history clean.",
+  "description_en": "Automatically delays and cleans up user trigger commands and bot replies after check-in to keep chat history clean.",
   "features": [
     "Configurable delay before message deletion",
     "Cleans bot replies and original trigger commands",

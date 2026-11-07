@@ -1,10 +1,10 @@
 {
   "id": "auto_read_marker",
-  "name": "会话智能已读标记器",
+  "name": "自动标记会话已读",
   "version": "1.0.0",
   "mode": "active",
   "category": "message",
-  "description": "在打卡动作执行前主动清除未读红点，还原真人点击会话并阅读的自然行为。",
+  "description": "在执行签到前自动将目标会话标记为已读，模拟真人点开会话阅读消息的习惯。",
   "author": "TG-SignPulse",
   "homepage": "https://github.com/Silentely/TG-SignPulse",
   "icon": "check-circle",

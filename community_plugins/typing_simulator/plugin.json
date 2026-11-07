@@ -1,10 +1,10 @@
 {
   "id": "typing_simulator",
-  "name": "拟人打字状态模拟器",
+  "name": "模拟打字输入状态",
   "version": "1.0.0",
   "mode": "active",
   "category": "utility",
-  "description": "模拟真实用户在发送消息前的打字状态动画，提高防封与拟人化安全。",
+  "description": "在发送消息前向会话发送“正在输入”等状态，让操作更贴近真人行为习惯。",
   "author": "TG-SignPulse",
   "homepage": "https://github.com/Silentely/TG-SignPulse",
   "icon": "keyboard",
@@ -24,11 +24,11 @@
     },
     {
       "name": "randomize",
-      "label": "随机浮动抖动",
+      "label": "随机浮动耗时",
       "type": "boolean",
       "default": true,
       "required": false,
-      "description": "是否在基础打字时长上引入随机抖动浮动"
+      "description": "是否在基础打字时长上引入随机浮动"
     },
     {
       "name": "action_type",
@@ -57,7 +57,7 @@
       ]
     }
   ],
-  "description_en": "Simulates human typing status animations before sending messages to enhance anti-ban protection and natural interaction.",
+  "description_en": "Simulates human typing status animations before sending messages to enhance natural interaction.",
   "features": [
     "Simulates realistic human typing animations",
     "Configurable duration with safety clamping (0.5s - 15.0s)",

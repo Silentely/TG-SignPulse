@@ -374,7 +374,7 @@ def test_community_plugins_metadata_and_registry():
     assert obs_manifest_file.is_file(), "checkin_observer/plugin.json missing"
     obs_manifest = json.loads(obs_manifest_file.read_text(encoding="utf-8"))
     assert obs_manifest["id"] == "checkin_observer"
-    assert obs_manifest["name"] == "签到全景观察与清理卫士"
+    assert obs_manifest["name"] == "签到积分记录与消息清理"
     assert obs_manifest["version"] == "1.0.0"
     assert obs_manifest["mode"] == "reactive"
     assert obs_manifest["category"] == "helper"
@@ -389,7 +389,7 @@ def test_community_plugins_metadata_and_registry():
     assert cleaner_manifest_file.is_file(), "chat_cleaner/plugin.json missing"
     cleaner_manifest = json.loads(cleaner_manifest_file.read_text(encoding="utf-8"))
     assert cleaner_manifest["id"] == "chat_cleaner"
-    assert cleaner_manifest["name"] == "通用对话痕迹自动清理助手"
+    assert cleaner_manifest["name"] == "会话消息自动清理"
     assert cleaner_manifest["version"] == "1.0.0"
     assert cleaner_manifest["mode"] == "reactive"
     assert cleaner_manifest["category"] == "message"

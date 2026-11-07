@@ -111,6 +111,7 @@ import { computeLineDiff, type DiffLine } from '../../lib/diff'
 import { copyToClipboard } from '../../lib/clipboard'
 import { storageGet, storageSet } from '../../lib/safe-storage'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import { renderMarkdown } from '../../lib/markdown'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -1468,6 +1469,7 @@ const updateAllProgress = ref({ current: 0, total: 0, currentName: '' })
 const isMarketReadmeOpen = ref(false)
 const marketReadmeTitle = ref('')
 const marketReadmeContent = ref('')
+const renderedMarketReadme = computed(() => renderMarkdown(marketReadmeContent.value))
 const marketReadmePlugin = ref<MarketPluginItem | null>(null)
 const loadingMarketReadme = ref(false)
 
@@ -3813,8 +3815,16 @@ AUTHOR = "YourName"
         </div>
 
         <!-- README Markdown 内容 -->
-        <div class="p-4 bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] whitespace-pre-wrap font-sans text-xs leading-relaxed select-text">
-          {{ marketReadmeContent }}
+        <div
+          v-if="renderedMarketReadme"
+          class="markdown-content p-4 bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] font-sans text-xs leading-relaxed select-text overflow-x-auto"
+          v-html="renderedMarketReadme"
+        ></div>
+        <div
+          v-else
+          class="p-4 bg-[var(--sp-surface-muted)] dark:bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] text-xs text-[var(--sp-text-muted)] italic text-center"
+        >
+          {{ t('settings.noMarketReadme') || '暂无文档说明' }}
         </div>
 
         <!-- 参数配置规范提示 -->

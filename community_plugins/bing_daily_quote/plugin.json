@@ -1,10 +1,10 @@
 {
   "id": "bing_daily_quote",
-  "name": "必应每日一图与名言",
+  "name": "必应每日一图与早安语",
   "version": "1.0.0",
   "mode": "active",
   "category": "utility",
-  "description": "主动执行插件：获取必应每日一图的背景故事与格言，并向目标群组发送优雅的晨安图文消息",
+  "description": "获取必应每日一图与每日名言，向指定群组或会话发送图文消息。",
   "author": "TG-Community",
   "homepage": "https://github.com/Silentely/TG-SignPulse",
   "icon": "quote",
