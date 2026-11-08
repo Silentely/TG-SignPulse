@@ -19,6 +19,7 @@ from community_plugins.mini_app_claim.main import (
     CLAIM_URL_SCHEME_FORBIDDEN,
     ClaimUrlError,
     _perform_http_post,
+    _PinnedHTTPSConnection,
     _read_claim_response_body,
     handle_mini_app_claim,
     parse_init_data,
@@ -149,6 +150,23 @@ def test_claim_redirect_to_loopback_is_rejected(monkeypatch):
             )
 
 
+def test_claim_redirect_https_to_http_downgrade_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo",
+        _public_test_resolver,
+    )
+    with patch(
+        "community_plugins.mini_app_claim.main._claim_http_request",
+        return_value=(302, {"Location": "http://claim.example.test/"}, b""),
+    ):
+        with pytest.raises(ValueError, match="CLAIM_URL_SCHEME_FORBIDDEN"):
+            _perform_http_post(
+                "https://claim.example.test/v1/claim",
+                {},
+                {},
+            )
+
+
 def test_claim_cross_origin_redirect_strips_credential_headers_and_body(monkeypatch):
     monkeypatch.setattr(
         "community_plugins.mini_app_claim.main.socket.getaddrinfo",
@@ -208,36 +226,39 @@ def test_claim_redirect_hop_limit_is_enforced(monkeypatch):
 
 
 def test_claim_connection_uses_first_resolved_ip_without_rebinding_lookup(monkeypatch):
-    resolver_results = iter(
-        [
-            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.64.0.1", 443))],
-            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))],
-        ]
+    connect_targets = []
+    tls_hosts = []
+
+    class FakeSocket:
+        pass
+
+    class FakeTlsContext:
+        def wrap_socket(self, sock, server_hostname):
+            tls_hosts.append(server_hostname)
+            return sock
+
+    def fake_create_connection(address, timeout, source_address):
+        connect_targets.append((address, timeout, source_address))
+        return FakeSocket()
+
+    def unexpected_dns_lookup(*args, **kwargs):
+        raise AssertionError("connect path must not resolve the hostname again")
+
+    connection = _PinnedHTTPSConnection("claim.example.test", "100.64.0.1", 443, 15.0)
+    connection._context = FakeTlsContext()
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.create_connection",
+        fake_create_connection,
     )
-    resolver = patch(
+    monkeypatch.setattr(
         "community_plugins.mini_app_claim.main.socket.getaddrinfo",
-        side_effect=lambda *args, **kwargs: next(resolver_results),
+        unexpected_dns_lookup,
     )
-    calls = []
 
-    def fake_request(url, payload, headers, pinned_ip, timeout):
-        calls.append(pinned_ip)
-        return 200, {"Content-Type": "application/json"}, b'{"success":true}'
+    connection.connect()
 
-    with (
-        resolver,
-        patch(
-            "community_plugins.mini_app_claim.main._claim_http_request",
-            side_effect=fake_request,
-        ),
-    ):
-        assert _perform_http_post(
-            "https://claim.example.test/v1/claim",
-            {},
-            {},
-        ) == {"success": True}
-
-    assert calls == ["100.64.0.1"]
+    assert connect_targets == [(("100.64.0.1", 443), 15.0, None)]
+    assert tls_hosts == ["claim.example.test"]
 
 
 def test_claim_http_connection_receives_pinned_ip():
@@ -389,6 +410,30 @@ def test_claim_result_sanitizer_redacts_credentials_embedded_in_values():
     assert "query-value" not in result["message"]
     assert jwt_value not in result["message"]
     assert "***" in result["message"]
+
+
+def test_claim_result_sanitizer_recurses_through_nested_values():
+    nested_secret = "https://user:pw@claim.example.test/?token=nested-value"
+    result = sanitize_claim_result(
+        {
+            "success": True,
+            "message": {
+                "account": {"url": nested_secret},
+                "items": [{"authorization": "nested-token"}],
+            },
+        }
+    )
+    rendered = str(result)
+    assert "pw" not in rendered
+    assert "nested-value" not in rendered
+    assert "nested-token" not in rendered
+    assert result["message"]["items"][0]["authorization"] == "***"
+
+
+def test_claim_result_sanitizer_redacts_short_jwt_shape():
+    short_jwt = "a.b.c"
+    result = sanitize_claim_result({"success": True, "message": short_jwt})
+    assert result["message"] == "***"
 
 
 def test_parse_init_data_is_explicitly_not_an_authenticator():

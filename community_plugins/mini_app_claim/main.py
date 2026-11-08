@@ -64,9 +64,7 @@ CLAIM_VALUE_REDACTION_PATTERNS = (
         lambda match: match.group(0)[: match.group(0).find(match.group(1))] + "***",
     ),
     (
-        re.compile(
-            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
-        ),
+        re.compile(r"\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
         "***",
     ),
 )
@@ -93,6 +91,25 @@ def _is_sensitive_claim_key(key: str) -> bool:
     return any(part in normalized for part in CLAIM_SENSITIVE_KEY_PARTS)
 
 
+def _sanitize_claim_value(value: Any) -> Any:
+    if isinstance(value, str):
+        for pattern, replacement in CLAIM_VALUE_REDACTION_PATTERNS:
+            value = pattern.sub(replacement, value)
+        return value[:MAX_CLAIM_FIELD_CHARS]
+    if isinstance(value, dict):
+        return {
+            str(key): "***"
+            if _is_sensitive_claim_key(str(key))
+            else _sanitize_claim_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_claim_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_claim_value(item) for item in value]
+    return value
+
+
 def sanitize_claim_result(response: Any) -> Dict[str, Any]:
     """Keep only useful result fields and redact/truncate returned data."""
     if not isinstance(response, dict):
@@ -106,10 +123,8 @@ def sanitize_claim_result(response: Any) -> Dict[str, Any]:
             continue
         if key not in CLAIM_RESULT_FIELDS:
             continue
-        if isinstance(value, str):
-            for pattern, replacement in CLAIM_VALUE_REDACTION_PATTERNS:
-                value = pattern.sub(replacement, value)
-            result[key] = value[:MAX_CLAIM_FIELD_CHARS]
+        if isinstance(value, (str, dict, list, tuple)):
+            result[key] = _sanitize_claim_value(value)
         elif isinstance(value, (bool, int, float)) or value is None:
             result[key] = value
         else:
