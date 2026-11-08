@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 模拟打字输入状态 (typing_simulator)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 主动动作插件。在发送消息或执行签到前，向目标 Telegram 会话发送“正在输入”等状态，模拟真人打字过程。
 
@@ -24,7 +26,7 @@
 <span id="english"></span>
 # Typing Simulator (typing_simulator)
 
-English | [简体中文](#模拟打字输入状态-typing_simulator)
+English | [简体中文](#chinese)
 
 Active action plugin. Simulates natural human chat interactions by broadcasting status actions (such as typing or choosing stickers) before sending messages.
 

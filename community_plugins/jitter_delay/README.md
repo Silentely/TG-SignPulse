@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 随机等待延迟 (jitter_delay)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 主动动作插件。在执行签到前增加一段随机等待时间，打乱固定执行周期，避免并发请求与规律性特征。
 
@@ -23,7 +25,7 @@
 <span id="english"></span>
 # Random Jitter Delay (jitter_delay)
 
-English | [简体中文](#随机等待延迟-jitter_delay)
+English | [简体中文](#chinese)
 
 Active action plugin. Injects randomized wait delay before sign-in execution to break fixed timing cycles and reduce request concurrency.
 

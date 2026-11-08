@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 加密货币行情监控 (crypto_price_tracker)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 响应式插件。实时监控目标会话中由各类 Bot 或频道推送的行情消息，自动提取指定代币（如 BTC、ETH、TON、SOL 等）的价格，并保存到本地插件存储。
 
@@ -22,7 +24,7 @@
 <span id="english"></span>
 # Crypto Price Tracker (crypto_price_tracker)
 
-English | [简体中文](#加密货币行情监控-crypto_price_tracker)
+English | [简体中文](#chinese)
 
 Reactive plugin. Monitors cryptocurrency prices posted by bots or channels, extracts token prices, and persists them into plugin storage.
 

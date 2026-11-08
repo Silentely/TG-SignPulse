@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 签到积分记录与消息清理 (checkin_observer)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 响应式插件。自动解析签到回复中的积分变动与连续签到天数并保存到插件存储，同时支持延迟清理 Bot 回复与签到口令消息，保持会话整洁。
 
@@ -29,7 +31,7 @@
 <span id="english"></span>
 # Checkin Points Tracker & Cleaner (checkin_observer)
 
-English | [简体中文](#签到积分记录与消息清理-checkin_observer)
+English | [简体中文](#chinese)
 
 Reactive plugin. Automatically extracts point changes and check-in streaks from bot replies into storage, with optional delayed message cleanup to keep chats tidy.
 

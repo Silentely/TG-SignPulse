@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 自动掷骰子与抽签 (dice_roller)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 响应式插件。实时监控指定群聊或私聊中的 `/roll`、`/dice` 等口令，随机生成点数并回复结果。
 
@@ -22,7 +24,7 @@
 <span id="english"></span>
 # Auto Dice Roller (dice_roller)
 
-English | [简体中文](#自动掷骰子与抽签-dice_roller)
+English | [简体中文](#chinese)
 
 Reactive plugin. Listens for `/roll` or `/dice` commands in chats and rolls random numbers.
 

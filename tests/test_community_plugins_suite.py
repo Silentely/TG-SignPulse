@@ -245,13 +245,15 @@ def test_community_plugins_load_with_explicit_warning(monkeypatch, tmp_path, cap
     assert "可读写宿主文件与网络" in caplog.text
 
 
-def test_mini_app_readme_has_working_bilingual_anchors():
-    readme = (COMMUNITY_PLUGINS_DIR / "mini_app_claim" / "README.md").read_text(
+@pytest.mark.parametrize("plugin_id", sorted(EXPECTED_COMMUNITY_PLUGINS))
+def test_community_readmes_have_working_bilingual_anchors(plugin_id):
+    readme = (COMMUNITY_PLUGINS_DIR / plugin_id / "README.md").read_text(
         encoding="utf-8"
     )
     assert "[简体中文](#chinese)" in readme
     assert '<span id="chinese"></span>' in readme
     assert "[English](#english)" in readme
+    assert readme.count('<span id="english"></span>') == 1
 
 
 def test_plugin_loading_matrix_keeps_custom_plugins_and_gates_community(

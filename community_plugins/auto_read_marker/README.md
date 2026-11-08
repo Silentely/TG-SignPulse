@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 自动标记会话已读 (auto_read_marker)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 主动动作插件。在执行签到前自动将目标会话未读消息标记为已读，模拟真人点进会话阅读消息的习惯。
 
@@ -22,7 +24,7 @@
 <span id="english"></span>
 # Auto Read Marker (auto_read_marker)
 
-English | [简体中文](#自动标记会话已读-auto_read_marker)
+English | [简体中文](#chinese)
 
 Active action plugin. Proactively calls Telegram `read_chat_history` before executing sign-in tasks to clear unread badges, mimicking a user opening the dialog and viewing messages.
 

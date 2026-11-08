@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 必应每日一图与早安语 (bing_daily_quote)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 主动执行型插件。每天在定时打卡流中调用，自动获取微软必应 (Bing) 今日壁纸背景故事、地点与格言，并发送至指定 Telegram 会话。
 
@@ -21,7 +23,7 @@
 <span id="english"></span>
 # Bing Daily Quote (bing_daily_quote)
 
-English | [简体中文](#必应每日一图与早安语-bing_daily_quote)
+English | [简体中文](#chinese)
 
 Active plugin. Fetches Microsoft Bing daily wallpaper stories and quotes, sending a photo message to the specified Telegram chat.
 

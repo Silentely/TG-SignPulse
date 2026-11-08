@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 会话消息自动清理 (chat_cleaner)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 响应式消息插件。在签到任务完成后，按配置延迟自动删除触发指令与 Bot 回复消息，保持个人或群聊会话的整洁与隐私。
 
@@ -23,7 +25,7 @@
 <span id="english"></span>
 # Auto Chat Cleaner (chat_cleaner)
 
-English | [简体中文](#会话消息自动清理-chat_cleaner)
+English | [简体中文](#chinese)
 
 Reactive message plugin. Automatically delays and cleans up both user command messages and bot replies after check-in, keeping chat history clean and private.
 
