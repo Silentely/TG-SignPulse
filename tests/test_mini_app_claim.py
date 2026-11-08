@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import socket
 import time
 import urllib.parse
 from typing import Optional
@@ -13,8 +14,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from community_plugins.mini_app_claim.main import (
+    CLAIM_URL_PRIVATE_ADDRESS,
+    CLAIM_URL_SCHEME_FORBIDDEN,
+    ClaimUrlError,
     handle_mini_app_claim,
     parse_init_data,
+    validate_claim_url,
 )
 from tg_signer.core.plugin_storage import PluginStore
 from tg_signer.core.plugins import (
@@ -22,6 +27,81 @@ from tg_signer.core.plugins import (
     PluginFloodWaitError,
     PluginStorageClient,
 )
+
+
+def _public_test_resolver(host, port, *args, **kwargs):
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.64.0.1", port))]
+
+
+@pytest.fixture(autouse=True)
+def stub_claim_dns(monkeypatch):
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo",
+        _public_test_resolver,
+    )
+
+
+def test_claim_url_requires_https_and_resolves_public_addresses(monkeypatch):
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo",
+        _public_test_resolver,
+    )
+
+    assert validate_claim_url("https://claim.example.test/v1/claim") == (
+        "https://claim.example.test/v1/claim"
+    )
+    for url in (
+        "http://claim.example.test/v1/claim",
+        "file://claim.example.test/v1/claim",
+        "ftp://claim.example.test/v1/claim",
+    ):
+        with pytest.raises(ClaimUrlError) as exc_info:
+            validate_claim_url(url)
+        assert exc_info.value.code == CLAIM_URL_SCHEME_FORBIDDEN
+
+
+@pytest.mark.parametrize(
+    "resolved_address",
+    [
+        "127.0.0.1",
+        "10.0.0.1",
+        "172.16.0.1",
+        "192.168.0.1",
+        "169.254.169.254",
+        "::1",
+        "fc00::1",
+        "fe80::1",
+        "0.0.0.0",
+    ],
+)
+def test_claim_url_rejects_private_and_special_resolved_addresses(
+    monkeypatch, resolved_address
+):
+    def resolver(host, port, *args, **kwargs):
+        family = socket.AF_INET6 if ":" in resolved_address else socket.AF_INET
+        return [(family, socket.SOCK_STREAM, 6, "", (resolved_address, port))]
+
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo", resolver
+    )
+    with pytest.raises(ClaimUrlError) as exc_info:
+        validate_claim_url("https://claim.example.test/v1/claim")
+    assert exc_info.value.code == CLAIM_URL_PRIVATE_ADDRESS
+
+
+def test_claim_url_rejects_dns_rebinding_when_any_address_is_private(monkeypatch):
+    def resolver(host, port, *args, **kwargs):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.64.0.1", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
+        ]
+
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo", resolver
+    )
+    with pytest.raises(ClaimUrlError) as exc_info:
+        validate_claim_url("https://claim.example.test/v1/claim")
+    assert exc_info.value.code == CLAIM_URL_PRIVATE_ADDRESS
 
 
 def _backend_validate_init_data(
@@ -84,7 +164,7 @@ def _backend_validate_init_data(
 
 
 def _generate_valid_init_data(
-    bot_token: str = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+    bot_token: str = "000000:TEST_TOKEN_VALUE",
     auth_date: int = 1731000000,
     user_payload: dict | None = None,
     extra_fields: dict | None = None,
@@ -155,7 +235,7 @@ async def test_mini_app_claim_success_flow(tmp_path):
     ctx = _make_plugin_ctx(
         params={
             "bot_peer": "@example_bot",
-            "claim_url": "https://api.example.com/v1/claim",
+            "claim_url": "https://claim.example.test/v1/claim",
             "from_bot_menu": True,
         },
         store=store,
@@ -164,7 +244,7 @@ async def test_mini_app_claim_success_flow(tmp_path):
     sample_init_data = _generate_valid_init_data()
     ctx.request_web_view = AsyncMock(
         return_value={
-            "url": f"https://api.example.com/wv#tgWebAppData={sample_init_data}&tgWebAppVersion=8.0",
+            "url": f"https://claim.example.test/wv#tgWebAppData={sample_init_data}&tgWebAppVersion=8.0",
             "query_id": "AAHd8Y0AAAAAAJ3xjQC2n9yV",
             "init_data_raw": sample_init_data,
         }
@@ -187,7 +267,7 @@ async def test_mini_app_claim_success_flow(tmp_path):
 
         mock_post.assert_called_once()
         call_url, call_payload, call_headers = mock_post.call_args[0][:3]
-        assert call_url == "https://api.example.com/v1/claim"
+        assert call_url == "https://claim.example.test/v1/claim"
         assert call_payload == {"init_data": sample_init_data}
         assert call_headers["Authorization"] == f"tma {sample_init_data}"
         assert call_headers["X-Telegram-Init-Data"] == sample_init_data
@@ -205,7 +285,7 @@ async def test_mini_app_claim_flood_wait_exact_seconds(tmp_path):
     ctx = _make_plugin_ctx(
         params={
             "bot_peer": "@example_bot",
-            "claim_url": "https://api.example.com/v1/claim",
+            "claim_url": "https://claim.example.test/v1/claim",
             "max_flood_wait": 60,
         },
         store=store,
@@ -216,7 +296,7 @@ async def test_mini_app_claim_flood_wait_exact_seconds(tmp_path):
         side_effect=[
             PluginFloodWaitError(seconds=7),
             {
-                "url": f"https://api.example.com/wv#tgWebAppData={sample_init_data}",
+                "url": f"https://claim.example.test/wv#tgWebAppData={sample_init_data}",
                 "init_data_raw": sample_init_data,
             },
         ]
@@ -283,7 +363,7 @@ def test_reverse_exact_field_set_assertion():
 
 def test_reverse_tampered_hash_rejection():
     """断言篡改 hash 签名必定失败，无法通过 HMAC 验签。"""
-    bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+    bot_token = "000000:TEST_TOKEN_VALUE"
     valid_data = _generate_valid_init_data(bot_token=bot_token, auth_date=1731000000)
 
     # 干净地只篡改 hash 字段值，不引入任何多余参数
@@ -299,7 +379,7 @@ def test_reverse_tampered_hash_rejection():
 
 def test_reverse_expired_auth_date():
     """断言过期的 auth_date 会被立即拒绝。"""
-    bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+    bot_token = "000000:TEST_TOKEN_VALUE"
     old_timestamp = 1700000000
     valid_old_data = _generate_valid_init_data(
         bot_token=bot_token, auth_date=old_timestamp
@@ -318,7 +398,7 @@ def test_reverse_expired_auth_date():
 
 def test_reverse_empty_or_invalid_user():
     """断言空 user 或畸变 user 结构会被拦截。"""
-    bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+    bot_token = "000000:TEST_TOKEN_VALUE"
 
     # Case A: user 为空字典
     empty_user_data = _generate_valid_init_data(bot_token=bot_token, user_payload={})
@@ -344,7 +424,7 @@ async def test_reverse_plugin_backend_rejects_tampered_payload(tmp_path):
     ctx = _make_plugin_ctx(
         params={
             "bot_peer": "@example_bot",
-            "claim_url": "https://api.example.com/v1/claim",
+            "claim_url": "https://claim.example.test/v1/claim",
         },
         store=store,
     )
@@ -352,7 +432,7 @@ async def test_reverse_plugin_backend_rejects_tampered_payload(tmp_path):
     tampered_init_data = "query_id=fake&hash=invalid"
     ctx.request_web_view = AsyncMock(
         return_value={
-            "url": "https://api.example.com/wv",
+            "url": "https://claim.example.test/wv",
             "init_data_raw": tampered_init_data,
         }
     )
@@ -380,13 +460,13 @@ async def test_claim_http_200_business_failure(tmp_path):
     ctx = _make_plugin_ctx(
         params={
             "bot_peer": "@example_bot",
-            "claim_url": "https://api.example.com/v1/claim",
+            "claim_url": "https://claim.example.test/v1/claim",
         },
         store=store,
     )
     ctx.request_web_view = AsyncMock(
         return_value={
-            "url": "https://api.example.com/wv",
+            "url": "https://claim.example.test/wv",
             "init_data_raw": "query_id=test&hash=valid",
         }
     )
@@ -411,13 +491,13 @@ async def test_claim_storage_write_failure_resilience(tmp_path):
     ctx = _make_plugin_ctx(
         params={
             "bot_peer": "@example_bot",
-            "claim_url": "https://api.example.com/v1/claim",
+            "claim_url": "https://claim.example.test/v1/claim",
         },
         store=store,
     )
     ctx.request_web_view = AsyncMock(
         return_value={
-            "url": "https://api.example.com/wv",
+            "url": "https://claim.example.test/wv",
             "init_data_raw": "query_id=test&hash=valid",
         }
     )
@@ -439,13 +519,13 @@ async def test_claim_http_failure_storage_write_failure_resilience(tmp_path):
     ctx = _make_plugin_ctx(
         params={
             "bot_peer": "@example_bot",
-            "claim_url": "https://api.example.com/v1/claim",
+            "claim_url": "https://claim.example.test/v1/claim",
         },
         store=store,
     )
     ctx.request_web_view = AsyncMock(
         return_value={
-            "url": "https://api.example.com/wv",
+            "url": "https://claim.example.test/wv",
             "init_data_raw": "query_id=test&hash=valid",
         }
     )
@@ -467,13 +547,13 @@ async def test_claim_business_failure_storage_write_failure_resilience(tmp_path)
     ctx = _make_plugin_ctx(
         params={
             "bot_peer": "@example_bot",
-            "claim_url": "https://api.example.com/v1/claim",
+            "claim_url": "https://claim.example.test/v1/claim",
         },
         store=store,
     )
     ctx.request_web_view = AsyncMock(
         return_value={
-            "url": "https://api.example.com/wv",
+            "url": "https://claim.example.test/wv",
             "init_data_raw": "query_id=test&hash=valid",
         }
     )

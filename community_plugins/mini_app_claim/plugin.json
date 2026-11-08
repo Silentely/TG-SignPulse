@@ -26,7 +26,7 @@
       "name": "claim_url",
       "label": "签到请求地址",
       "type": "string",
-      "default": "https://api.example.com/v1/claim",
+      "default": "https://claim.example.test/v1/claim",
       "required": true,
       "description": "小程序完成签到领奖的接口网址（由抓包或项目方提供）"
     },

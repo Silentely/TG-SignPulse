@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -21,6 +23,69 @@ from tg_signer.core.plugins import (
 
 VERSION = "1.0.0"
 AUTHOR = "TG-Community"
+
+CLAIM_URL_INVALID = "CLAIM_URL_INVALID"
+CLAIM_URL_SCHEME_FORBIDDEN = "CLAIM_URL_SCHEME_FORBIDDEN"
+CLAIM_URL_PRIVATE_ADDRESS = "CLAIM_URL_PRIVATE_ADDRESS"
+
+
+class ClaimUrlError(ValueError):
+    """Raised when the configured claim endpoint violates the URL policy."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def _is_forbidden_claim_ip(address: str) -> bool:
+    ip = ipaddress.ip_address(address)
+    return ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified
+
+
+def validate_claim_url(url: str) -> str:
+    """Validate and resolve a public HTTPS claim endpoint.
+
+    The hostname is resolved before the request and every returned address is
+    checked. Only HTTPS is allowed; private, loopback, link-local, unspecified,
+    and metadata-range addresses are rejected. The worker repeats this check at
+    execution time so stale configuration cannot bypass the policy.
+    """
+    parsed = urllib.parse.urlparse(str(url).strip())
+    if parsed.scheme.lower() != "https":
+        raise ClaimUrlError(
+            CLAIM_URL_SCHEME_FORBIDDEN,
+            "claim_url must use https://; plaintext and non-HTTP schemes are forbidden",
+        )
+    if not parsed.hostname or parsed.username or parsed.password:
+        raise ClaimUrlError(
+            CLAIM_URL_INVALID,
+            "claim_url must contain a hostname without credentials",
+        )
+    if parsed.fragment:
+        raise ClaimUrlError(CLAIM_URL_INVALID, "claim_url must not contain a fragment")
+
+    try:
+        resolved = socket.getaddrinfo(
+            parsed.hostname,
+            parsed.port or 443,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError as exc:
+        raise ClaimUrlError(
+            CLAIM_URL_INVALID, "claim_url hostname could not be resolved"
+        ) from exc
+
+    addresses = {item[4][0] for item in resolved if item[4]}
+    if not addresses:
+        raise ClaimUrlError(
+            CLAIM_URL_INVALID, "claim_url hostname resolved to no addresses"
+        )
+    if any(_is_forbidden_claim_ip(address) for address in addresses):
+        raise ClaimUrlError(
+            CLAIM_URL_PRIVATE_ADDRESS,
+            "claim_url resolves to a loopback, private, link-local, metadata, or unspecified address",
+        )
+    return parsed.geturl()
 
 
 def parse_init_data(init_data_raw: str) -> Dict[str, str]:
@@ -74,7 +139,7 @@ def _perform_http_post(
             "name": "claim_url",
             "label": "签到请求地址",
             "type": "string",
-            "default": "https://api.example.com/v1/claim",
+            "default": "https://claim.example.test/v1/claim",
             "required": True,
             "description": "小程序完成签到领奖的接口网址（由抓包或项目方提供）",
         },
@@ -100,8 +165,13 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
     """执行 Telegram Mini App 自动化签到流程。"""
     bot_peer = ctx.params.get("bot_peer") or ctx.chat_id
     claim_url = str(
-        ctx.params.get("claim_url", "https://api.example.com/v1/claim")
+        ctx.params.get("claim_url", "https://claim.example.test/v1/claim")
     ).strip()
+    try:
+        claim_url = validate_claim_url(claim_url)
+    except ClaimUrlError as exc:
+        ctx.log(f"[mini_app_claim] {exc.code}: {exc}", level="ERROR")
+        return False
     from_bot_menu = bool(ctx.params.get("from_bot_menu", True))
     max_flood_wait = int(ctx.params.get("max_flood_wait", 300))
 
