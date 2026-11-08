@@ -19,6 +19,7 @@ from community_plugins.mini_app_claim.main import (
     CLAIM_URL_SCHEME_FORBIDDEN,
     ClaimUrlError,
     _perform_http_post,
+    _read_claim_response_body,
     handle_mini_app_claim,
     parse_init_data,
     sanitize_claim_result,
@@ -125,11 +126,130 @@ def test_claim_http_response_limit_is_enforced_during_stream_read():
         return_value=OversizedResponse(),
     ):
         with pytest.raises(ValueError, match=CLAIM_RESPONSE_TOO_LARGE):
+            _read_claim_response_body(OversizedResponse())
+
+
+def test_claim_redirect_to_loopback_is_rejected(monkeypatch):
+    def resolver(host, port, *args, **kwargs):
+        address = "127.0.0.1" if host == "loopback.example.test" else "100.64.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo", resolver
+    )
+    with patch(
+        "community_plugins.mini_app_claim.main._claim_http_request",
+        return_value=(302, {"Location": "https://loopback.example.test/"}, b""),
+    ):
+        with pytest.raises(ValueError, match="CLAIM_URL_PRIVATE_ADDRESS"):
+            _perform_http_post(
+                "https://claim.example.test/v1/claim",
+                {"init_data": "signed-data"},
+                {"X-Telegram-Init-Data": "signed-data"},
+            )
+
+
+def test_claim_cross_origin_redirect_strips_credential_headers_and_body(monkeypatch):
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo",
+        _public_test_resolver,
+    )
+    calls = []
+
+    def fake_request(url, payload, headers, pinned_ip, timeout):
+        calls.append((url, payload, headers, pinned_ip))
+        if len(calls) == 1:
+            return 302, {"Location": "https://evil.example.test/"}, b""
+        return 200, {"Content-Type": "application/json"}, b'{"success":true}'
+
+    with patch(
+        "community_plugins.mini_app_claim.main._claim_http_request",
+        side_effect=fake_request,
+    ):
+        result = _perform_http_post(
+            "https://claim.example.test/v1/claim",
+            {"init_data": "signed-data"},
+            {
+                "Authorization": "tma signed-data",
+                "X-Telegram-Init-Data": "signed-data",
+                "User-Agent": "test",
+            },
+        )
+
+    assert result == {"success": True}
+    assert "Authorization" not in calls[1][2]
+    assert "X-Telegram-Init-Data" not in calls[1][2]
+    assert calls[1][1] == {}
+    assert calls[1][2]["User-Agent"] == "test"
+
+
+def test_claim_redirect_hop_limit_is_enforced(monkeypatch):
+    monkeypatch.setattr(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo",
+        _public_test_resolver,
+    )
+    calls = []
+
+    def fake_request(url, payload, headers, pinned_ip, timeout):
+        calls.append(url)
+        return 302, {"Location": "https://next.example.test/"}, b""
+
+    with patch(
+        "community_plugins.mini_app_claim.main._claim_http_request",
+        side_effect=fake_request,
+    ):
+        with pytest.raises(ValueError, match="CLAIM_REDIRECT_LIMIT"):
             _perform_http_post(
                 "https://claim.example.test/v1/claim",
                 {"init_data": "signed-data"},
                 {},
             )
+    assert len(calls) == 4
+
+
+def test_claim_connection_uses_first_resolved_ip_without_rebinding_lookup(monkeypatch):
+    resolver_results = iter(
+        [
+            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.64.0.1", 443))],
+            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))],
+        ]
+    )
+    resolver = patch(
+        "community_plugins.mini_app_claim.main.socket.getaddrinfo",
+        side_effect=lambda *args, **kwargs: next(resolver_results),
+    )
+    calls = []
+
+    def fake_request(url, payload, headers, pinned_ip, timeout):
+        calls.append(pinned_ip)
+        return 200, {"Content-Type": "application/json"}, b'{"success":true}'
+
+    with (
+        resolver,
+        patch(
+            "community_plugins.mini_app_claim.main._claim_http_request",
+            side_effect=fake_request,
+        ),
+    ):
+        assert _perform_http_post(
+            "https://claim.example.test/v1/claim",
+            {},
+            {},
+        ) == {"success": True}
+
+    assert calls == ["100.64.0.1"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:pw@claim.example.test/v1/claim",
+        "https://claim.example.test/v1/claim#fragment",
+    ],
+)
+def test_claim_url_rejects_credentials_and_fragment(url):
+    with pytest.raises(ClaimUrlError, match="CLAIM_URL_INVALID"):
+        validate_claim_url(url)
 
 
 @pytest.mark.asyncio

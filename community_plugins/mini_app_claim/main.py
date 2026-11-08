@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import asyncio
+import http.client
 import ipaddress
 import json
 import socket
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -29,6 +31,8 @@ CLAIM_URL_SCHEME_FORBIDDEN = "CLAIM_URL_SCHEME_FORBIDDEN"
 CLAIM_URL_PRIVATE_ADDRESS = "CLAIM_URL_PRIVATE_ADDRESS"
 CLAIM_RESPONSE_INVALID = "CLAIM_RESPONSE_INVALID"
 CLAIM_RESPONSE_TOO_LARGE = "response_too_large"
+CLAIM_REDIRECT_LIMIT = "CLAIM_REDIRECT_LIMIT"
+MAX_CLAIM_REDIRECTS = 3
 MAX_CLAIM_RESPONSE_BYTES = 1024 * 1024
 MAX_CLAIM_FIELD_CHARS = 500
 MAX_CLAIM_RESULT_CHARS = 4096
@@ -50,7 +54,7 @@ class ClaimUrlError(ValueError):
     """Raised when the configured claim endpoint violates the URL policy."""
 
     def __init__(self, code: str, message: str):
-        super().__init__(message)
+        super().__init__(f"{code}: {message}")
         self.code = code
 
 
@@ -123,6 +127,11 @@ def validate_claim_url(url: str) -> str:
     and metadata-range addresses are rejected. The worker repeats this check at
     execution time so stale configuration cannot bypass the policy.
     """
+    parsed, _ = _resolve_claim_url(url)
+    return parsed.geturl()
+
+
+def _resolve_claim_url(url: str) -> tuple[urllib.parse.ParseResult, str]:
     parsed = urllib.parse.urlparse(str(url).strip())
     if parsed.scheme.lower() != "https":
         raise ClaimUrlError(
@@ -158,7 +167,7 @@ def validate_claim_url(url: str) -> str:
             CLAIM_URL_PRIVATE_ADDRESS,
             "claim_url resolves to a loopback, private, link-local, metadata, or unspecified address",
         )
-    return parsed.geturl()
+    return parsed, next(iter(addresses))
 
 
 def parse_init_data(init_data_raw: str) -> Dict[str, str]:
@@ -172,32 +181,122 @@ def parse_init_data(init_data_raw: str) -> Dict[str, str]:
     return dict(urllib.parse.parse_qsl(init_data_raw, keep_blank_values=True))
 
 
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection that pins the resolved IP while preserving TLS SNI."""
+
+    def __init__(self, hostname: str, pinned_ip: str, port: int, timeout: float):
+        self._requested_hostname = hostname
+        self._pinned_ip = pinned_ip
+        super().__init__(
+            pinned_ip, port=port, timeout=timeout, context=ssl.create_default_context()
+        )
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection(
+            (self._pinned_ip, self.port), self.timeout, self.source_address
+        )
+        self.sock = self._context.wrap_socket(
+            self.sock, server_hostname=self._requested_hostname
+        )
+
+
+def _read_claim_response_body(resp: Any) -> bytes:
+    content_parts = []
+    total_bytes = 0
+    while True:
+        remaining = MAX_CLAIM_RESPONSE_BYTES - total_bytes
+        chunk = resp.read(min(64 * 1024, remaining + 1))
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > MAX_CLAIM_RESPONSE_BYTES:
+            raise ValueError(CLAIM_RESPONSE_TOO_LARGE)
+        content_parts.append(chunk)
+    return b"".join(content_parts)
+
+
+def _claim_http_request(
+    url: str,
+    payload: Dict[str, Any],
+    headers: Dict[str, str],
+    pinned_ip: str,
+    timeout: float,
+) -> tuple[int, Dict[str, str], bytes]:
+    parsed = urllib.parse.urlparse(url)
+    body = json.dumps(payload).encode("utf-8")
+    request_headers = dict(headers)
+    request_headers["Host"] = parsed.hostname or ""
+    conn = _PinnedHTTPSConnection(
+        parsed.hostname or "",
+        pinned_ip,
+        parsed.port or 443,
+        timeout,
+    )
+    try:
+        target = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+        conn.request("POST", target, body=body, headers=request_headers)
+        response = conn.getresponse()
+        response_headers = dict(response.getheaders())
+        return response.status, response_headers, _read_claim_response_body(response)
+    finally:
+        conn.close()
+
+
 def _perform_http_post(
     url: str,
     payload: Dict[str, Any],
     headers: Dict[str, str],
     timeout: float = 15.0,
 ) -> Dict[str, Any]:
-    """同步发送 HTTP POST 请求，返回 JSON 结构。"""
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        content_parts = []
-        total_bytes = 0
-        while True:
-            remaining = MAX_CLAIM_RESPONSE_BYTES - total_bytes
-            chunk = resp.read(min(64 * 1024, remaining + 1))
-            if not chunk:
-                break
-            total_bytes += len(chunk)
-            if total_bytes > MAX_CLAIM_RESPONSE_BYTES:
-                raise ValueError(CLAIM_RESPONSE_TOO_LARGE)
-            content_parts.append(chunk)
-        content = b"".join(content_parts).decode("utf-8")
+    """POST without automatic redirects; validate and pin every redirect hop."""
+    current_url = url
+    current_payload = dict(payload)
+    current_headers = dict(headers)
+    for hop in range(MAX_CLAIM_REDIRECTS + 1):
+        parsed, pinned_ip = _resolve_claim_url(current_url)
+        status, response_headers, content = _claim_http_request(
+            parsed.geturl(), current_payload, current_headers, pinned_ip, timeout
+        )
+        if status in {301, 302, 303, 307, 308}:
+            location = next(
+                (
+                    value
+                    for key, value in response_headers.items()
+                    if key.lower() == "location"
+                ),
+                None,
+            )
+            if not location:
+                raise ValueError("CLAIM_REDIRECT_LOCATION_MISSING")
+            if hop >= MAX_CLAIM_REDIRECTS:
+                raise ValueError(CLAIM_REDIRECT_LIMIT)
+            next_url = urllib.parse.urljoin(parsed.geturl(), location)
+            next_parsed = urllib.parse.urlparse(next_url)
+            same_origin = (
+                parsed.scheme.lower() == next_parsed.scheme.lower()
+                and parsed.hostname == next_parsed.hostname
+                and (parsed.port or 443) == (next_parsed.port or 443)
+            )
+            if not same_origin:
+                current_headers = {
+                    key: value
+                    for key, value in current_headers.items()
+                    if key.lower()
+                    not in {"authorization", "x-telegram-init-data", "cookie"}
+                }
+                current_payload = {}
+            current_url = next_url
+            continue
+
         try:
-            return json.loads(content)
+            return json.loads(content.decode("utf-8"))
         except Exception:
-            return {"raw": content, "status_code": resp.status}
+            return {
+                "raw": content.decode("utf-8", errors="replace"),
+                "status_code": status,
+            }
+
+    raise ValueError(CLAIM_REDIRECT_LIMIT)
 
 
 @PluginRegistry.register(
