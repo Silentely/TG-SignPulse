@@ -4,10 +4,70 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
+
 from tests.test_api import _auth, _login
 from tg_signer.core.plugins import PluginRegistry
 
 pytest_plugins = ("tests.test_api",)
+
+
+@pytest.mark.asyncio
+async def test_market_catalog_does_not_count_repository_community_source_as_installed(
+    monkeypatch, tmp_path
+):
+    from backend.services import plugins as plugins_service
+    from backend.services.plugins import PluginService
+    from tg_signer.core.plugins import PluginMeta
+
+    async def fake_fetch(refresh=False):
+        return (
+            {
+                "plugins": [
+                    {
+                        "id": "community_only_plugin",
+                        "name": "Community Only",
+                        "version": "1.0.0",
+                    }
+                ]
+            },
+            "local",
+            "local://marketplace.json",
+            False,
+        )
+
+    async def handler(ctx):
+        return True
+
+    monkeypatch.setattr(
+        plugins_service, "_get_fetch_market_catalog", lambda: fake_fetch
+    )
+    monkeypatch.setattr(
+        PluginRegistry,
+        "list_plugins",
+        lambda: {
+            "community_only_plugin": PluginMeta(
+                name="community_only_plugin",
+                handler=handler,
+                version="1.0.0",
+                source_path=str(
+                    tmp_path / "community_plugins" / "community_only_plugin" / "main.py"
+                ),
+                builtin=False,
+            )
+        },
+    )
+    monkeypatch.setattr(PluginRegistry, "get_search_directories", lambda: [])
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_community_directories",
+        lambda: [tmp_path / "community_plugins"],
+    )
+
+    response = await PluginService().list_market_catalog(refresh=True)
+    item = response.plugins[0]
+    assert item.installed is False
+    assert item.status == "not_installed"
 
 
 def test_market_endpoints_require_auth(api_client):

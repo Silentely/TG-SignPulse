@@ -1,6 +1,8 @@
+<span id="chinese"></span>
+
 # 小程序自动签到 (mini_app_claim)
 
-[English](#english) | 简体中文
+[English](#english) | [简体中文](#chinese)
 
 主动动作插件。自动获取 Telegram 机器人的小程序（Mini App）凭据并提交给打卡接口，完成每日签到与领奖，无需每天手动打开手机点进小程序。
 
@@ -30,7 +32,7 @@
 <span id="english"></span>
 # Telegram Mini App Auto Checkin (mini_app_claim)
 
-English | [简体中文](#小程序自动签到-mini_app_claim)
+English | [简体中文](#chinese)
 
 Active action plugin. Automatically requests Telegram Mini App launch credentials and submits daily check-in claims without manually opening the web view.
 

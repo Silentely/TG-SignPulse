@@ -91,6 +91,23 @@ def _get_custom_plugins_dir() -> Path:
     return target_dir
 
 
+def _is_community_plugin_source(source_path: Optional[str]) -> bool:
+    """Return whether a loaded plugin comes from the repository community catalog."""
+    if not source_path:
+        return False
+    try:
+        resolved_source = Path(source_path).resolve()
+        for directory in PluginRegistry.get_community_directories():
+            try:
+                resolved_source.relative_to(directory.resolve())
+                return True
+            except ValueError:
+                continue
+    except OSError:
+        return False
+    return False
+
+
 def _plugin_test_namespace(chat_id: Union[int, str], plugin_name: str) -> str:
     """调试台专用持久化命名空间，带保留前缀与生产命名空间（{chat_id}:{name}）隔离。"""
     return f"__test__:{chat_id}:{plugin_name}"
@@ -1210,7 +1227,12 @@ class PluginService:
             if not pid:
                 continue
 
-            installed_meta = installed_plugins.get(pid) or static_plugins.get(pid)
+            installed_meta = installed_plugins.get(pid)
+            if installed_meta and _is_community_plugin_source(
+                getattr(installed_meta, "source_path", None)
+            ):
+                installed_meta = None
+            installed_meta = installed_meta or static_plugins.get(pid)
             is_installed = installed_meta is not None
             installed_version = installed_meta.version if installed_meta else None
             installed_source = getattr(installed_meta, "source_path", None)
