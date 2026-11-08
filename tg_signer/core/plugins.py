@@ -1749,8 +1749,44 @@ class PluginRegistry:
         return deduped
 
     @classmethod
+    def allow_community_plugins(cls) -> bool:
+        """Return whether explicitly trusted community code may be loaded."""
+        raw = os.getenv("PLUGINS_ALLOW_COMMUNITY", "false").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def get_community_directories(cls) -> list[Path]:
+        """Return configured community-plugin directories, if present."""
+        candidates = []
+        configured = os.getenv("COMMUNITY_PLUGINS_DIR")
+        if configured:
+            candidates.append(Path(configured).expanduser())
+        candidates.append(Path.cwd() / "community_plugins")
+        result = []
+        seen: set[Path] = set()
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            if resolved.is_dir() and resolved not in seen:
+                seen.add(resolved)
+                result.append(candidate)
+        return result
+
+    @classmethod
     def load_all_configured_plugins(cls) -> int:
-        for d in cls.get_search_directories():
+        if cls.allow_community_plugins():
+            _logger.warning(
+                "已启用社区插件：该插件可读写宿主文件与网络，请自行确认来源；"
+                "v2 grants 只约束宿主 RPC，不构成操作系统沙箱"
+            )
+            directories = cls.get_search_directories() + cls.get_community_directories()
+        else:
+            # Community/custom plugins are administrator-trusted code and stay
+            # disabled unless explicitly enabled. Built-in plugins remain available.
+            directories = cls.get_builtin_directories()
+        for d in directories:
             if d.is_dir():
                 cls.load_plugins_from_dir(d)
         return len(cls._plugins)

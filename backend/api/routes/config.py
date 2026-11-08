@@ -417,6 +417,7 @@ def delete_ai_config(current_user: User = Depends(get_current_user)):
 
 
 class GlobalSettingsRequest(BaseModel):
+    allow_community_plugins: Optional[bool] = None
     sign_interval: Optional[int] = None
     log_retention_days: Optional[int] = None
     data_dir: Optional[str] = None
@@ -470,6 +471,7 @@ class GlobalSettingsRequest(BaseModel):
 
 
 class GlobalSettingsResponse(BaseModel):
+    allow_community_plugins: bool = False
     sign_interval: Optional[int] = None
     log_retention_days: int = 7
     data_dir: Optional[str] = None

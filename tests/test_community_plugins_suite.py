@@ -7,6 +7,7 @@ security AST audit, and runtime registration.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -164,6 +165,73 @@ def test_plugin_registry_load_all_community_plugins_cleanly():
         assert meta.min_app_version == "1.9.0"
         assert meta.plugin_api == "2.0"
         assert meta.isolation_mode == "subprocess"
+
+
+def _write_community_gate_plugin(root: Path) -> None:
+    plugin_dir = root / "community_gate_plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": "community_gate_plugin",
+                "name": "Community Gate Plugin",
+                "version": "1.0.0",
+                "mode": "active",
+                "category": "utility",
+                "description": "A test plugin for the community loading gate.",
+                "author": "Test Author",
+                "min_app_version": "1.9.0",
+                "context_version": 2,
+                "plugin_api": "2.0",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_dir / "main.py").write_text(
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        '@PluginRegistry.register(name="community_gate_plugin", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.9.0")\n'
+        "async def handle(ctx):\n    return True\n",
+        encoding="utf-8",
+    )
+
+
+def test_community_plugins_are_not_loaded_when_disabled(monkeypatch, tmp_path):
+    community_dir = tmp_path / "community_plugins"
+    _write_community_gate_plugin(community_dir)
+    monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(community_dir))
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    monkeypatch.setattr(
+        PluginRegistry, "get_builtin_directories", classmethod(lambda cls: [])
+    )
+    monkeypatch.setattr(
+        PluginRegistry, "get_search_directories", classmethod(lambda cls: [])
+    )
+
+    assert PluginRegistry.load_all_configured_plugins() == 0
+    assert "community_gate_plugin" not in PluginRegistry.list_plugins()
+
+
+def test_community_plugins_load_with_explicit_warning(monkeypatch, tmp_path, caplog):
+    community_dir = tmp_path / "community_plugins"
+    _write_community_gate_plugin(community_dir)
+    monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(community_dir))
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    monkeypatch.setattr(
+        PluginRegistry, "get_builtin_directories", classmethod(lambda cls: [])
+    )
+    monkeypatch.setattr(
+        PluginRegistry, "get_search_directories", classmethod(lambda cls: [])
+    )
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_community_directories",
+        classmethod(lambda cls: [community_dir]),
+    )
+    caplog.set_level(logging.WARNING, logger="tg_signer.plugins")
+
+    assert PluginRegistry.load_all_configured_plugins() == 1
+    assert "community_gate_plugin" in PluginRegistry.list_plugins()
+    assert "可读写宿主文件与网络" in caplog.text
 
 
 def test_negative_context_version_fails_schema(schema_manifest: dict):

@@ -421,6 +421,15 @@ async def on_startup() -> None:
 
     ensure_data_dirs(settings)
     try:
+        from backend.services.config import get_config_service
+        from backend.services.config_mixins import apply_global_settings_to_env
+
+        apply_global_settings_to_env(get_config_service().get_global_settings())
+    except Exception:
+        logging.getLogger("backend.startup").debug(
+            "全局设置回灌环境变量失败（可忽略）", exc_info=True
+        )
+    try:
         from backend.api.routes.plugins import _get_disabled_plugins
         from tg_signer.core.plugins import PluginRegistry
 
@@ -446,17 +455,6 @@ async def on_startup() -> None:
     except Exception:
         logging.getLogger("backend.startup").debug(
             "清理过期头像缓存失败（可忽略）", exc_info=True
-        )
-    # 面板持久化的全局设置回灌环境变量：env_sync 仅在保存时执行，
-    # 重启后若不回灌，tg_signer 等仍读 env 的路径会静默回退默认值
-    try:
-        from backend.services.config import get_config_service
-        from backend.services.config_mixins import apply_global_settings_to_env
-
-        apply_global_settings_to_env(get_config_service().get_global_settings())
-    except Exception:
-        logging.getLogger("backend.startup").debug(
-            "全局设置回灌环境变量失败（可忽略）", exc_info=True
         )
     init_engine()
     Base.metadata.create_all(bind=get_engine())

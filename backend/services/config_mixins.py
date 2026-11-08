@@ -32,6 +32,7 @@ GLOBAL_SETTINGS_CACHE_TTL = 2.0
 # 面板全局设置键 → 环境变量名：保存时与启动时统一回灌，
 # 供 tg_signer 等仍读 env 的路径（AI_VISION_*、SIGN_TASK_*）使用
 GLOBAL_SETTINGS_ENV_SYNC = {
+    "allow_community_plugins": "PLUGINS_ALLOW_COMMUNITY",
     "sign_task_execution_timeout": "SIGN_TASK_EXECUTION_TIMEOUT",
     "sign_task_reply_timeout": "SIGN_TASK_REPLY_TIMEOUT",
     "sign_task_retry_interval": "SIGN_TASK_RETRY_INTERVAL",
@@ -76,6 +77,9 @@ def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
     for gkey, ekey in GLOBAL_SETTINGS_ENV_SYNC.items():
         val = merged.get(gkey)
         if val is None or str(val).strip() == "":
+            continue
+        if gkey == "allow_community_plugins":
+            os.environ[ekey] = "true" if bool(val) else "false"
             continue
         try:
             os.environ[ekey] = str(int(val))
@@ -150,6 +154,18 @@ def normalize_global_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     - webdav_url/webdav_username/webdav_remote_dir 去首尾空白并兜底默认值
     """
     normalized = dict(settings)
+
+    if "allow_community_plugins" in normalized:
+        value = normalized["allow_community_plugins"]
+        if isinstance(value, str):
+            normalized["allow_community_plugins"] = value.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        else:
+            normalized["allow_community_plugins"] = bool(value)
 
     for key, (low, high) in _GLOBAL_SETTING_INT_CLAMPS.items():
         if key in normalized:
@@ -1400,6 +1416,7 @@ class GlobalSettingsMixin:
             "webdav_allow_private": False,
             "require_proxy_for_telegram": False,
             "backup_target": "auto",
+            "allow_community_plugins": False,
         }
 
         settings = self._read_json_file(config_file)
