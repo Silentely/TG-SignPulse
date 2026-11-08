@@ -198,6 +198,11 @@ def test_claim_result_sanitizer_applies_overall_limit():
     assert len(str(result)) <= 4096
 
 
+def test_parse_init_data_is_explicitly_not_an_authenticator():
+    assert "不做验签" in (parse_init_data.__doc__ or "")
+    assert "不得用于重组凭证" in (parse_init_data.__doc__ or "")
+
+
 def _backend_validate_init_data(
     init_data_raw: str,
     bot_token: str,

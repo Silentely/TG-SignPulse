@@ -162,12 +162,12 @@ def validate_claim_url(url: str) -> str:
 
 
 def parse_init_data(init_data_raw: str) -> Dict[str, str]:
-    """解析 initData 查询字符串为键值字典。
+    """仅供内部读取字段；不做验签，不得用于重组凭证。
 
     .. deprecated:: 1.0.0
         该辅助函数已废弃且不在插件主流程中使用。Mini App 插件按 Telegram 官方规范对
         MTProto 签发的原始凭证执行零篡改原样透传（Zero-tamper Pass-through），
-        外部服务端接口直接消费未经客户端拆解或重组的 init_data_raw。
+        外部服务端接口直接消费未经客户端拆解或重组的 init_data_raw；验签由宿主/服务端负责。
     """
     return dict(urllib.parse.parse_qsl(init_data_raw, keep_blank_values=True))
 
