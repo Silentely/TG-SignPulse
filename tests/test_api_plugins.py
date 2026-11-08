@@ -389,6 +389,7 @@ def test_builtin_plugins_real_directory_load_and_api(api_client, monkeypatch, tm
     # 设置环境变量
     monkeypatch.setenv("BUILTIN_PLUGINS_DIR", str(builtin_dir))
     monkeypatch.setenv("PLUGINS_DIR", str(custom_dir))
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
 
     # 1. 验证真实从目录扫描加载后的 PluginMeta 核心属性
     loaded_builtin = PluginRegistry.load_plugins_from_dir(builtin_dir)
