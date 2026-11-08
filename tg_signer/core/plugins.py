@@ -1776,16 +1776,26 @@ class PluginRegistry:
 
     @classmethod
     def load_all_configured_plugins(cls) -> int:
+        builtin_directories = cls.get_builtin_directories()
+        configured_directories = [
+            directory
+            for directory in cls.get_search_directories()
+            if directory not in builtin_directories
+        ]
         if cls.allow_community_plugins():
             _logger.warning(
                 "已启用社区插件：该插件可读写宿主文件与网络，请自行确认来源；"
                 "v2 grants 只约束宿主 RPC，不构成操作系统沙箱"
             )
-            directories = cls.get_search_directories() + cls.get_community_directories()
+            directories = (
+                builtin_directories
+                + configured_directories
+                + cls.get_community_directories()
+            )
         else:
-            # Community/custom plugins are administrator-trusted code and stay
-            # disabled unless explicitly enabled. Built-in plugins remain available.
-            directories = cls.get_builtin_directories()
+            # User custom plugins keep their historical behavior. Only the
+            # repository/community catalog requires explicit administrator opt-in.
+            directories = builtin_directories + configured_directories
         for d in directories:
             if d.is_dir():
                 cls.load_plugins_from_dir(d)

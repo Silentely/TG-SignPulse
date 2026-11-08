@@ -195,6 +195,17 @@ def _write_community_gate_plugin(root: Path) -> None:
     )
 
 
+def _write_gate_plugin(root: Path, plugin_name: str) -> None:
+    plugin_dir = root / plugin_name
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "main.py").write_text(
+        "from tg_signer.core.plugins import PluginRegistry\n"
+        f'@PluginRegistry.register(name="{plugin_name}", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.9.0")\n'
+        "async def handle(ctx):\n    return True\n",
+        encoding="utf-8",
+    )
+
+
 def test_community_plugins_are_not_loaded_when_disabled(monkeypatch, tmp_path):
     community_dir = tmp_path / "community_plugins"
     _write_community_gate_plugin(community_dir)
@@ -232,6 +243,51 @@ def test_community_plugins_load_with_explicit_warning(monkeypatch, tmp_path, cap
     assert PluginRegistry.load_all_configured_plugins() == 1
     assert "community_gate_plugin" in PluginRegistry.list_plugins()
     assert "可读写宿主文件与网络" in caplog.text
+
+
+def test_plugin_loading_matrix_keeps_custom_plugins_and_gates_community(
+    monkeypatch, tmp_path
+):
+    builtin_dir = tmp_path / "builtin"
+    custom_dir = tmp_path / "custom"
+    community_dir = tmp_path / "community"
+    for directory in (builtin_dir, custom_dir, community_dir):
+        directory.mkdir()
+    _write_gate_plugin(builtin_dir, "builtin_gate_plugin")
+    _write_gate_plugin(custom_dir, "custom_gate_plugin")
+    _write_gate_plugin(community_dir, "community_gate_plugin")
+
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_builtin_directories",
+        classmethod(lambda cls: [builtin_dir]),
+    )
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_search_directories",
+        classmethod(lambda cls: [builtin_dir, custom_dir]),
+    )
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_community_directories",
+        classmethod(lambda cls: [community_dir]),
+    )
+
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    assert PluginRegistry.load_all_configured_plugins() == 2
+    assert set(PluginRegistry.list_plugins()) == {
+        "builtin_gate_plugin",
+        "custom_gate_plugin",
+    }
+
+    PluginRegistry.clear()
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    assert PluginRegistry.load_all_configured_plugins() == 3
+    assert set(PluginRegistry.list_plugins()) == {
+        "builtin_gate_plugin",
+        "custom_gate_plugin",
+        "community_gate_plugin",
+    }
 
 
 def test_negative_context_version_fails_schema(schema_manifest: dict):
