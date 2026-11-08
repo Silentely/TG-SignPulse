@@ -26,9 +26,11 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
 
 ---
 
-## 进程树级硬终止沙箱与 IPC 代理架构
+## 进程树级硬终止与 IPC 代理架构
 
-为了彻底解决自定义插件可能包含同步死循环（例如 `while True: pass`、C 扩展锁死）、恶意阻塞或资源泄露而导致宿主服务卡死的问题，TG-SignPulse 采用了**基于独立子进程 Worker + 双向 JSON-RPC 管道代理 + 跨平台进程树硬终止（Process Group SIGKILL）**的沙箱架构。
+为了处理自定义插件可能包含同步死循环（例如 `while True: pass`、C 扩展锁死）、恶意阻塞或资源泄露导致宿主服务卡死的问题，TG-SignPulse 采用**独立子进程 Worker + 双向 JSON-RPC 管道代理 + 跨平台进程树硬终止（Process Group SIGKILL）**。这提供崩溃和超时控制，但不构成操作系统安全沙箱。
+
+重要边界：Context v2 grants 只约束经过宿主 RPC 的操作，不约束子进程自身的文件系统与网络能力。社区插件因此一律视为管理员信任代码；默认不加载，必须显式开启全局设置 `allow_community_plugins`（或环境变量 `PLUGINS_ALLOW_COMMUNITY=true`）。
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -43,7 +45,7 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
 │  │     子进程组 (New Session / PGID / Process Group)     │  │
 │  │                                                       │  │
 │  │   Worker 子进程 (python -m tg_signer.core.plugin_worker) │  │
-│  │   - 独立 Python 运行时环境与沙箱上下文                 │  │
+│  │   - 独立 Python Worker 与 RPC 上下文                    │  │
 │  │   - 动态加载并执行插件代码 (ctx.reply / click / log)   │  │
 │  │   - 派生的孙子进程 (如有)                             │  │
 │  └───────────────────────────────────────────────────────┘  │
@@ -68,17 +70,17 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
    - 传统方案痛点：在单一进程线程池模型下，`asyncio.wait_for` 超时只能放弃等待协程，底层运行在线程中的同步死循环（如 `while True: pass`）依然占用 CPU 与 Python GIL，无法强制中断，最终拖垮整个主服务。
    - 硬终止保障：当 Worker 执行超过任务设置的超时时间（任务配置的 `timeout` 或测试接口默认 `5.0s`）时，宿主端 `PluginProcessHost` 会立即向 Worker 所在进程组发送 `SIGKILL` 信号（类 Unix 环境通过 `os.killpg(pgid, signal.SIGKILL)`，Windows 环境通过 `taskkill /F /T` 强杀整棵进程树）。无论插件内部是否包含死循环或派生了子进程，操作系统内核都会在毫秒级强制释放所有内存、文件句柄和进程资源，彻底杜绝孤儿进程与主进程阻塞。
 
-### 2. 插件执行隔离
+### 2. 插件执行控制
 
 任务动作、关键词监听后续动作与 Web 调试统一通过独立子进程执行同步和异步插件。`PLUGIN_ISOLATION_ENGINE` 不再用于切换生产执行策略，不支持通过 `in_process` 绕过进程隔离。
 
 #### 调试台超时配置 (`PLUGIN_TEST_TIMEOUT`)
 
 在 Web 管理面板侧边栏「扩展插件」菜单中进行在线单次「调试」时：
-- 默认沙箱测试超时时间为 **`5.0`** 秒；
+- 默认插件测试超时时间为 **`5.0`** 秒；
 - 可通过设置环境变量 `PLUGIN_TEST_TIMEOUT`（如 `PLUGIN_TEST_TIMEOUT=10.0`）自定义测试超时阈值；
 - 也可在调试台单次请求中通过 `timeout` 参数指定超时（契约范围 `(0, 300]` 秒，超出将被拒绝）；
-- 若测试超时，系统将触发硬终止，并在测试结果弹窗中展示 `killed: true` 标识与 `[error] 插件执行超时（沙箱限制 X 秒）` 警告；隔离引擎类型为 `subprocess`。
+- 若测试超时，系统将触发硬终止，并在测试结果弹窗中展示 `killed: true` 标识与 `[error] 插件执行超时（时间限制 X 秒）` 警告；执行引擎类型为 `subprocess`。
 
 ---
 
@@ -128,7 +130,7 @@ PERMISSIONS = ["storage", "message_write"]
     version=VERSION,          # 版本号（默认 1.0.0）
     updated_at=UPDATED_AT,    # 更新日期（未填自动读取文件修改日期 mtime）
     author=AUTHOR,            # 开发者署名
-    context_version=2,        # 必须显式声明为 2，启用严格能力沙箱控制
+    context_version=2,        # 必须显式声明为 2，启用严格宿主 RPC 能力控制
     plugin_api="2.0",         # 插件运行时契约版本（当前标准为 2.0）
     min_app_version="1.0.0",  # 最低支持的 TG-SignPulse 版本
     permissions=PERMISSIONS,  # 声明所需能力清单
@@ -293,6 +295,6 @@ TG-SignPulse 官方预置了 6 个经过严格单测与实战验证的生产级�
 | `/api/plugins/{name}/source` | `PUT` | 安全保存修改后的插件源代码（触发安全门禁与语法校验）。 |
 | `/api/plugins/create` | `POST` | 根据选定脚手架模板（reactive / active / storage）在线创建新插件并自动热加载。 |
 | `/api/plugins/{name}` | `DELETE` | 安全删除指定自定义插件文件/目录并热重载（官方内置插件禁止删除，返回 403）。 |
-| `/api/plugins/{name}/test` | `POST` | Web 调试接口：模拟传入消息文本和参数，在沙箱隔离环境中执行测试，返回匹配结果、回复内容、日志、耗时以及子进程硬终止状态（killed）。 |
+| `/api/plugins/{name}/test` | `POST` | Web 调试接口：模拟传入消息文本和参数，在独立 Worker 中执行测试，返回匹配结果、回复内容、日志、耗时以及子进程硬终止状态（killed）。 |
 | `/api/plugins/{name}/storage` | `GET` | 查看指定插件在各命名空间下的持久化键值存储记录。 |
 | `/api/plugins/{name}/storage` | `DELETE` | 清空指定插件在各命名空间下的持久化存储数据。 |

@@ -4,6 +4,9 @@
 
 主动动作插件。自动获取 Telegram 机器人的小程序（Mini App）凭据并提交给打卡接口，完成每日签到与领奖，无需每天手动打开手机点进小程序。
 
+这是社区插件，默认不会加载。使用前请在全局设置中开启 `allow_community_plugins`，或设置
+`PLUGINS_ALLOW_COMMUNITY=true`，然后重启/重新加载插件，并确认启动日志中的管理员信任警告。
+
 ## 功能介绍
 
 - **自动获取凭据**：自动向 Telegram 申请当前账号在目标小程序中的合法登录凭证。
@@ -18,7 +21,7 @@
 | 配置项 | 参数名 | 类型 | 必填 | 默认值 | 如何填写与说明 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **目标机器人用户名** | `bot_peer` | 字符串 | 否 | 留空 | 小程序属于哪个机器人（例如 `@xxx_bot`）。如果当前打卡任务本身就是发给该机器人的，**直接留空即可**。 |
-| **签到请求地址** | `claim_url` | 字符串 | **是** | `https://api.example.com/v1/claim` | 小程序完成签到的网络地址（通常由抓包或官方分享提供）。 |
+| **签到请求地址** | `claim_url` | 字符串 | **是** | `https://claim.example.test/v1/claim` | 只允许 `https://`。域名解析出的所有地址都必须是公网地址；回环、私网、链路本地、云元数据和未指定地址都会被拒绝。此地址会收到完整 Mini App 凭证，请只填写可信服务端地址。 |
 | **从菜单按钮启动** | `from_bot_menu` | 开关 | 否 | `开启` | 小程序是否是点击聊天界面左下角的“Menu / 打开应用”按钮启动。默认开启即可。 |
 | **遇到限流最大等待秒数** | `max_flood_wait` | 数字 | 否 | `300` | 如果账号请求频繁被限频，最多愿意等待多少秒。默认 300 秒（5分钟），超过则本次任务安全放弃。 |
 
@@ -30,6 +33,9 @@
 English | [简体中文](#小程序自动签到-mini_app_claim)
 
 Active action plugin. Automatically requests Telegram Mini App launch credentials and submits daily check-in claims without manually opening the web view.
+
+This is a community plugin and is disabled by default. Enable `allow_community_plugins` (or set
+`PLUGINS_ALLOW_COMMUNITY=true`) before loading it. The plugin runs as administrator-trusted code.
 
 ## Features
 
@@ -43,6 +49,6 @@ Active action plugin. Automatically requests Telegram Mini App launch credential
 | Parameter | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `bot_peer` | string | No | `""` | Target bot username (e.g. `@sample_bot`). Leave empty if task targets this bot. |
-| `claim_url` | string | **Yes** | `https://...` | The HTTP endpoint for claiming daily rewards. |
+| `claim_url` | string | **Yes** | `https://...` | HTTPS only; every resolved address must be public. Loopback, private, link-local, metadata, and unspecified addresses are rejected. Use only a trusted endpoint because it receives the Mini App credential. |
 | `from_bot_menu` | boolean | No | `true` | Whether the Mini App is launched from the bot's menu button. |
 | `max_flood_wait` | number | No | `300` | Maximum seconds to wait if rate-limited by Telegram. |
