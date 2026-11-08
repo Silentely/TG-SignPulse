@@ -27,6 +27,7 @@ AUTHOR = "TG-Community"
 CLAIM_URL_INVALID = "CLAIM_URL_INVALID"
 CLAIM_URL_SCHEME_FORBIDDEN = "CLAIM_URL_SCHEME_FORBIDDEN"
 CLAIM_URL_PRIVATE_ADDRESS = "CLAIM_URL_PRIVATE_ADDRESS"
+CLAIM_RESPONSE_INVALID = "CLAIM_RESPONSE_INVALID"
 
 
 class ClaimUrlError(ValueError):
@@ -35,6 +36,29 @@ class ClaimUrlError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+
+
+class ClaimResponseError(ValueError):
+    """Raised when the claim endpoint does not return the documented shape."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def validate_claim_response(response: Any) -> Dict[str, Any]:
+    """Require a JSON object with an explicit boolean success field."""
+    if not isinstance(response, dict) or not response or "raw" in response:
+        raise ClaimResponseError(
+            CLAIM_RESPONSE_INVALID,
+            "invalid_json: claim response must be a non-empty JSON object",
+        )
+    if "success" not in response or not isinstance(response["success"], bool):
+        raise ClaimResponseError(
+            CLAIM_RESPONSE_INVALID,
+            "missing_success: claim response must contain success=true",
+        )
+    return response
 
 
 def _is_forbidden_claim_ip(address: str) -> bool:
@@ -272,6 +296,21 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
         )
     except Exception as exc:
         ctx.log(f"[mini_app_claim] 签到接口请求失败: {exc}", level="ERROR")
+        if ctx.storage is not None:
+            try:
+                await ctx.storage.set("last_claim_status", "failed")
+                await ctx.storage.set("last_claim_error", str(exc))
+                await ctx.storage.set("last_claim_timestamp", int(time.time()))
+            except Exception as store_exc:
+                ctx.log(
+                    f"[mini_app_claim] 状态持久化失败: {store_exc}", level="WARNING"
+                )
+        return False
+
+    try:
+        resp_data = validate_claim_response(resp_data)
+    except ClaimResponseError as exc:
+        ctx.log(f"[mini_app_claim] {exc.code}: {exc}", level="WARNING")
         if ctx.storage is not None:
             try:
                 await ctx.storage.set("last_claim_status", "failed")

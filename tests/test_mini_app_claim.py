@@ -104,6 +104,33 @@ def test_claim_url_rejects_dns_rebinding_when_any_address_is_private(monkeypatch
     assert exc_info.value.code == CLAIM_URL_PRIVATE_ADDRESS
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response", "reason"),
+    [
+        ({"raw": "not-json", "status_code": 200}, "invalid_json"),
+        ({}, "invalid_json"),
+        ({"error": "claim failed"}, "missing_success"),
+        ({"code": 0, "message": "claimed"}, "missing_success"),
+        ("claimed", "invalid_json"),
+    ],
+)
+async def test_claim_requires_explicit_success_response(tmp_path, response, reason):
+    store = PluginStore(tmp_path / "storage.db")
+    ctx = _make_plugin_ctx(
+        params={"claim_url": "https://claim.example.test/v1/claim"}, store=store
+    )
+    ctx.request_web_view = AsyncMock(return_value={"init_data_raw": "signed-data"})
+
+    with patch(
+        "community_plugins.mini_app_claim.main._perform_http_post",
+        return_value=response,
+    ):
+        assert await handle_mini_app_claim(ctx) is False
+
+    assert reason in str(await ctx.storage.get("last_claim_error"))
+
+
 def _backend_validate_init_data(
     init_data_raw: str,
     bot_token: str,
@@ -250,7 +277,7 @@ async def test_mini_app_claim_success_flow(tmp_path):
         }
     )
 
-    mock_resp = {"code": 0, "message": "claimed", "reward": 50}
+    mock_resp = {"success": True, "code": 0, "message": "claimed", "reward": 50}
 
     with patch(
         "community_plugins.mini_app_claim.main._perform_http_post",
@@ -306,7 +333,7 @@ async def test_mini_app_claim_flood_wait_exact_seconds(tmp_path):
         patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         patch(
             "community_plugins.mini_app_claim.main._perform_http_post",
-            return_value={"code": 0},
+            return_value={"success": True, "code": 0},
         ) as mock_post,
     ):
         success = await handle_mini_app_claim(ctx)
@@ -473,7 +500,11 @@ async def test_claim_http_200_business_failure(tmp_path):
 
     with patch(
         "community_plugins.mini_app_claim.main._perform_http_post",
-        return_value={"code": 1, "message": "already claimed today"},
+        return_value={
+            "success": False,
+            "code": 1,
+            "message": "already claimed today",
+        },
     ):
         success = await handle_mini_app_claim(ctx)
 
@@ -506,7 +537,12 @@ async def test_claim_storage_write_failure_resilience(tmp_path):
 
     with patch(
         "community_plugins.mini_app_claim.main._perform_http_post",
-        return_value={"code": 0, "message": "claim success", "points": 100},
+        return_value={
+            "success": True,
+            "code": 0,
+            "message": "claim success",
+            "points": 100,
+        },
     ):
         success = await handle_mini_app_claim(ctx)
         assert success is True
