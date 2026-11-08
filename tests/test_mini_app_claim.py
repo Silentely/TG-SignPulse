@@ -14,9 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from community_plugins.mini_app_claim.main import (
+    CLAIM_RESPONSE_TOO_LARGE,
     CLAIM_URL_PRIVATE_ADDRESS,
     CLAIM_URL_SCHEME_FORBIDDEN,
     ClaimUrlError,
+    _perform_http_post,
     handle_mini_app_claim,
     parse_init_data,
     validate_claim_url,
@@ -102,6 +104,31 @@ def test_claim_url_rejects_dns_rebinding_when_any_address_is_private(monkeypatch
     with pytest.raises(ClaimUrlError) as exc_info:
         validate_claim_url("https://claim.example.test/v1/claim")
     assert exc_info.value.code == CLAIM_URL_PRIVATE_ADDRESS
+
+
+def test_claim_http_response_limit_is_enforced_during_stream_read():
+    class OversizedResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, size=-1):
+            return b"x" * (size if size > 0 else 1024 * 1024 + 1)
+
+    with patch(
+        "community_plugins.mini_app_claim.main.urllib.request.urlopen",
+        return_value=OversizedResponse(),
+    ):
+        with pytest.raises(ValueError, match=CLAIM_RESPONSE_TOO_LARGE):
+            _perform_http_post(
+                "https://claim.example.test/v1/claim",
+                {"init_data": "signed-data"},
+                {},
+            )
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,8 @@ CLAIM_URL_INVALID = "CLAIM_URL_INVALID"
 CLAIM_URL_SCHEME_FORBIDDEN = "CLAIM_URL_SCHEME_FORBIDDEN"
 CLAIM_URL_PRIVATE_ADDRESS = "CLAIM_URL_PRIVATE_ADDRESS"
 CLAIM_RESPONSE_INVALID = "CLAIM_RESPONSE_INVALID"
+CLAIM_RESPONSE_TOO_LARGE = "response_too_large"
+MAX_CLAIM_RESPONSE_BYTES = 1024 * 1024
 
 
 class ClaimUrlError(ValueError):
@@ -133,7 +135,18 @@ def _perform_http_post(
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        content = resp.read().decode("utf-8")
+        content_parts = []
+        total_bytes = 0
+        while True:
+            remaining = MAX_CLAIM_RESPONSE_BYTES - total_bytes
+            chunk = resp.read(min(64 * 1024, remaining + 1))
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > MAX_CLAIM_RESPONSE_BYTES:
+                raise ValueError(CLAIM_RESPONSE_TOO_LARGE)
+            content_parts.append(chunk)
+        content = b"".join(content_parts).decode("utf-8")
         try:
             return json.loads(content)
         except Exception:
