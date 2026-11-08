@@ -240,6 +240,48 @@ def test_claim_connection_uses_first_resolved_ip_without_rebinding_lookup(monkey
     assert calls == ["100.64.0.1"]
 
 
+def test_claim_http_connection_receives_pinned_ip():
+    connection_args = []
+
+    class FakeResponse:
+        status = 200
+
+        def __init__(self):
+            self.read_once = False
+
+        def getheaders(self):
+            return [("Content-Type", "application/json")]
+
+        def read(self, size=-1):
+            if self.read_once:
+                return b""
+            self.read_once = True
+            return b'{"success":true}'
+
+    class FakeConnection:
+        def __init__(self, hostname, pinned_ip, port, timeout):
+            connection_args.append((hostname, pinned_ip, port, timeout))
+
+        def request(self, *args, **kwargs):
+            return None
+
+        def getresponse(self):
+            return FakeResponse()
+
+        def close(self):
+            return None
+
+    with patch(
+        "community_plugins.mini_app_claim.main._PinnedHTTPSConnection",
+        FakeConnection,
+    ):
+        assert _perform_http_post("https://claim.example.test/v1/claim", {}, {}) == {
+            "success": True
+        }
+
+    assert connection_args == [("claim.example.test", "100.64.0.1", 443, 15.0)]
+
+
 @pytest.mark.parametrize(
     "url",
     [
