@@ -255,6 +255,15 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
         claim_url = validate_claim_url(claim_url)
     except ClaimUrlError as exc:
         ctx.log(f"[mini_app_claim] {exc.code}: {exc}", level="ERROR")
+        if ctx.storage is not None:
+            try:
+                await ctx.storage.set("last_claim_status", "failed")
+                await ctx.storage.set("last_claim_error", f"{exc.code}: {exc}")
+                await ctx.storage.set("last_claim_timestamp", int(time.time()))
+            except Exception as store_exc:
+                ctx.log(
+                    f"[mini_app_claim] 状态持久化失败: {store_exc}", level="WARNING"
+                )
         return False
     from_bot_menu = bool(ctx.params.get("from_bot_menu", True))
     max_flood_wait = int(ctx.params.get("max_flood_wait", 300))

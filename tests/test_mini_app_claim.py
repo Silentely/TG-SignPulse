@@ -160,6 +160,22 @@ async def test_claim_requires_explicit_success_response(tmp_path, response, reas
 
 
 @pytest.mark.asyncio
+async def test_claim_runtime_rejects_plaintext_endpoint_before_request(tmp_path):
+    ctx = _make_plugin_ctx(
+        params={"claim_url": "http://claim.example.test/v1/claim"},
+        store=PluginStore(tmp_path / "storage.db"),
+    )
+    ctx.request_web_view = AsyncMock()
+    with patch("community_plugins.mini_app_claim.main._perform_http_post") as mock_post:
+        assert await handle_mini_app_claim(ctx) is False
+    ctx.request_web_view.assert_not_awaited()
+    mock_post.assert_not_called()
+    assert "CLAIM_URL_SCHEME_FORBIDDEN" in str(
+        await ctx.storage.get("last_claim_error")
+    )
+
+
+@pytest.mark.asyncio
 async def test_claim_result_is_allowlisted_truncated_and_redacted(tmp_path, caplog):
     store = PluginStore(tmp_path / "storage.db")
     ctx = _make_plugin_ctx(
