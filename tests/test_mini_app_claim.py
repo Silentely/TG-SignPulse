@@ -21,6 +21,7 @@ from community_plugins.mini_app_claim.main import (
     _perform_http_post,
     handle_mini_app_claim,
     parse_init_data,
+    sanitize_claim_result,
     validate_claim_url,
 )
 from tg_signer.core.plugin_storage import PluginStore
@@ -156,6 +157,45 @@ async def test_claim_requires_explicit_success_response(tmp_path, response, reas
         assert await handle_mini_app_claim(ctx) is False
 
     assert reason in str(await ctx.storage.get("last_claim_error"))
+
+
+@pytest.mark.asyncio
+async def test_claim_result_is_allowlisted_truncated_and_redacted(tmp_path, caplog):
+    store = PluginStore(tmp_path / "storage.db")
+    ctx = _make_plugin_ctx(
+        params={"claim_url": "https://claim.example.test/v1/claim"}, store=store
+    )
+    ctx.request_web_view = AsyncMock(return_value={"init_data_raw": "signed-data"})
+    sensitive_value = "sensitive-token-value"
+    response = {
+        "success": True,
+        "code": 0,
+        "message": "claimed",
+        "reward": 50,
+        "token": sensitive_value,
+        "authorization": sensitive_value,
+        "unexpected": "must not persist",
+        "long_message": "x" * 2000,
+    }
+
+    with patch(
+        "community_plugins.mini_app_claim.main._perform_http_post",
+        return_value=response,
+    ):
+        assert await handle_mini_app_claim(ctx) is True
+
+    stored = await ctx.storage.get("last_claim_result")
+    assert stored["token"] == "***"
+    assert stored["authorization"] == "***"
+    assert "unexpected" not in stored
+    assert len(stored["message"]) <= 500
+    assert sensitive_value not in caplog.text
+    assert sensitive_value not in str(stored)
+
+
+def test_claim_result_sanitizer_applies_overall_limit():
+    result = sanitize_claim_result({"success": True, "code": 0, "message": "x" * 5000})
+    assert len(str(result)) <= 4096
 
 
 def _backend_validate_init_data(

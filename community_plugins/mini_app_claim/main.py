@@ -30,6 +30,20 @@ CLAIM_URL_PRIVATE_ADDRESS = "CLAIM_URL_PRIVATE_ADDRESS"
 CLAIM_RESPONSE_INVALID = "CLAIM_RESPONSE_INVALID"
 CLAIM_RESPONSE_TOO_LARGE = "response_too_large"
 MAX_CLAIM_RESPONSE_BYTES = 1024 * 1024
+MAX_CLAIM_FIELD_CHARS = 500
+MAX_CLAIM_RESULT_CHARS = 4096
+CLAIM_RESULT_FIELDS = frozenset(
+    {"success", "code", "message", "msg", "error", "reward", "points", "status"}
+)
+CLAIM_SENSITIVE_KEY_PARTS = (
+    "token",
+    "cookie",
+    "secret",
+    "password",
+    "password",
+    "authorization",
+    "apihash",
+)
 
 
 class ClaimUrlError(ValueError):
@@ -46,6 +60,39 @@ class ClaimResponseError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+
+
+def _is_sensitive_claim_key(key: str) -> bool:
+    normalized = key.replace("_", "").replace("-", "").lower()
+    return any(part in normalized for part in CLAIM_SENSITIVE_KEY_PARTS)
+
+
+def sanitize_claim_result(response: Any) -> Dict[str, Any]:
+    """Keep only useful result fields and redact/truncate returned data."""
+    if not isinstance(response, dict):
+        return {"error": "invalid response"}
+
+    result: Dict[str, Any] = {}
+    for raw_key, value in response.items():
+        key = str(raw_key)
+        if _is_sensitive_claim_key(key):
+            result[key] = "***"
+            continue
+        if key not in CLAIM_RESULT_FIELDS:
+            continue
+        if isinstance(value, str):
+            result[key] = value[:MAX_CLAIM_FIELD_CHARS]
+        elif isinstance(value, (bool, int, float)) or value is None:
+            result[key] = value
+        else:
+            result[key] = str(value)[:MAX_CLAIM_FIELD_CHARS]
+
+    encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded) > MAX_CLAIM_RESULT_CHARS:
+        result["message"] = str(result.get("message", ""))[:256]
+        result["error"] = str(result.get("error", ""))[:256]
+        result["msg"] = str(result.get("msg", ""))[:256]
+    return result
 
 
 def validate_claim_response(response: Any) -> Dict[str, Any]:
@@ -335,15 +382,25 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
                 )
         return False
 
+    safe_resp_data = sanitize_claim_result(resp_data)
+
     # 业务返回校验 (P0-3)
     code = resp_data.get("code") if isinstance(resp_data, dict) else None
     success_field = resp_data.get("success") if isinstance(resp_data, dict) else None
 
     if (code is not None and code != 0) or success_field is False:
         err_msg = (
-            (resp_data.get("message") if isinstance(resp_data, dict) else None)
-            or (resp_data.get("msg") if isinstance(resp_data, dict) else None)
-            or (resp_data.get("error") if isinstance(resp_data, dict) else None)
+            (
+                safe_resp_data.get("message")
+                if isinstance(safe_resp_data, dict)
+                else None
+            )
+            or (safe_resp_data.get("msg") if isinstance(safe_resp_data, dict) else None)
+            or (
+                safe_resp_data.get("error")
+                if isinstance(safe_resp_data, dict)
+                else None
+            )
             or f"Business checkin failed with code {code}"
         )
         ctx.log(f"[mini_app_claim] 签到业务失败: {err_msg}", level="WARNING")
@@ -351,7 +408,7 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
             try:
                 await ctx.storage.set("last_claim_status", "failed")
                 await ctx.storage.set("last_claim_error", str(err_msg))
-                await ctx.storage.set("last_claim_result", resp_data)
+                await ctx.storage.set("last_claim_result", safe_resp_data)
                 await ctx.storage.set("last_claim_timestamp", int(time.time()))
             except Exception as store_exc:
                 ctx.log(
@@ -360,11 +417,11 @@ async def handle_mini_app_claim(ctx: PluginContext) -> bool:
         return False
 
     # 3. 结果落库持久化 (P1-6: 状态落库为最佳努力，落库失败不影响签到成功判定)
-    ctx.log(f"[mini_app_claim] 签到接口响应成功: {resp_data}")
+    ctx.log(f"[mini_app_claim] 签到接口响应成功: {safe_resp_data}")
     if ctx.storage is not None:
         try:
             await ctx.storage.set("last_claim_status", "success")
-            await ctx.storage.set("last_claim_result", resp_data)
+            await ctx.storage.set("last_claim_result", safe_resp_data)
             await ctx.storage.set("last_claim_timestamp", int(time.time()))
         except Exception as store_exc:
             ctx.log(
