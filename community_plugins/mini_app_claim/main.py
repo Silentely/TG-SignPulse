@@ -9,6 +9,7 @@ import asyncio
 import http.client
 import ipaddress
 import json
+import re
 import socket
 import ssl
 import time
@@ -48,6 +49,27 @@ CLAIM_SENSITIVE_KEY_PARTS = (
     "authorization",
     "apihash",
 )
+CLAIM_VALUE_REDACTION_PATTERNS = (
+    (re.compile(r"(?i)(https?://)([^/\s:@]+):([^@\s]+)@"), r"\1***:***@"),
+    (
+        re.compile(
+            r"(?i)([?&](?:token|access_token|api_key|secret|password|authorization|cookie)=)[^&#\s]+"
+        ),
+        r"\1***",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(?:token|access_token|api_key|secret|password|authorization|cookie)\s*[:=]\s*([^\s,;]+)"
+        ),
+        lambda match: match.group(0)[: match.group(0).find(match.group(1))] + "***",
+    ),
+    (
+        re.compile(
+            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
+        ),
+        "***",
+    ),
+)
 
 
 class ClaimUrlError(ValueError):
@@ -85,6 +107,8 @@ def sanitize_claim_result(response: Any) -> Dict[str, Any]:
         if key not in CLAIM_RESULT_FIELDS:
             continue
         if isinstance(value, str):
+            for pattern, replacement in CLAIM_VALUE_REDACTION_PATTERNS:
+                value = pattern.sub(replacement, value)
             result[key] = value[:MAX_CLAIM_FIELD_CHARS]
         elif isinstance(value, (bool, int, float)) or value is None:
             result[key] = value

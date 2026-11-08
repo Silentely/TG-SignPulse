@@ -334,6 +334,21 @@ def test_claim_result_sanitizer_applies_overall_limit():
     assert len(str(result)) <= 4096
 
 
+def test_claim_result_sanitizer_redacts_credentials_embedded_in_values():
+    raw_url = "https://user:pw@claim.example.test/path?token=query-value"
+    jwt_value = "eyJaaaaaaaaaa.bbbbbbbbbbb.ccccccccccc"
+    result = sanitize_claim_result(
+        {
+            "success": False,
+            "message": f"failed at {raw_url}; bearer={jwt_value}",
+        }
+    )
+    assert "pw" not in result["message"]
+    assert "query-value" not in result["message"]
+    assert jwt_value not in result["message"]
+    assert "***" in result["message"]
+
+
 def test_parse_init_data_is_explicitly_not_an_authenticator():
     assert "不做验签" in (parse_init_data.__doc__ or "")
     assert "不得用于重组凭证" in (parse_init_data.__doc__ or "")
