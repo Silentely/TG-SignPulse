@@ -140,10 +140,147 @@ def load_chats_cache_file(cache_file: Path) -> Optional[List[Dict[str, Any]]]:
     return data
 
 
-def save_chats_cache_file(cache_file: Path, chats: List[Dict[str, Any]]) -> bool:
-    """写入 chats 缓存；失败返回 False。"""
+def validate_chat_id(chat_id: Any) -> int:
+    """校验并转换 Telegram chat_id。
+
+    合法值：
+    - 正整数（用户/机器人）：如 123456
+    - 负整数（超级群/频道）：如 -1001234567890
+    - 对应的数字字符串形式：如 "123456", "-1001234567890"
+
+    非法值（抛出 ValueError）：
+    - 0 或 "0"（严禁使用 chat_id > 0 规则误杀负数频道）
+    - None、空字符串、纯空白字符
+    - 布尔值（Python 中 True == 1, False == 0）
+    - 非数字字符串或无法转换为整数的类型
+    """
+    if chat_id is None:
+        raise ValueError("chat_id 不能为空")
+    if isinstance(chat_id, bool):
+        raise ValueError(f"chat_id 必须为整数，收到布尔值: {chat_id}")
+    if isinstance(chat_id, str):
+        chat_id = chat_id.strip()
+        if not chat_id:
+            raise ValueError("chat_id 不能为空")
+        try:
+            val = int(chat_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"chat_id 必须为有效整数，收到: {chat_id}")
+    elif isinstance(chat_id, int):
+        val = chat_id
+    else:
+        try:
+            val = int(chat_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"chat_id 必须为整数，收到: {chat_id}")
+
+    if val == 0:
+        raise ValueError("chat_id 不能为 0（正数为用户/机器人，负数为频道/群组）")
+    return val
+
+
+def _normalize_chat_id(val: Any) -> Optional[int | str]:
+    """统一解析 chat_id，优先转为 int。若为非法值返回 None。"""
+    if val is None or val == "" or isinstance(val, bool):
+        return None
     try:
-        write_json_atomic(cache_file, chats)
+        parsed = int(val)
+        if parsed == 0:
+            return None
+        return parsed
+    except (ValueError, TypeError):
+        s = str(val).strip()
+        return s if s else None
+
+
+def _is_existing_newer(
+    existing_chat: Dict[str, Any], fresh_chat: Dict[str, Any]
+) -> bool:
+    """仅当双方均包含 updated_at 且 existing 明确大于 fresh 时返回 True。"""
+    exist_up = existing_chat.get("updated_at")
+    fresh_up = fresh_chat.get("updated_at")
+    if exist_up is not None and fresh_up is not None:
+        try:
+            return exist_up > fresh_up
+        except TypeError:
+            return False
+    return False
+
+
+def merge_chats_cache(
+    existing_chats: Optional[List[Dict[str, Any]]],
+    fresh_chats: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """合并本地缓存与新拉取的会话列表。
+
+    - 主键为 id（兼容 int 与 str 表示）。
+    - 冲突时 fresh 优先（若双方均有 updated_at 且旧数据明确更新，则旧数据胜出；否则 fresh 胜出）。
+    - 历史缓存中不在 fresh 列表的会话必须完整保留。
+    """
+    if not existing_chats and not fresh_chats:
+        return []
+    if not existing_chats:
+        return [dict(c) for c in (fresh_chats or []) if isinstance(c, dict)]
+    if not fresh_chats:
+        return [dict(c) for c in (existing_chats or []) if isinstance(c, dict)]
+
+    merged: Dict[Any, Dict[str, Any]] = {}
+    order: List[Any] = []
+
+    # 1. 放入 fresh_chats，保持新鲜度与最新 Telegram dialogs 顺序
+    for c in fresh_chats:
+        if not isinstance(c, dict):
+            continue
+        key = _normalize_chat_id(c.get("id"))
+        if key is None:
+            continue
+        if key not in merged:
+            order.append(key)
+        chat_copy = dict(c)
+        if isinstance(key, int):
+            chat_copy["id"] = key
+        merged[key] = chat_copy
+
+    # 2. 合并 existing_chats
+    for c in existing_chats:
+        if not isinstance(c, dict):
+            continue
+        key = _normalize_chat_id(c.get("id"))
+        if key is None:
+            continue
+        chat_copy = dict(c)
+        if isinstance(key, int):
+            chat_copy["id"] = key
+
+        if key not in merged:
+            # 历史会话未在 fresh 中出现，保留
+            order.append(key)
+            merged[key] = chat_copy
+        else:
+            if _is_existing_newer(chat_copy, merged[key]):
+                merged[key] = chat_copy
+
+    return [merged[k] for k in order]
+
+
+def save_chats_cache_file(
+    cache_file: Path,
+    chats: List[Dict[str, Any]],
+    *,
+    merge_existing: bool = True,
+) -> bool:
+    """写入 chats 缓存；失败返回 False。
+
+    默认会读取 cache_file 中现存缓存进行 merge_chats_cache，确保历史会话不丢失。
+    若显式指定 merge_existing=False 则直接全量写入 chats。
+    """
+    try:
+        final_chats = chats
+        if merge_existing and cache_file.exists():
+            existing = load_chats_cache_file(cache_file)
+            if existing:
+                final_chats = merge_chats_cache(existing, chats)
+        write_json_atomic(cache_file, final_chats)
         return True
     except (OSError, TypeError, ValueError) as exc:
         _logger.warning("保存 chat 缓存失败 %s: %s", cache_file, exc)
@@ -539,7 +676,9 @@ async def refresh_account_chats(
 
         account_dir = signs_dir / account_name
         cache_file = account_dir / "chats_cache.json"
-        if not save_chats_cache_file(cache_file, chats):
+        existing = load_chats_cache_file(cache_file)
+        chats = merge_chats_cache(existing, chats)
+        if not save_chats_cache_file(cache_file, chats, merge_existing=False):
             logger.debug("保存 Chat 缓存失败: %s", cache_file)
 
         return chats

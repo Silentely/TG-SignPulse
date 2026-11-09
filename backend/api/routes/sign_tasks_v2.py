@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, validator
 
 from backend.core.auth import get_current_user
+from backend.services.sign_task_chats import validate_chat_id
 from backend.services.sign_tasks import get_sign_task_service
 from backend.services.stream_tickets import (
     PURPOSE_TASK_RUN_WS,
@@ -74,6 +75,10 @@ class ChatConfig(BaseModel):
 
     class Config:
         extra = "allow"
+
+    @validator("chat_id", pre=True, allow_reuse=True)
+    def validate_chat_id_value(cls, v: Any) -> int:
+        return validate_chat_id(v)
 
 
 class FlowValidationIssue(BaseModel):
@@ -864,6 +869,13 @@ async def get_chat_avatar(
     If the requested account can't find the chat, fall back to trying
     other available accounts.
     """
+    try:
+        chat_id = validate_chat_id(chat_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
     from backend.core.config import get_settings
     from backend.services import avatar_cache
 
