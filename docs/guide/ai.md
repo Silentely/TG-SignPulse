@@ -20,6 +20,17 @@ AI 主要负责解决机器人交互里“无法直接靠固定文本匹配”�
 
 这些设置会保存到数据目录下的 `.openai_config.json`。
 
+### 服务商与协议支持
+
+系统支持两大类 AI 服务后端：
+
+1. **OpenAI 兼容接口**：支持 OpenAI 官方及各类兼容网关（如 Azure OpenAI、DeepSeek、OneAPI 等）。
+2. **Cloudflare Workers AI**：原生适配 Cloudflare 视觉模型：
+   - **Model**：填写 `@cf/` 开头的模型名（如 `@cf/meta/llama-3.2-11b-vision-instruct`）。
+   - **Base URL**：填写 Cloudflare Account AI 端点（格式：`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai`）。
+   - **API Key**：填写具备 Workers AI 权限的 Cloudflare API Token。
+   - 系统会自动调用 Cloudflare REST 接口，直接传递图像二进制数据并解析结构化答案。在面板「系统设置」中点击「测试 AI 连接」可直接检验连通性。
+
 ## 备用节点（故障转移）
 
 主节点请求失败后会自动按顺序尝试「备用 AI 节点」，提升 AI 动作在网络抖动、
