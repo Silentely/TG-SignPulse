@@ -36,6 +36,59 @@ class AIToolsOptionParsingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             AITools._coerce_option_index({"reason": "no option"}, self.options)
 
+    def test_coerce_option_index_accepts_index_with_label(self):
+        options = [(1, "口罩"), (2, "路由器"), (3, "打印机"), (4, "mask")]
+        self.assertEqual(AITools._coerce_option_index("1. 口罩", options), 1)
+        self.assertEqual(AITools._coerce_option_index("2、路由器", options), 2)
+        self.assertEqual(AITools._coerce_option_index("3: 打印机", options), 3)
+        self.assertEqual(AITools._coerce_option_index("1. masked", options), 1)
+        self.assertEqual(AITools._coerce_option_index("3. printer", options), 3)
+
+    def test_coerce_option_index_rejects_out_of_bounds_prefix(self):
+        options = [(1, "口罩"), (2, "路由器")]
+        with self.assertRaises(ValueError) as ctx:
+            AITools._coerce_option_index("99. 口罩", options)
+        self.assertIn("out of bounds", str(ctx.exception))
+
+    def test_cloudflare_match_score_bilingual_translations(self):
+        self.assertGreater(
+            AITools._cloudflare_match_score("masked", "口罩"),
+            AITools._cloudflare_match_score("masked", "摩托"),
+        )
+        self.assertGreater(
+            AITools._cloudflare_match_score("motorcycle", "摩托"),
+            AITools._cloudflare_match_score("motorcycle", "口罩"),
+        )
+        self.assertGreater(
+            AITools._cloudflare_match_score("teapot", "紫砂壶"),
+            AITools._cloudflare_match_score("teapot", "手机"),
+        )
+
+    def test_cloudflare_match_score_cache_and_alias_table_hit(self):
+        # 1. Static alias table hit
+        self.assertGreater(AITools._cloudflare_match_score("mask", "口罩"), 0)
+        self.assertEqual(AITools._CLOUDFLARE_OPTION_TRANSLATIONS.get("口罩"), "mask")
+
+        # 2. Dynamic translation cache hit
+        # Before caching unknown token:
+        self.assertEqual(AITools._cloudflare_match_score("projector", "投影仪"), 0)
+
+        # After caching:
+        AITools._cloudflare_translation_cache["投影仪"] = "projector"
+        try:
+            self.assertGreater(
+                AITools._cloudflare_match_score("projector", "投影仪"), 0
+            )
+            options = [(1, "摩托"), (2, "投影仪")]
+            self.assertEqual(AITools._coerce_option_index("projector", options), 2)
+        finally:
+            AITools._cloudflare_translation_cache.pop("投影仪", None)
+
+    def test_coerce_option_index_with_bilingual_scoring(self):
+        options = [(1, "摩托"), (2, "口罩"), (3, "路由器")]
+        self.assertEqual(AITools._coerce_option_index("masked", options), 2)
+        self.assertEqual(AITools._coerce_option_index("router", options), 3)
+
     def test_extract_relevant_query_prefers_question_line(self):
         query = (
             "请在 30 秒内点击图中事物的按钮以完成签到\n\n"

@@ -7,7 +7,7 @@ import os
 import pathlib
 import re
 import time
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Union
 
 import json_repair
 from typing_extensions import Optional, Required, TypedDict
@@ -461,6 +461,126 @@ class AITools:
         "click",
     )
 
+    _CLOUDFLARE_OPTION_TRANSLATIONS: ClassVar[dict[str, str]] = {
+        "摩托": "motorcycle",
+        "摩托车": "motorcycle",
+        "摩托車": "motorcycle",
+        "汽车": "car",
+        "汽車": "car",
+        "自行车": "bicycle",
+        "自行車": "bicycle",
+        "公交车": "bus",
+        "公交車": "bus",
+        "火车": "train",
+        "火車": "train",
+        "飞机": "airplane",
+        "飛機": "airplane",
+        "船": "boat",
+        "鸟": "bird",
+        "鳥": "bird",
+        "猫": "cat",
+        "貓": "cat",
+        "狗": "dog",
+        "鱼": "fish",
+        "魚": "fish",
+        "马": "horse",
+        "馬": "horse",
+        "牛": "cow",
+        "羊": "sheep",
+        "猪": "pig",
+        "豬": "pig",
+        "鸡": "chicken",
+        "雞": "chicken",
+        "鸭": "duck",
+        "鴨": "duck",
+        "兔子": "rabbit",
+        "老虎": "tiger",
+        "狮子": "lion",
+        "獅子": "lion",
+        "大象": "elephant",
+        "猴子": "monkey",
+        "熊猫": "panda",
+        "熊": "bear",
+        "苹果": "apple",
+        "蘋果": "apple",
+        "香蕉": "banana",
+        "橙子": "orange",
+        "西瓜": "watermelon",
+        "葡萄": "grape",
+        "草莓": "strawberry",
+        "菠萝": "pineapple",
+        "鳳梨": "pineapple",
+        "梨": "pear",
+        "桃子": "peach",
+        "柠檬": "lemon",
+        "檸檬": "lemon",
+        "电视": "television",
+        "電視": "television",
+        "电视盒子": "television",
+        "電視盒": "television",
+        "路由器": "router",
+        "路由": "router",
+        "美女": "woman",
+        "女人": "woman",
+        "女孩": "girl",
+        "男人": "man",
+        "男孩": "boy",
+        "奥特曼": "ultraman",
+        "奧特曼": "ultraman",
+        "口罩": "mask",
+        "面罩": "mask",
+        "面具": "mask",
+        "手机": "phone",
+        "手機": "phone",
+        "电脑": "computer",
+        "電腦": "computer",
+        "相机": "camera",
+        "相機": "camera",
+        "耳机": "headphones",
+        "耳機": "headphones",
+        "手表": "watch",
+        "键盘": "keyboard",
+        "鍵盤": "keyboard",
+        "鼠标": "mouse",
+        "鼠標": "mouse",
+        "书": "book",
+        "書": "book",
+        "伞": "umbrella",
+        "傘": "umbrella",
+        "雨伞": "umbrella",
+        "雨傘": "umbrella",
+        "杯子": "cup",
+        "瓶子": "bottle",
+        "花": "flower",
+        "树": "tree",
+        "樹": "tree",
+        "太阳": "sun",
+        "太陽": "sun",
+        "月亮": "moon",
+        "星星": "star",
+        "云": "cloud",
+        "雲": "cloud",
+        "紫砂壶": "teapot",
+        "紫砂壺": "teapot",
+        "壶": "teapot",
+        "壺": "teapot",
+        "沙发": "sofa",
+        "沙發": "sofa",
+        "椅子": "chair",
+        "桌子": "table",
+        "床": "bed",
+        "门": "door",
+        "門": "door",
+        "窗户": "window",
+        "窗戶": "window",
+        "鞋子": "shoes",
+        "衣服": "clothes",
+        "帽子": "hat",
+        "眼镜": "glasses",
+        "眼鏡": "glasses",
+    }
+    _cloudflare_translation_cache: ClassVar[dict[str, str]] = {}
+
     def __init__(self, cfg: OpenAIConfig):
         self.client = get_openai_client(
             api_key=cfg["api_key"], base_url=cfg.get("base_url")
@@ -468,6 +588,7 @@ class AITools:
         self.base_url = cfg.get("base_url") or ""
         self.default_model = cfg.get("model") or DEFAULT_MODEL
         self._fallback_entries = parse_fallback_providers(cfg.get("fallback_providers"))
+        self._cloudflare_translation_cache: dict[str, str] = {}
 
     @staticmethod
     def _normalize_option_text(text: Any) -> str:
@@ -585,6 +706,96 @@ class AITools:
         return f"data:image/jpeg;base64,{encoded_image}"
 
     @classmethod
+    def _cloudflare_match_tokens(cls, text: str) -> set[str]:
+        aliases = {
+            "motorbike": "motorcycle",
+            "motorbikes": "motorcycle",
+            "motorcycles": "motorcycle",
+            "tv": "television",
+            "tvs": "television",
+            "televisions": "television",
+            "cellphone": "phone",
+            "cellphones": "phone",
+            "smartphone": "phone",
+            "smartphones": "phone",
+            "bike": "bicycle",
+            "bikes": "bicycle",
+            "purpleclay": "teapot",
+            "teapot": "teapot",
+            "teapots": "teapot",
+            "masked": "mask",
+            "masks": "mask",
+            "facemask": "mask",
+        }
+        stopwords = {
+            "a",
+            "an",
+            "the",
+            "this",
+            "that",
+            "image",
+            "main",
+            "object",
+            "shown",
+            "is",
+            "of",
+        }
+        normalized = str(text).casefold()
+        tokens = re.findall(r"[a-z0-9]+|[㐀-鿿]+", normalized)
+        result = set()
+
+        whole_cleaned = "".join(normalized.split())
+        for candidate_key in (str(text).strip(), normalized.strip(), whole_cleaned):
+            if candidate_key in cls._cloudflare_translation_cache:
+                for sub_token in re.findall(
+                    r"[a-z0-9]+|[㐀-鿿]+",
+                    cls._cloudflare_translation_cache[candidate_key].casefold(),
+                ):
+                    sub_token = aliases.get(sub_token, sub_token)
+                    if sub_token and sub_token not in stopwords:
+                        result.add(sub_token)
+                break
+            if candidate_key in cls._CLOUDFLARE_OPTION_TRANSLATIONS:
+                for sub_token in re.findall(
+                    r"[a-z0-9]+|[㐀-鿿]+",
+                    cls._CLOUDFLARE_OPTION_TRANSLATIONS[candidate_key].casefold(),
+                ):
+                    sub_token = aliases.get(sub_token, sub_token)
+                    if sub_token and sub_token not in stopwords:
+                        result.add(sub_token)
+                break
+
+        for token in tokens:
+            token = token.strip()
+            translated = (
+                cls._cloudflare_translation_cache.get(token)
+                or cls._CLOUDFLARE_OPTION_TRANSLATIONS.get(token)
+                or aliases.get(token, token)
+            )
+            for sub_tok in re.findall(r"[a-z0-9]+|[㐀-鿿]+", translated.casefold()):
+                canonical = aliases.get(sub_tok, sub_tok)
+                if canonical and canonical not in stopwords:
+                    result.add(canonical)
+
+        return result
+
+    @classmethod
+    def _cloudflare_match_score(cls, object_text: str, option_text: str) -> int:
+        object_tokens = cls._cloudflare_match_tokens(object_text)
+        option_tokens = cls._cloudflare_match_tokens(option_text)
+        if not object_tokens or not option_tokens:
+            return 0
+        overlap = object_tokens & option_tokens
+        score = len(overlap) * 10
+        if object_tokens == option_tokens:
+            score += 100
+        elif object_tokens.issubset(option_tokens) or option_tokens.issubset(
+            object_tokens
+        ):
+            score += 20
+        return score
+
+    @classmethod
     def _is_valid_option_index(cls, idx: int, options: list[tuple[int, str]]) -> bool:
         if not isinstance(idx, int) or isinstance(idx, bool):
             return False
@@ -671,6 +882,21 @@ class AITools:
                 raise ValueError(
                     f"AI option index {parsed_int} is out of bounds for {len(options)} options"
                 )
+
+            index_prefix = re.match(r"^(\d+)\s*(?:[.)、,:：-]\s*|\s+)(.*)$", stripped)
+            if index_prefix:
+                parsed_int = int(index_prefix.group(1))
+                if cls._is_valid_option_index(parsed_int, options):
+                    return parsed_int
+                logger.error(
+                    "AI 返回的前缀选项索引越界 | index=%s options_count=%s",
+                    parsed_int,
+                    len(options),
+                )
+                raise ValueError(
+                    f"AI option index {parsed_int} is out of bounds for {len(options)} options"
+                )
+
             normalized_result = cls._normalize_option_text(stripped)
             for index, option_text in options:
                 normalized_option = cls._normalize_option_text(option_text)
@@ -680,6 +906,14 @@ class AITools:
                 normalized_option = cls._normalize_option_text(option_text)
                 if normalized_option and normalized_option in normalized_result:
                     return index
+
+            scored_options = [
+                (cls._cloudflare_match_score(stripped, option_text), index)
+                for index, option_text in options
+            ]
+            best_score, best_index = max(scored_options, default=(0, 0))
+            if best_score > 0:
+                return best_index
 
         logger.error(
             "AI 返回结果无法解析为选项索引 | result_type=%s result_chars=%s options_count=%s",
