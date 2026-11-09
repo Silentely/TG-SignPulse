@@ -1,7 +1,9 @@
-"""peer_resolver 的单元测试。
+"""peer_resolver 的自测脚本。
 
-验证多级 peer 解析、get_dialogs 增量预热、_WARM_FLAG 幂等守卫、
-候选 ID 转换以及 signer runner 中 handler 注册时序。
+不依赖 pyrogram，可直接运行：
+    python tests/test_peer_resolver.py
+或：
+    uv run pytest tests/test_peer_resolver.py --no-cov -v
 """
 
 from __future__ import annotations
@@ -12,8 +14,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tg_signer.config import ClickKeyboardByTextAction, SignChatV3, SignConfigV3
-from tg_signer.core.peer_resolver import (
+from tg_signer.config import (  # noqa: E402
+    ClickKeyboardByTextAction,
+    SignChatV3,
+    SignConfigV3,
+)
+from tg_signer.core.peer_resolver import (  # noqa: E402
     _WARM_FLAG,
     PeerResolveError,
     candidate_ids,
@@ -43,6 +49,8 @@ class FakeClient:
         self.is_connected = True
         self.in_memory = False
         self.session_string = None
+        self.raise_on_dialogs = False
+        self.dialog_delay = 0
 
     async def get_chat(self, chat_id):
         self.calls.append(("get_chat", chat_id))
@@ -51,9 +59,12 @@ class FakeClient:
             cid = self.username_index.get(key)
             if cid is None:
                 raise FakeRPCError("USERNAME_NOT_OCCUPIED")
-            return SimpleNamespace(id=cid, title=f"chat-{cid}")
+            return SimpleNamespace(id=cid, title=f"chat-{cid}", username=key)
         if chat_id in self.storage:
-            return SimpleNamespace(id=chat_id, title=self.storage[chat_id])
+            val = self.storage[chat_id]
+            if isinstance(val, dict):
+                return SimpleNamespace(id=chat_id, **val)
+            return SimpleNamespace(id=chat_id, title=val)
         raise FakeRPCError(
             "CHANNEL_INVALID" if str(chat_id).startswith("-100") else "PEER_ID_INVALID"
         )
@@ -66,6 +77,10 @@ class FakeClient:
 
     async def get_dialogs(self, limit=None):
         self.calls.append(("get_dialogs", limit))
+        if self.raise_on_dialogs:
+            raise RuntimeError("Network timeout while fetching dialogs")
+        if self.dialog_delay > 0:
+            await asyncio.sleep(self.dialog_delay)
         for chat_id in self.dialog_ids[: limit or None]:
             self.storage.setdefault(chat_id, f"dialog-{chat_id}")
             yield SimpleNamespace(chat=SimpleNamespace(id=chat_id))
@@ -125,6 +140,50 @@ def test_warmup_flag_prevents_rescanning():
     assert len(dialog_calls) == 1
 
 
+def test_warmup_failure_allows_subsequent_retry():
+    """B1 验收：预热抛出异常时，不置位 _WARM_FLAG，第二次调用仍然会重试。"""
+    client = FakeClient(dialogs=[USER_ID])
+    client.raise_on_dialogs = True
+
+    # 第一次调用：预热抛出异常
+    res1 = asyncio.run(warm_peer_cache(client, limit=500))
+    assert res1 == 0
+    assert getattr(client, _WARM_FLAG, False) is False
+
+    # 恢复网络
+    client.raise_on_dialogs = False
+
+    # 第二次调用：必须能再次触发 get_dialogs，并成功完成预热与置位
+    res2 = asyncio.run(warm_peer_cache(client, limit=500))
+    assert res2 == 1
+    assert getattr(client, _WARM_FLAG) is True
+
+    # 底层 get_dialogs 确实被调用了 2 次（第一次失败，第二次重试成功）
+    dialog_calls = [c for c in client.calls if c[0] == "get_dialogs"]
+    assert len(dialog_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_warmup_concurrent_calls_executed_only_once():
+    """B1 验收：并发调用 warm_peer_cache 时，异步锁保证底层只真正执行一次。"""
+    client = FakeClient(dialogs=[USER_ID, CHANNEL_ID])
+    client.dialog_delay = 0.05  # 模拟网络延迟让协程并发重叠
+
+    # 并发发起两个预热请求
+    results = await asyncio.gather(
+        warm_peer_cache(client, limit=500),
+        warm_peer_cache(client, limit=500),
+    )
+
+    # 一个执行拉取得到 2，另一个在 lock 内发现已置位直接返回 0
+    assert sum(results) == 2
+    assert getattr(client, _WARM_FLAG) is True
+
+    # 底层 get_dialogs 严格只执行了 1 次
+    dialog_calls = [c for c in client.calls if c[0] == "get_dialogs"]
+    assert len(dialog_calls) == 1
+
+
 def test_candidate_ids_applied_after_warmup():
     """候选 ID 变换（缺失 -100 前缀）必须在预热之后生效。"""
     client = FakeClient(dialogs=[CHANNEL_ID])
@@ -135,6 +194,34 @@ def test_candidate_ids_applied_after_warmup():
     assert result.chat_id == CHANNEL_ID
     assert result.method == f"id-variant:{CHANNEL_ID}"
     assert result.dialogs_scanned == 1
+
+
+def test_candidate_ids_rejects_identity_mismatch():
+    """C1 验收：构造 ID 命中但用户名不符的假候选，必须被拒绝并报错无法确认目标身份。"""
+    raw_id = abs(CHANNEL_ID) - 10**12  # 8104413787
+
+    # 存储中存在该候选 ID，但属于另一个用户名（例如冒充群 attacker_bot）
+    client = FakeClient(
+        storage={
+            CHANNEL_ID: {
+                "title": "Attacker Imposter Channel",
+                "username": "attacker_bot",
+            }
+        }
+    )
+
+    # 任务明确要求目标用户名是 @correct_bot
+    with pytest.raises(PeerResolveError) as exc_info:
+        asyncio.run(
+            resolve_peer_id(
+                client,
+                raw_id,
+                username="correct_bot",
+            )
+        )
+
+    err_msg = str(exc_info.value)
+    assert "无法确认目标身份" in err_msg or "无法解析" in err_msg
 
 
 def test_candidate_ids_logic():
