@@ -155,6 +155,71 @@ class SignerRunnerMixin:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _resolve_chat_peer(
+        self,
+        chat: SignChatV3,
+        *,
+        raise_on_error: bool = False,
+    ):
+        """解析 chat 的 peer（必要时用 get_dialogs 补回 access_hash）。
+
+        ``raise_on_error=False`` 时只记录告警并返回 None，用于任务开始前的
+        批量预热，避免一个坏会话阻塞整条任务。
+        """
+        try:
+            from tg_signer.core.peer_resolver import (
+                DEFAULT_DIALOG_LIMIT,
+                resolve_peer_id,
+            )
+
+            dialog_limit = read_positive_int_env(
+                "SIGN_TASK_PEER_DIALOG_LIMIT", DEFAULT_DIALOG_LIMIT, 1
+            )
+            cache_lookup = getattr(self, "_find_cached_chat", None)
+            return await resolve_peer_id(
+                self.app,
+                chat.chat_id,
+                name=chat.name,
+                dialog_limit=dialog_limit,
+                cache_lookup=cache_lookup,
+            )
+        except Exception as e:
+            if raise_on_error:
+                self.log(
+                    f"预热会话失败: chat_id={chat.chat_id}, error={type(e).__name__}: {e}",
+                    level="ERROR",
+                )
+                raise RuntimeError(
+                    f"Failed to preheat chat_id {chat.chat_id}: {e}"
+                ) from e
+            self.log(
+                f"peer 预热异常: chat_id={chat.chat_id}, {type(e).__name__}: {e}",
+                level="WARNING",
+            )
+        return None
+
+    async def preheat_chats(self, chats: list[SignChatV3]):
+        """任务开始前统一恢复所有会话的 peer/access_hash。
+
+        必须在注册消息 handler 之前调用：历史 chat_id 若被修正
+        （例如频道缺 `-100` 前缀），handler 的 filters.chat 需要拿到修正后的 id。
+        """
+        for chat in chats:
+            resolution = await self._resolve_chat_peer(chat)
+            if resolution is None:
+                continue
+            if resolution.chat_id != chat.chat_id:
+                self.log(
+                    f"chat_id 已修正: {chat.chat_id} -> {resolution.chat_id}（方式: {resolution.method}）",
+                    level="WARNING",
+                )
+                chat.chat_id = resolution.chat_id
+            elif resolution.method != "direct":
+                self.log(
+                    f"已恢复 peer: chat_id={chat.chat_id}, 方式={resolution.method}, 扫描会话数={resolution.dialogs_scanned}",
+                    level="WARNING",
+                )
+
     async def sign_a_chat(
         self,
         chat: SignChatV3,
@@ -164,130 +229,19 @@ class SignerRunnerMixin:
             and self.app is not None
             and not getattr(self, "_skip_peer_warmup", False)
         ):
-            try:
-                # 预热会话：优先命中本地 peer 缓存与 access_hash，减少网络往返
-                import inspect
-
-                resolved_peer = False
-                if hasattr(self.app, "resolve_peer"):
-                    try:
-                        res = self.app.resolve_peer(chat.chat_id)
-                        if inspect.isawaitable(res):
-                            await res
-                            resolved_peer = True
-                    except Exception:
-                        resolved_peer = False
-
-                if not resolved_peer and hasattr(self.app, "get_chat"):
-                    res = self.app.get_chat(chat.chat_id)
-                    if inspect.isawaitable(res):
-                        await res
-            except Exception as e:
-                # 兼容历史配置：部分会话可能保存了缺失负号的 chat_id
-                try:
-                    from pyrogram.errors import ChannelInvalid, PeerIdInvalid
-
-                    is_peer_invalid = isinstance(e, (PeerIdInvalid, ChannelInvalid))
-                except Exception:
-                    is_peer_invalid = any(
-                        x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID")
-                    )
-
-                if is_peer_invalid and isinstance(chat.chat_id, int):
-                    last_error = e
-                    resolved_peer = False
-
-                    # Historical configs may store a user/bot id before Pyrogram knows
-                    # its access hash. get_users warms the local peer cache.
-                    if chat.chat_id > 0:
-                        try:
-                            await self.app.get_users(chat.chat_id)
-                            self.log(
-                                f"已通过 get_users 预热会话：chat_id={chat.chat_id}",
-                                level="WARNING",
-                            )
-                            resolved_peer = True
-                            last_error = None
-                        except Exception as e2:
-                            last_error = e2
-
-                    if not resolved_peer:
-                        cached = self._find_cached_chat(chat.chat_id, chat.name)
-                        if cached:
-                            username = cached.get("username")
-                            cached_id = cached.get("id")
-                            if username:
-                                try:
-                                    resolved = await self.app.get_chat(username)
-                                    self.log(
-                                        f"已通过缓存用户名预热会话：chat_id={chat.chat_id} -> @{username}",
-                                        level="WARNING",
-                                    )
-                                    chat.chat_id = resolved.id
-                                    resolved_peer = True
-                                    last_error = None
-                                except Exception as e2:
-                                    last_error = e2
-                            if (
-                                not resolved_peer
-                                and cached_id
-                                and cached_id != chat.chat_id
-                            ):
-                                try:
-                                    await self.app.get_chat(cached_id)
-                                    self.log(
-                                        f"已通过缓存记录预热会话：chat_id={chat.chat_id} -> {cached_id}",
-                                        level="WARNING",
-                                    )
-                                    chat.chat_id = cached_id
-                                    resolved_peer = True
-                                    last_error = None
-                                except Exception as e2:
-                                    last_error = e2
-
-                    if not resolved_peer:
-                        candidates = []
-                        if chat.chat_id > 0:
-                            candidates.append(-chat.chat_id)
-                            candidates.append(int(f"-100{chat.chat_id}"))
-                        elif chat.chat_id < 0 and not str(chat.chat_id).startswith(
-                            "-100"
-                        ):
-                            candidates.append(int(f"-100{abs(chat.chat_id)}"))
-
-                        for candidate in candidates:
-                            if candidate == chat.chat_id:
-                                continue
-                            try:
-                                await self.app.get_chat(candidate)
-                                self.log(
-                                    f"已通过候选 chat_id 预热会话：chat_id={chat.chat_id} -> {candidate}",
-                                    level="WARNING",
-                                )
-                                chat.chat_id = candidate
-                                resolved_peer = True
-                                last_error = None
-                                break
-                            except Exception as e2:
-                                last_error = e2
-                                continue
-
-                    if not resolved_peer:
-                        self.log(
-                            f"预热会话失败: chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
-                            level="ERROR",
-                        )
-                        raise RuntimeError(
-                            f"预热会话失败 chat_id={chat.chat_id}: {last_error}"
-                        ) from last_error
-                else:
+            resolution = await self._resolve_chat_peer(chat, raise_on_error=True)
+            if resolution is not None:
+                if resolution.chat_id != chat.chat_id:
                     self.log(
-                        f"预热会话失败: chat_id={chat.chat_id}, error={type(e).__name__}: {e}",
-                        level="ERROR",
+                        f"chat_id 已修正: {chat.chat_id} -> {resolution.chat_id}（方式: {resolution.method}）",
+                        level="WARNING",
                     )
-                    raise RuntimeError(
-                        f"预热会话失败 chat_id={chat.chat_id}: {e}"
-                    ) from e
+                    chat.chat_id = resolution.chat_id
+                elif resolution.method != "direct":
+                    self.log(
+                        f"已恢复 peer: chat_id={chat.chat_id}, 方式={resolution.method}, 扫描会话数={resolution.dialogs_scanned}",
+                        level="WARNING",
+                    )
         self.log(self._describe_chat_run(chat))
         self.context.pulseflow_side_effect_started = False
 
@@ -1134,15 +1088,6 @@ class SignerRunnerMixin:
             raise RuntimeError("任务没有配置任何会话")
 
         sign_record = self.load_sign_record()
-        chat_ids = []
-        for c in config.chats:
-            chat_ids.append(c.chat_id)
-            try:
-                chat_ids.append(int(c.chat_id))
-            except (ValueError, TypeError):
-                pass
-            if isinstance(c.chat_id, int):
-                chat_ids.append(str(c.chat_id))
         need_update_handlers = bool(getattr(config, "requires_updates", True))
         message_handler_ref = None
         edited_handler_ref = None
@@ -1193,21 +1138,42 @@ class SignerRunnerMixin:
 
         try:
             while True:
-                if need_update_handlers and message_handler_ref is None:
-                    message_handler_ref = self.app.add_handler(
-                        MessageHandler(self.on_message, filters.chat(chat_ids))
-                    )
-                    edited_handler_ref = self.app.add_handler(
-                        EditedMessageHandler(
-                            self.on_edited_message, filters.chat(chat_ids)
-                        )
-                    )
                 try:
                     started_here = False
                     if not getattr(self.app, "is_connected", False):
                         await self.app.start()
                         started_here = True
                     try:
+                        # 先恢复 peer/access_hash，再注册 handler，
+                        # 这样历史 error chat_id 被修正后 filters.chat 才能匹配到消息。
+                        if not getattr(self, "_peers_preheated", False) and not getattr(
+                            self, "_skip_peer_warmup", False
+                        ):
+                            await self.preheat_chats(config.chats)
+                            self._peers_preheated = True
+
+                        if need_update_handlers and message_handler_ref is None:
+                            current_chat_ids = []
+                            for c in config.chats:
+                                current_chat_ids.append(c.chat_id)
+                                try:
+                                    current_chat_ids.append(int(c.chat_id))
+                                except (ValueError, TypeError):
+                                    pass
+                                if isinstance(c.chat_id, int):
+                                    current_chat_ids.append(str(c.chat_id))
+                            message_handler_ref = self.app.add_handler(
+                                MessageHandler(
+                                    self.on_message,
+                                    filters.chat(current_chat_ids),
+                                )
+                            )
+                            edited_handler_ref = self.app.add_handler(
+                                EditedMessageHandler(
+                                    self.on_edited_message,
+                                    filters.chat(current_chat_ids),
+                                )
+                            )
                         now = get_now()
                         now_date_str = str(now.date())
                         self.context = self.ensure_ctx()
