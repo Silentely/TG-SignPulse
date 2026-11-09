@@ -7,8 +7,10 @@ import os
 import pathlib
 import re
 import time
+import uuid
 from typing import TYPE_CHECKING, Any, ClassVar, Union
 
+import httpx
 import json_repair
 from typing_extensions import Optional, Required, TypedDict
 
@@ -76,6 +78,36 @@ def ai_cfg_signature(cfg: Any) -> tuple[str, str, str, str]:
 
 
 DEFAULT_MODEL = "gpt-5-nano"
+
+
+class _RetryableAIResponseError(RuntimeError):
+    pass
+
+
+class _CloudflareAPIError(RuntimeError):
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def is_cloudflare_vision(model: str | None = None, base_url: str | None = None) -> bool:
+    if model and str(model).strip().startswith("@cf/"):
+        return True
+    if base_url and re.search(
+        r"^https://api\.cloudflare\.com/client/v4/accounts/[^/]+/ai(?:/|$)",
+        str(base_url).strip(),
+    ):
+        return True
+    return False
+
+
+def _unwrap_cloudflare_result(body: dict) -> Any:
+    if not isinstance(body, dict):
+        return body
+    result = body.get("result", body)
+    if isinstance(result, dict) and "result" in result:
+        result = result.get("result")
+    return result
 
 
 def prefers_max_completion_tokens(model: Any) -> bool:
@@ -581,14 +613,162 @@ class AITools:
     }
     _cloudflare_translation_cache: ClassVar[dict[str, str]] = {}
 
+    _unwrap_cloudflare_result = staticmethod(_unwrap_cloudflare_result)
+
     def __init__(self, cfg: OpenAIConfig):
-        self.client = get_openai_client(
-            api_key=cfg["api_key"], base_url=cfg.get("base_url")
-        )
+        self.api_key = str(cfg.get("api_key") or "")
         self.base_url = cfg.get("base_url") or ""
         self.default_model = cfg.get("model") or DEFAULT_MODEL
+        if self._is_cloudflare_vision():
+            self.client = None
+        else:
+            self.client = get_openai_client(
+                api_key=cfg["api_key"], base_url=cfg.get("base_url")
+            )
         self._fallback_entries = parse_fallback_providers(cfg.get("fallback_providers"))
         self._cloudflare_translation_cache: dict[str, str] = {}
+
+    def _is_cloudflare_vision(self, model: str | None = None) -> bool:
+        target_model = model or getattr(self, "default_model", "")
+        return is_cloudflare_vision(target_model, getattr(self, "base_url", ""))
+
+    def _cloudflare_run_url(self, model: str) -> str:
+        base = (getattr(self, "base_url", None) or "").strip().rstrip("/")
+        if not base:
+            raise ValueError(
+                "Cloudflare AI 请求需要配置 base_url (包含 Cloudflare account endpoint)"
+            )
+        clean_model = model.strip().lstrip("/")
+        if base.endswith("/ai/run"):
+            return f"{base}/{clean_model}"
+        if base.endswith("/ai"):
+            return f"{base}/run/{clean_model}"
+        return f"{base}/ai/run/{clean_model}"
+
+    async def _cloudflare_post(self, url: str, payload: dict[str, Any]) -> dict:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        from tg_signer.version import get_user_agent
+
+        headers["User-Agent"] = get_user_agent("CloudflareVision")
+
+        timeout = self._ai_timeout()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+        except httpx.RequestError as exc:
+            raise _RetryableAIResponseError(
+                f"Cloudflare network request error: {exc}"
+            ) from exc
+
+        if resp.status_code >= 400:
+            raise _CloudflareAPIError(
+                f"Cloudflare API returned status {resp.status_code}: {resp.text[:500]}",
+                status_code=resp.status_code,
+            )
+
+        try:
+            body = resp.json()
+        except Exception as exc:
+            raise _RetryableAIResponseError(
+                f"Cloudflare returned invalid JSON: {resp.text[:300]}"
+            ) from exc
+
+        if not isinstance(body, dict):
+            raise _RetryableAIResponseError(
+                f"Cloudflare returned non-dict JSON response: {type(body).__name__}"
+            )
+
+        if body.get("success") is False:
+            errors = body.get("errors") or body.get("messages") or body
+            raise _RetryableAIResponseError(
+                f"Cloudflare API response success is False: {errors}"
+            )
+
+        return body
+
+    async def _cloudflare_vision_query(
+        self,
+        image: bytes,
+        question: str,
+        *,
+        model: str,
+        max_tokens: int = 512,
+        temperature: float = 0.1,
+    ) -> str:
+        url = self._cloudflare_run_url(model)
+        payload = {
+            "task": "query",
+            "image": self._format_image_url(image),
+            "question": question,
+            "reasoning": False,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        body = await self._cloudflare_post(url, payload)
+        result = self._unwrap_cloudflare_result(body)
+
+        desc = result.get("description") if isinstance(result, dict) else None
+        if (
+            isinstance(desc, list)
+            and desc
+            and isinstance(desc[0], str)
+            and desc[0].strip()
+        ):
+            answer = desc[0].strip()
+        else:
+            answer = result.get("answer") if isinstance(result, dict) else None
+
+        if not isinstance(answer, str) or not answer.strip():
+            raise _RetryableAIResponseError(
+                f"Cloudflare vision returned an empty answer: {str(result)[:300]}"
+            )
+        return answer.strip()
+
+    async def _call_cloudflare_vision_with_retries(
+        self,
+        image: bytes,
+        question: str,
+        *,
+        model: str,
+        max_tokens: int = 512,
+        temperature: float = 0.1,
+    ) -> str:
+        attempts = self._vision_retry_attempts()
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return await self._cloudflare_vision_query(
+                    image,
+                    question,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            except Exception as exc:
+                last_error = exc
+                can_retry = isinstance(
+                    exc, _RetryableAIResponseError
+                ) or self._should_retry_transient_ai_error(exc)
+                if can_retry and attempt < attempts:
+                    delay = self._vision_retry_delay(attempt)
+                    logger.warning(
+                        "Cloudflare 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                        delay,
+                        attempt,
+                        attempts,
+                        type(exc).__name__,
+                        safe_text_preview(exc, 200),
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        raise RuntimeError("Cloudflare 视觉请求未返回有效结果")
 
     @staticmethod
     def _normalize_option_text(text: Any) -> str:
@@ -1491,6 +1671,81 @@ class AITools:
         max_tokens: int,
         expect_json: bool,
     ):
+        if self._is_cloudflare_vision(model):
+            image_bytes = b""
+            question_text = ""
+            for msg in messages:
+                content_part = msg.get("content")
+                if isinstance(content_part, list):
+                    for part in content_part:
+                        if isinstance(part, dict):
+                            p_type = part.get("type")
+                            if p_type == "image_url":
+                                img_info = part.get("image_url")
+                                url = (
+                                    img_info.get("url", "")
+                                    if isinstance(img_info, dict)
+                                    else str(img_info or "")
+                                )
+                                if "base64," in url:
+                                    b64_str = url.split("base64,", 1)[1]
+                                    try:
+                                        image_bytes = base64.b64decode(b64_str)
+                                    except Exception:
+                                        pass
+                                else:
+                                    try:
+                                        image_bytes = base64.b64decode(url)
+                                    except Exception:
+                                        pass
+                            elif p_type == "text":
+                                txt = str(part.get("text", "")).strip()
+                                if txt:
+                                    question_text = (
+                                        f"{question_text}\n{txt}".strip()
+                                        if question_text
+                                        else txt
+                                    )
+                elif isinstance(content_part, str):
+                    if msg.get("role") == "user":
+                        txt = content_part.strip()
+                        if txt:
+                            question_text = (
+                                f"{question_text}\n{txt}".strip()
+                                if question_text
+                                else txt
+                            )
+
+            answer = await self._call_cloudflare_vision_with_retries(
+                image=image_bytes,
+                question=question_text,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            from tg_signer.core.ai_failover import as_attribute_object
+
+            return as_attribute_object(
+                {
+                    "id": f"cf-{uuid.uuid4().hex[:8]}",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": json.dumps({"answer": answer}),
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                }
+            )
+
         stages = self._build_visual_request_stages(
             messages=messages,
             model=model,

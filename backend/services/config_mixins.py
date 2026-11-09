@@ -1285,6 +1285,45 @@ class AIConfigMixin:
                     "message": f"AI Base URL 不安全或格式无效: {ve}",
                 }
 
+        from tg_signer.ai_tools import is_cloudflare_vision
+
+        if is_cloudflare_vision(model=model, base_url=base_url):
+            try:
+                from tg_signer.ai_tools import AITools
+
+                ai_tools = AITools(
+                    {"api_key": api_key, "base_url": base_url, "model": model}
+                )
+                run_url = ai_tools._cloudflare_run_url(model)
+                body = await ai_tools._cloudflare_post(
+                    run_url,
+                    {"prompt": "Say 'test ok' in 2 words", "max_tokens": 16},
+                )
+                result = ai_tools._unwrap_cloudflare_result(body)
+                answer = None
+                if isinstance(result, dict):
+                    desc = result.get("description")
+                    if (
+                        isinstance(desc, list)
+                        and desc
+                        and isinstance(desc[0], str)
+                        and desc[0].strip()
+                    ):
+                        answer = desc[0].strip()
+                    else:
+                        answer = result.get("response") or result.get("answer")
+                elif isinstance(result, str):
+                    answer = result.strip()
+                if not answer:
+                    answer = str(result)
+                return {
+                    "success": True,
+                    "message": f"连接成功！Cloudflare 响应: {answer}",
+                    "model_used": model,
+                }
+            except Exception as e:
+                return {"success": False, "message": f"连接失败: {str(e)}"}
+
         try:
             from openai import AsyncOpenAI
 
