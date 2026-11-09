@@ -10,10 +10,42 @@ DEFAULT_RETRY_KEYWORDS: tuple[str, ...] = (
     "再试",
     "重试",
     "稍后",
+    "请稍后",
     "人数较多",
     "繁忙",
+    "系统繁忙",
     "请 10 秒后",
+    "try again",
+    "slow down",
+    "busy",
 )
+
+DEFAULT_REPLY_SUCCESS_PATTERNS: tuple[str, ...] = (
+    "签到成功",
+    "打卡成功",
+    "(已|今天已|今日已)签到",
+    r"获得.+?(?:经验|积分|金币|能量|流量|点数|GB|MB|KB)",
+    r"连续签到.+?天",
+    r"出席率\s*成功",
+    r"(?i)(?:success|successfully|checked[- ]?in)",
+)
+
+DEFAULT_REPLY_FAILURE_PATTERNS: tuple[str, ...] = (
+    "签到失败",
+    "打卡失败",
+    "操作失败",
+    r"验证码错误|验证失败",
+    r"出席率\s*失败",
+    r"(?i)(?:failed|failure|invalid)",
+)
+
+
+def get_default_success_patterns() -> list[str]:
+    return list(DEFAULT_REPLY_SUCCESS_PATTERNS)
+
+
+def get_default_failure_patterns() -> list[str]:
+    return list(DEFAULT_REPLY_FAILURE_PATTERNS)
 
 
 def parse_retry_keywords(raw: Any) -> list[str]:

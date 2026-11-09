@@ -249,6 +249,8 @@ class GraphNormalizer:
 
             if wait_for_reply:
                 from tg_signer.reply_settings import (
+                    DEFAULT_REPLY_FAILURE_PATTERNS,
+                    DEFAULT_REPLY_SUCCESS_PATTERNS,
                     get_reply_timeout,
                     get_retry_interval,
                     get_retry_keywords,
@@ -260,11 +262,15 @@ class GraphNormalizer:
                     if not isinstance(act, dict)
                     else act.get("reply_success_patterns")
                 ) or []
+                if not success_pats:
+                    success_pats = list(DEFAULT_REPLY_SUCCESS_PATTERNS)
                 failure_pats = (
                     getattr(act, "reply_failure_patterns", None)
                     if not isinstance(act, dict)
                     else act.get("reply_failure_patterns")
                 ) or []
+                if not failure_pats:
+                    failure_pats = list(DEFAULT_REPLY_FAILURE_PATTERNS)
                 reply_timeout = cls._explicit_setting(act, "reply_timeout_seconds")
                 try:
                     reply_timeout = max(

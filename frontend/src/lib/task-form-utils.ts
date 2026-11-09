@@ -20,6 +20,40 @@ const ACTION_TYPE_MAP: Record<number, TaskActionType> = {
 
 const DEFAULT_CMD_PREFIX = '/start'
 
+export const DEFAULT_REPLY_SUCCESS_PATTERNS = [
+  "签到成功",
+  "打卡成功",
+  "(已|今天已|今日已)签到",
+  "获得.+?(?:经验|积分|金币|能量|流量|点数|GB|MB|KB)",
+  "连续签到.+?天",
+  "出席率\\s*成功",
+  "(?i)(?:success|successfully|checked[- ]?in)",
+]
+
+export const DEFAULT_REPLY_FAILURE_PATTERNS = [
+  "签到失败",
+  "打卡失败",
+  "操作失败",
+  "验证码错误|验证失败",
+  "出席率\\s*失败",
+  "(?i)(?:failed|failure|invalid)",
+]
+
+export const DEFAULT_REPLY_RETRY_KEYWORDS = [
+  "再试",
+  "重试",
+  "稍后",
+  "请稍后",
+  "人数较多",
+  "繁忙",
+  "系统繁忙",
+  "请 10 秒后",
+  "try again",
+  "slow down",
+  "busy",
+]
+
+
 let _actionIdCounter = 0
 
 /** 生成唯一的动作 ID（替代 Date.now()+Math.random()） */
@@ -316,14 +350,14 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
       const act = item.parentAction
       const successPatterns = act.reply_success_patterns && act.reply_success_patterns.length > 0
         ? [...act.reply_success_patterns]
-        : ['出席率\\s*成功']
+        : [...DEFAULT_REPLY_SUCCESS_PATTERNS]
       const failurePatterns = act.reply_failure_patterns && act.reply_failure_patterns.length > 0
         ? [...act.reply_failure_patterns]
-        : ['出席率\\s*失败', '签到失败', '操作失败']
+        : [...DEFAULT_REPLY_FAILURE_PATTERNS]
       const timeout = act.reply_timeout_seconds !== undefined ? Number(act.reply_timeout_seconds) : 90
       const retryKeywords = act.reply_retry_keywords && act.reply_retry_keywords.length > 0
         ? [...act.reply_retry_keywords]
-        : ['再试', '重试', '稍后', '人数较多', '繁忙', '请 10 秒后']
+        : [...DEFAULT_REPLY_RETRY_KEYWORDS]
       const retryInterval = act.reply_retry_interval !== undefined ? Number(act.reply_retry_interval) : 10
       const maxRetries = act.reply_retry_max_attempts !== undefined ? Number(act.reply_retry_max_attempts) : 3
 

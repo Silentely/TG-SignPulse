@@ -24,6 +24,11 @@ import { useI18n } from '../../composables/useI18n'
 import { getPlugins, testPlugin, type PluginInfo, type PluginTestResponse } from '../../lib/api'
 import { withToken } from '../../lib/api/core'
 import { getLocalizedErrorMessage } from '../../lib/types'
+import {
+  DEFAULT_REPLY_SUCCESS_PATTERNS,
+  DEFAULT_REPLY_FAILURE_PATTERNS,
+  DEFAULT_REPLY_RETRY_KEYWORDS,
+} from '../../lib/task-form-utils'
 
 const { t } = useI18n()
 
@@ -248,8 +253,6 @@ const setFailurePatterns = (action: TaskActionItem, val: string) => {
   action.reply_failure_patterns = val.split('\n').map((s) => s.trim()).filter(Boolean)
 }
 
-const DEFAULT_RETRY_KEYWORDS = ['再试', '重试', '稍后', '人数较多', '繁忙', '请 10 秒后']
-
 const setRetryKeywords = (action: TaskActionItem, val: string) => {
   action.reply_retry_keywords = val.split('\n').map((s) => s.trim()).filter(Boolean)
 }
@@ -258,16 +261,16 @@ const onToggleWaitForReply = (action: TaskActionItem, checked: boolean) => {
   action.wait_for_reply = checked
   if (checked) {
     if (!action.reply_success_patterns || action.reply_success_patterns.length === 0) {
-      action.reply_success_patterns = ['出席率\\s*成功']
+      action.reply_success_patterns = [...DEFAULT_REPLY_SUCCESS_PATTERNS]
     }
     if (!action.reply_failure_patterns || action.reply_failure_patterns.length === 0) {
-      action.reply_failure_patterns = ['出席率\\s*失败', '签到失败', '操作失败']
+      action.reply_failure_patterns = [...DEFAULT_REPLY_FAILURE_PATTERNS]
     }
     if (action.reply_timeout_seconds === undefined) {
       action.reply_timeout_seconds = 90
     }
     if (!action.reply_retry_keywords || action.reply_retry_keywords.length === 0) {
-      action.reply_retry_keywords = [...DEFAULT_RETRY_KEYWORDS]
+      action.reply_retry_keywords = [...DEFAULT_REPLY_RETRY_KEYWORDS]
     }
     if (action.reply_retry_interval === undefined) {
       action.reply_retry_interval = 10
