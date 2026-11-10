@@ -191,6 +191,66 @@ class TestCloudflarePostAndUnwrap:
 
 class TestCloudflareVisionQuery:
     @pytest.mark.asyncio
+    async def test_vision_query_accepts_model_agreement_before_retrying(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+        calls = []
+
+        async def fake_post(url, payload):
+            calls.append(payload)
+            if len(calls) == 1:
+                raise _CloudflareAPIError(
+                    "Cloudflare API returned status 403: Model Agreement: submit prompt 'agree'",
+                    status_code=403,
+                )
+            if payload == {"prompt": "agree"}:
+                return {"success": True, "result": {"response": "agreed"}}
+            return {"success": True, "result": {"response": "accepted"}}
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools._cloudflare_vision_query(
+                b"img",
+                "question",
+                model="@cf/meta/llama-3.2-11b-vision-instruct",
+            )
+
+        assert answer == "accepted"
+        assert calls[1] == {"prompt": "agree"}
+        assert calls[2]["messages"][0]["content"][0] == {
+            "type": "text",
+            "text": "question",
+        }
+
+    @pytest.mark.asyncio
+    async def test_vision_query_does_not_agree_on_unrelated_forbidden_error(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+        post = AsyncMock(
+            side_effect=_CloudflareAPIError(
+                "Cloudflare API returned status 403: invalid API token",
+                status_code=403,
+            )
+        )
+
+        with patch.object(tools, "_cloudflare_post", post):
+            with pytest.raises(_CloudflareAPIError):
+                await tools._cloudflare_vision_query(
+                    b"img",
+                    "question",
+                    model="@cf/meta/llama-3.2-11b-vision-instruct",
+                )
+
+        post.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_vision_query_request_payload_and_response_unpacking(self):
         tools = AITools(
             {

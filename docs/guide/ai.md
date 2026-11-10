@@ -31,6 +31,7 @@ AI 主要负责解决机器人交互里“无法直接靠固定文本匹配”�
    - **Model**：默认使用 `@cf/meta/llama-3.2-11b-vision-instruct`，也可以手动填写其他 `@cf/` 模型名。
    - **API Token**：填写具备 Workers AI 权限的 Cloudflare API Token。请求会以 Bearer Token 方式发送。
    - **Base URL**：不需要手填。系统会根据 Account ID 自动拼接 `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai`，避免把 Token 发到错误端点。
+   - **首次使用授权**：Cloudflare 部分模型（包括 Llama 3.2 Vision）首次调用前需要接受模型许可协议。保存配置后，点击「测试 AI 连接」，系统会自动提交一次 `agree` 完成授权，再重试连接请求。
    - 系统会自动调用 Cloudflare REST 接口，直接传递图像二进制数据并解析结构化答案。在面板「系统设置」中点击「测试 AI 连接」可直接检验连通性。
 
 OpenAI 兼容端点默认使用 `gpt-5-nano`。需要使用其他模型时，直接在 **Model** 字段填写模型名；需要使用兼容网关时，在 **Base URL** 填写该服务的公开 HTTPS 地址。

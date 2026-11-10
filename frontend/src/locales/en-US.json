@@ -1281,7 +1281,7 @@
     "testAiSavedNote": "Tests saved config",
     "apiToken": "API Token (leave empty to keep unchanged)",
     "cloudflareApiToken": "Cloudflare Workers AI API Token",
-    "cloudflareApiTokenHint": "Enter your Cloudflare Workers AI API Token; requests are sent as a Bearer Token. Leave empty to keep the saved token."
+    "cloudflareApiTokenHint": "Enter your Cloudflare Workers AI API Token; requests are sent as a Bearer Token. For a model's first use, click \"Test AI Connection\" to complete model authorization. Leave empty to keep the saved token."
   },
   "profile": {
     "title": "Profile",

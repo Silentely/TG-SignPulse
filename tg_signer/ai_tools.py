@@ -797,7 +797,17 @@ class AITools:
             "max_tokens": max_tokens,
             "stream": False,
         }
-        body = await self._cloudflare_post(url, payload)
+        try:
+            body = await self._cloudflare_post(url, payload)
+        except _CloudflareAPIError as exc:
+            error_text = str(exc).lower()
+            if exc.status_code != 403 or "model agreement" not in error_text:
+                raise
+            # Cloudflare requires a one-time license acknowledgement for some
+            # Meta models. This path is intentionally limited to the explicit
+            # Model Agreement response; unrelated 403 errors are not retried.
+            await self._cloudflare_post(url, {"prompt": "agree"})
+            body = await self._cloudflare_post(url, payload)
         from tg_signer.core.ai_failover import (
             AIProviderResponseError,
             normalize_ai_response,
