@@ -126,13 +126,13 @@ def mask_secret_token(text: str, secret: str | None = None) -> str:
             masked = clean_secret[:4] + "***" if len(clean_secret) > 4 else "***"
             result = result.replace(clean_secret, masked)
     result = re.sub(
-        r"(Bearer\\s+)([A-Za-z0-9_\\-\\.]{5,})",
+        r"(Bearer\s+)([A-Za-z0-9_\-\.]{5,})",
         lambda m: f"{m.group(1)}{m.group(2)[:4]}***",
         result,
         flags=re.IGNORECASE,
     )
     result = re.sub(
-        r"((?:token|api[_-]?key)\\s*[:=]\\s*[\x27\x22]?)([A-Za-z0-9_\\-\\.]{5,})",
+        r"""((?:token|api[_-]?key)\s*[:=]\s*['"]?)([A-Za-z0-9_\-\.]{5,})""",
         lambda m: (
             f"{m.group(1)}{m.group(2)[:4]}***"
             if len(m.group(2)) > 4
@@ -696,9 +696,11 @@ class AITools:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.RequestError as exc:
             safe_exc = _sanitize(str(exc))
-            raise _RetryableAIResponseError(
+            err = _RetryableAIResponseError(
                 f"Cloudflare network request error: {safe_exc}"
-            ) from exc
+            )
+            err.__cause__ = Exception(safe_exc)
+            raise err
 
         if resp.status_code >= 400:
             safe_text = _sanitize(resp.text[:500])
@@ -709,11 +711,13 @@ class AITools:
 
         try:
             body = resp.json()
-        except Exception as exc:
+        except Exception:
             safe_text = _sanitize(resp.text[:300])
-            raise _RetryableAIResponseError(
+            err = _RetryableAIResponseError(
                 f"Cloudflare returned invalid JSON: {safe_text}"
-            ) from exc
+            )
+            err.__cause__ = Exception(safe_text)
+            raise err
 
         if not isinstance(body, dict):
             raise _RetryableAIResponseError(
@@ -852,7 +856,20 @@ class AITools:
                 "Cloudflare option translation failed for %r: %s", source, safe_exc
             )
         return source
-        raise RuntimeError("Cloudflare 视觉请求未返回有效结果")
+
+    async def _ensure_cloudflare_options_translated(
+        self, options: list[tuple[int, str]]
+    ) -> None:
+        """在生产链路中对未命中静态翻译字典的选项调用 Cloudflare 翻译服务并回填缓存。"""
+        for _, option_text in options:
+            source = str(option_text).strip()
+            if not source or not self._cloudflare_needs_translation(source):
+                continue
+            if source in self._CLOUDFLARE_OPTION_TRANSLATIONS:
+                continue
+            if source in type(self)._cloudflare_translation_cache:
+                continue
+            await self._cloudflare_translate_text(source)
 
     @staticmethod
     def _normalize_option_text(text: Any) -> str:
@@ -1995,6 +2012,8 @@ class AITools:
         model = model or self.default_model
         image = self._prepare_vision_image(image)
         query = self._extract_relevant_query(query) or "选择最符合图片的选项"
+        if self._is_cloudflare_vision(model):
+            await self._ensure_cloudflare_options_translated(options)
         text_query = (
             f"Question:\n{query}\n\nOptions:\n{self._format_option_lines(options)}"
         )
@@ -2043,6 +2062,8 @@ class AITools:
         model = model or self.default_model
         image = self._prepare_vision_image(image)
         query = self._extract_relevant_query(query) or "Choose the correct option"
+        if self._is_cloudflare_vision(model):
+            await self._ensure_cloudflare_options_translated(options)
         text_query = (
             f"Question:\n{query}\n\n"
             f"Button options in row order:\n{self._format_option_lines(options)}"

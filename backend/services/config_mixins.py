@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -28,6 +29,9 @@ _logger = logging.getLogger("backend.config")
 # 全局设置短 TTL 缓存：关键词命中/通知等热路径每次调用都读盘全量 JSON，
 # 2 秒窗口内复用，保存路径显式失效，兼顾响应实时性与磁盘 I/O
 GLOBAL_SETTINGS_CACHE_TTL = 2.0
+
+VALID_1X1_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+TINY_1X1_PNG = base64.b64decode(VALID_1X1_PNG_BASE64)
 
 # 面板全局设置键 → 环境变量名：保存时与启动时统一回灌，
 # 供 tg_signer 等仍读 env 的路径（AI_VISION_*、SIGN_TASK_*）使用
@@ -1257,22 +1261,45 @@ class AIConfigMixin:
         from tg_signer.ai_tools import (
             DEFAULT_MODEL,
             is_token_param_rejection_error,
+            mask_secret_token,
             prefers_max_completion_tokens,
         )
+
+        def _sanitize_res(res: Dict[str, Any]) -> Dict[str, Any]:
+            if not isinstance(res, dict):
+                return res
+            sanitized: Dict[str, Any] = {}
+            for k, v in res.items():
+                if isinstance(v, str):
+                    sanitized[k] = mask_secret_token(v, api_key)
+                elif isinstance(v, dict):
+                    sanitized[k] = _sanitize_res(v)
+                elif isinstance(v, list):
+                    sanitized[k] = [
+                        mask_secret_token(x, api_key) if isinstance(x, str) else x
+                        for x in v
+                    ]
+                else:
+                    sanitized[k] = v
+            return sanitized
 
         model = config.get("model") or DEFAULT_MODEL
 
         if not api_key:
-            return {"success": False, "message": "API Key 为空或解密失败"}
+            return _sanitize_res(
+                {"success": False, "message": "API Key 为空或解密失败"}
+            )
 
         # 防御：若仍是密文格式，说明解密链路异常，拒绝外发
         from tg_signer.security import is_encrypted_secret
 
         if is_encrypted_secret(api_key):
-            return {
-                "success": False,
-                "message": "API Key 解密失败，请检查 APP_SECRET_KEY 后重新保存",
-            }
+            return _sanitize_res(
+                {
+                    "success": False,
+                    "message": "API Key 解密失败，请检查 APP_SECRET_KEY 后重新保存",
+                }
+            )
 
         if base_url:
             from tg_signer.utils import validate_public_http_url
@@ -1280,47 +1307,56 @@ class AIConfigMixin:
             try:
                 validate_public_http_url(str(base_url).strip())
             except ValueError as ve:
-                return {
-                    "success": False,
-                    "message": f"AI Base URL 不安全或格式无效: {ve}",
-                }
+                return _sanitize_res(
+                    {
+                        "success": False,
+                        "message": f"AI Base URL 不安全或格式无效: {ve}",
+                    }
+                )
 
         from tg_signer.ai_tools import is_cloudflare_vision
 
         if is_cloudflare_vision(model=model, base_url=base_url):
             try:
-                from tg_signer.ai_tools import AITools, mask_secret_token
+                from tg_signer.ai_tools import AITools
 
                 ai_tools = AITools(
                     {"api_key": api_key, "base_url": base_url, "model": model}
                 )
-                # 连通性探测必须走和生产完全同一条视觉请求代码路径
-                _TINY_PNG = (
-                    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-                    b"\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00"
-                    b"\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
-                )
+                # 连通性探测必须走和生产完全同一条视觉请求代码路径（使用合法 1x1 PNG）
                 answer = await ai_tools._cloudflare_vision_query(
-                    _TINY_PNG,
+                    TINY_1X1_PNG,
                     "Say test ok in 2 words",
                     model=model,
                     max_tokens=16,
                 )
                 if not answer or not isinstance(answer, str) or not answer.strip():
-                    return {
-                        "success": False,
-                        "message": "连接失败: Cloudflare 响应中未包含有效 answer",
+                    return _sanitize_res(
+                        {
+                            "success": False,
+                            "message": "连接失败: Cloudflare 响应中未包含有效 answer",
+                        }
+                    )
+                return _sanitize_res(
+                    {
+                        "success": True,
+                        "message": f"连接成功！Cloudflare 响应: {answer.strip()}",
+                        "model_used": model,
                     }
-                return {
-                    "success": True,
-                    "message": f"连接成功！Cloudflare 响应: {answer.strip()}",
-                    "model_used": model,
-                }
+                )
             except Exception as e:
-                from tg_signer.ai_tools import mask_secret_token
-
-                safe_msg = mask_secret_token(str(e), api_key)
-                return {"success": False, "message": f"连接失败: {safe_msg}"}
+                err_parts = [str(e)]
+                curr = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+                while curr is not None:
+                    if str(curr):
+                        err_parts.append(str(curr))
+                    curr = getattr(curr, "__cause__", None) or getattr(
+                        curr, "__context__", None
+                    )
+                safe_msg = mask_secret_token(" | ".join(err_parts), api_key)
+                return _sanitize_res(
+                    {"success": False, "message": f"连接失败: {safe_msg}"}
+                )
 
         try:
             from openai import AsyncOpenAI
@@ -1365,19 +1401,32 @@ class AIConfigMixin:
                 else:
                     raise
 
-            return {
-                "success": True,
-                "message": f"连接成功！模型响应: {response.choices[0].message.content}",
-                "model_used": model,
-            }
+            return _sanitize_res(
+                {
+                    "success": True,
+                    "message": f"连接成功！模型响应: {response.choices[0].message.content}",
+                    "model_used": model,
+                }
+            )
 
         except ImportError:
-            return {
-                "success": False,
-                "message": "未安装 openai 库，请运行: pip install openai",
-            }
+            return _sanitize_res(
+                {
+                    "success": False,
+                    "message": "未安装 openai 库，请运行: pip install openai",
+                }
+            )
         except Exception as e:
-            return {"success": False, "message": f"连接失败: {str(e)}"}
+            err_parts = [str(e)]
+            curr = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+            while curr is not None:
+                if str(curr):
+                    err_parts.append(str(curr))
+                curr = getattr(curr, "__cause__", None) or getattr(
+                    curr, "__context__", None
+                )
+            safe_msg = mask_secret_token(" | ".join(err_parts), api_key)
+            return _sanitize_res({"success": False, "message": f"连接失败: {safe_msg}"})
 
     # ============ 全局设置 ============
 

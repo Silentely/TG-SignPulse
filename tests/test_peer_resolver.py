@@ -22,6 +22,7 @@ from tg_signer.config import (  # noqa: E402
 from tg_signer.core.peer_resolver import (  # noqa: E402
     _WARM_FLAG,
     PeerResolveError,
+    _verify_candidate_identity,
     candidate_ids,
     resolve_peer_id,
     warm_peer_cache,
@@ -210,8 +211,8 @@ def test_candidate_ids_applied_after_warmup():
         resolve_peer_id(
             client,
             raw_id,
-            name="ChannelBot",
-            expected_name="ChannelBot",
+            name="channel_bot",
+            expected_name="channel_bot",
         )
     )
 
@@ -341,7 +342,7 @@ async def test_handler_registration_ordering_and_updated_ids(monkeypatch, tmp_pa
                     chats=[
                         SignChatV3(
                             chat_id=raw_id,
-                            name="TestChannel",
+                            name="test_channel",
                             actions=[ClickKeyboardByTextAction(text="签到")],
                         ),
                     ],
@@ -486,3 +487,58 @@ async def test_resolve_peer_cancelled_error_propagates_upward():
 
     with pytest.raises(asyncio.CancelledError):
         await resolve_peer_id(client, raw_id)
+
+
+def test_verify_candidate_identity_rejects_when_title_contains_name_but_username_differs():
+    """A1 ① 标题包含目标名但 username 不符 → 必须拒绝（标题不参与身份判定，严禁冒充）。"""
+    cand = SimpleNamespace(
+        id=-1008104413787,
+        title="target_bot official group",
+        username="attacker_imposter_bot",
+    )
+    # expected_username 为 target_bot，而 cand.username 为 attacker_imposter_bot
+    # 虽然 title 包含 "target_bot"，但 username 不符，必须拒绝
+    assert not _verify_candidate_identity(
+        cand,
+        original_chat_id=8104413787,
+        expected_username="target_bot",
+    )
+    # 传入 expected_name 也必须严格只对 username 进行精确核对，标题不得用于放行
+    assert not _verify_candidate_identity(
+        cand,
+        original_chat_id=8104413787,
+        expected_name="target_bot",
+    )
+
+
+def test_verify_candidate_identity_case_insensitive_username_matches():
+    """A1 ② username 大小写不同 → 按归一后精确相等处理。"""
+    cand = SimpleNamespace(
+        id=-1008104413787,
+        title="Random Title",
+        username="Target_Bot_Official",
+    )
+    assert _verify_candidate_identity(
+        cand,
+        original_chat_id=8104413787,
+        expected_username="target_bot_official",
+    )
+    assert _verify_candidate_identity(
+        cand,
+        original_chat_id=8104413787,
+        expected_name="@TARGET_BOT_OFFICIAL",
+    )
+
+
+def test_verify_candidate_identity_exact_match_passes():
+    """A1 ③ 完全匹配 → 通过。"""
+    cand = SimpleNamespace(
+        id=-1008104413787,
+        title="Official Channel",
+        username="target_bot",
+    )
+    assert _verify_candidate_identity(
+        cand,
+        original_chat_id=8104413787,
+        expected_username="target_bot",
+    )

@@ -478,3 +478,65 @@ class TestCloudflareVisionFullIntegration:
             res2 = await tools2._cloudflare_translate_text("电钻工具")
             assert res2 == "electric drill"
             assert post_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_production_option_resolution_translates_and_caches(
+        self,
+    ):
+        AITools._cloudflare_translation_cache.clear()
+
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+                "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+            }
+        )
+
+        options = [(0, "汽车"), (1, "新设备无人机")]
+        unknown_word = "新设备无人机"
+
+        post_calls = []
+
+        async def fake_post(url: str, payload: dict):
+            post_calls.append((url, payload))
+            if "@cf/meta/m2m100-1.2b" in url:
+                return {
+                    "success": True,
+                    "result": {"translated_text": "new drone device"},
+                }
+            return {
+                "success": True,
+                "result": {"answer": "drone"},
+            }
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            # 第一次调用完整解析入口
+            idx1 = await tools.choose_option_by_image(
+                image=b"\x89PNG\r\n\x1a\nfake",
+                query="哪个是无人机？",
+                options=options,
+            )
+            assert idx1 == 1
+            # 断言缓存已写入
+            assert unknown_word in AITools._cloudflare_translation_cache
+            assert (
+                AITools._cloudflare_translation_cache[unknown_word]
+                == "new drone device"
+            )
+
+            # 统计翻译请求次数
+            trans_calls_1 = [c for c in post_calls if "@cf/meta/m2m100-1.2b" in c[0]]
+            assert len(trans_calls_1) == 1
+
+            # 第二次相同输入调用完整解析入口
+            idx2 = await tools.choose_option_by_image(
+                image=b"\x89PNG\r\n\x1a\nfake",
+                query="哪个是无人机？",
+                options=options,
+            )
+            assert idx2 == 1
+
+            # 第二次命中缓存，底层翻译接口没有发起新的请求（总次数仍然为 1）
+            trans_calls_2 = [c for c in post_calls if "@cf/meta/m2m100-1.2b" in c[0]]
+            assert len(trans_calls_2) == 1

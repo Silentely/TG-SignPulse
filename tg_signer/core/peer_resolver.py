@@ -161,17 +161,13 @@ def _verify_candidate_identity(
         return False
 
     cand_username = getattr(candidate_chat, "username", None)
-    cand_title = getattr(candidate_chat, "title", None)
-    cand_first_name = getattr(candidate_chat, "first_name", None)
-
-    # 1. 只有 ID、没有 username 时直接拒绝（防冒名与跨会话误发）
     if not cand_username or not str(cand_username).strip():
         logger.warning("候选 chat (id=%s) 无 username，拒绝盲目形态转换匹配", cand_id)
         return False
 
     clean_cand_user = str(cand_username).lower().lstrip("@").strip()
 
-    # 2. 只有 ID、未提供任何 expected_username 或 expected_name 时，无法确认身份，必须拒绝
+    # 1. 只有 ID、未提供任何 expected_username 或 expected_name 时，无法确认身份，必须拒绝
     if not expected_username and not expected_name:
         logger.warning(
             "缺少 expected_username 和 expected_name，无法确认候选 chat (id=%s, user=%s) 的目标身份",
@@ -180,46 +176,29 @@ def _verify_candidate_identity(
         )
         return False
 
-    # 3. 如果提供了 expected_username，必须一致
+    # 2. 身份核对必须是精确匹配：username 完全相等（大小写归一后），禁止 in / startswith / 模糊匹配。
+    # 标题（title/name）只作辅助展示，不参与身份判定。
+    target_username = None
     if expected_username:
-        clean_exp_user = (
+        target_username = (
             str(expected_username)
             .lower()
             .lstrip("@")
             .replace("https://t.me/", "")
             .strip()
         )
-        if clean_exp_user and clean_cand_user != clean_exp_user:
-            logger.warning(
-                "候选 chat username 不匹配: expected=%s, actual=%s",
-                clean_exp_user,
-                clean_cand_user,
-            )
-            return False
+    elif expected_name:
+        target_username = str(expected_name).lower().lstrip("@").strip()
 
-    # 4. 如果提供了 expected_name，必须与候选身份匹配
-    if expected_name:
-        clean_exp_name = str(expected_name).lower().lstrip("@").strip()
-        name_matched = False
-        if clean_cand_user and (
-            clean_cand_user == clean_exp_name or clean_exp_name in clean_cand_user
-        ):
-            name_matched = True
-        if cand_title and clean_exp_name in str(cand_title).lower():
-            name_matched = True
-        if cand_first_name and clean_exp_name in str(cand_first_name).lower():
-            name_matched = True
+    if not target_username or clean_cand_user != target_username:
+        logger.warning(
+            "候选 chat username 不匹配（精确匹配失败）: expected=%s, actual=%s",
+            target_username,
+            clean_cand_user,
+        )
+        return False
 
-        if not name_matched:
-            logger.warning(
-                "候选 chat 身份与 expected_name 不符: expected_name=%s, candidate=(user=%s, title=%s)",
-                expected_name,
-                cand_username,
-                cand_title,
-            )
-            return False
-
-    # 5. ID 变体数学校验
+    # 3. ID 变体数学校验
     cand_str = str(cand_id)
     orig_abs_str = str(abs(original_chat_id))
     id_matched = False
