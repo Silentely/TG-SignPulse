@@ -211,12 +211,16 @@ class SignerRunnerMixin:
             resolution = await self._resolve_chat_peer(chat)
             if resolution is None:
                 continue
-            if resolution.chat_id != chat.chat_id:
-                self.log(
-                    f"chat_id 已修正: {chat.chat_id} -> {resolution.chat_id}（方式: {resolution.method}）",
-                    level="WARNING",
-                )
-                chat.chat_id = resolution.chat_id
+            if resolution.method.startswith("id-variant:") or resolution.method in (
+                "username",
+                "username-hint",
+            ):
+                if resolution.chat_id and resolution.chat_id != chat.chat_id:
+                    self.log(
+                        f"chat_id 已修正: {chat.chat_id} -> {resolution.chat_id}（方式: {resolution.method}）",
+                        level="WARNING",
+                    )
+                    chat.chat_id = resolution.chat_id
             elif resolution.method != "direct":
                 self.log(
                     f"已恢复 peer: chat_id={chat.chat_id}, 方式={resolution.method}, 扫描会话数={resolution.dialogs_scanned}",
@@ -234,12 +238,16 @@ class SignerRunnerMixin:
         ):
             resolution = await self._resolve_chat_peer(chat, raise_on_error=True)
             if resolution is not None:
-                if resolution.chat_id != chat.chat_id:
-                    self.log(
-                        f"chat_id 已修正: {chat.chat_id} -> {resolution.chat_id}（方式: {resolution.method}）",
-                        level="WARNING",
-                    )
-                    chat.chat_id = resolution.chat_id
+                if resolution.method.startswith("id-variant:") or resolution.method in (
+                    "username",
+                    "username-hint",
+                ):
+                    if resolution.chat_id and resolution.chat_id != chat.chat_id:
+                        self.log(
+                            f"chat_id 已修正: {chat.chat_id} -> {resolution.chat_id}（方式: {resolution.method}）",
+                            level="WARNING",
+                        )
+                        chat.chat_id = resolution.chat_id
                 elif resolution.method != "direct":
                     self.log(
                         f"已恢复 peer: chat_id={chat.chat_id}, 方式={resolution.method}, 扫描会话数={resolution.dialogs_scanned}",

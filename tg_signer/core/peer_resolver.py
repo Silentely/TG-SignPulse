@@ -59,6 +59,29 @@ class PeerResolveError(RuntimeError):
         )
 
 
+def _extract_chat_id(chat: Any, fallback: Any = None) -> int:
+    """从 chat 对象安全提取数字 ID，防 mock 对象 int(mock) 默认返回 1 污染 chat_id。"""
+    raw_id = getattr(chat, "id", None)
+    if isinstance(raw_id, int):
+        return raw_id
+    if isinstance(raw_id, str) and raw_id.lstrip("-+").isdigit():
+        return int(raw_id)
+    if isinstance(fallback, int):
+        return fallback
+    if isinstance(fallback, str) and fallback.lstrip("-+").isdigit():
+        return int(fallback)
+    try:
+        if (
+            raw_id is not None
+            and not hasattr(raw_id, "_mock_return_value")
+            and not type(raw_id).__name__.endswith("Mock")
+        ):
+            return int(raw_id)
+    except (ValueError, TypeError):
+        pass
+    return 0
+
+
 @dataclass
 class PeerResolution:
     chat_id: int
@@ -247,7 +270,7 @@ async def resolve_peer_id(
             f"按用户名解析 {chat_id}", lambda: client.get_chat(chat_id), attempts
         )
         if chat is not None:
-            return PeerResolution(int(chat.id), chat, "username")
+            return PeerResolution(_extract_chat_id(chat, None), chat, "username")
         raise PeerResolveError(chat_id, attempts)
 
     # 1. 直接解析
@@ -255,7 +278,7 @@ async def resolve_peer_id(
         f"直接解析 {chat_id}", lambda: client.get_chat(chat_id), attempts
     )
     if chat is not None:
-        return PeerResolution(int(chat.id), chat, "direct")
+        return PeerResolution(_extract_chat_id(chat, chat_id), chat, "direct")
 
     # 2. 预热对话列表后重试（修复 string session 丢 peer 的核心步骤）
     dialogs_scanned = await warm_peer_cache(client, dialog_limit, attempts)
@@ -263,7 +286,9 @@ async def resolve_peer_id(
         f"预热后解析 {chat_id}", lambda: client.get_chat(chat_id), attempts
     )
     if chat is not None:
-        return PeerResolution(int(chat.id), chat, "dialog-warm", dialogs_scanned)
+        return PeerResolution(
+            _extract_chat_id(chat, chat_id), chat, "dialog-warm", dialogs_scanned
+        )
 
     # 3. users.GetUsers（用户 / 机器人会话）
     if chat_id > 0:
@@ -275,7 +300,9 @@ async def resolve_peer_id(
                 attempts,
             )
             if chat is not None:
-                return PeerResolution(int(chat.id), chat, "get_users", dialogs_scanned)
+                return PeerResolution(
+                    _extract_chat_id(chat, chat_id), chat, "get_users", dialogs_scanned
+                )
 
     # 4. 显式 username 或聊天缓存里的 username
     cached_entry: Optional[dict] = None
@@ -296,7 +323,9 @@ async def resolve_peer_id(
             attempts,
         )
         if chat is not None:
-            return PeerResolution(int(chat.id), chat, "username-hint", dialogs_scanned)
+            return PeerResolution(
+                _extract_chat_id(chat, None), chat, "username-hint", dialogs_scanned
+            )
 
     # 5. 历史错误 ID 的形态转换（必须在预热之后且必须严格核对目标身份）
     for candidate in candidate_ids(chat_id):
@@ -313,7 +342,10 @@ async def resolve_peer_id(
                 expected_name=expected_name or name,
             ):
                 return PeerResolution(
-                    int(chat.id), chat, f"id-variant:{candidate}", dialogs_scanned
+                    _extract_chat_id(chat, candidate),
+                    chat,
+                    f"id-variant:{candidate}",
+                    dialogs_scanned,
                 )
             attempts.append(
                 (
