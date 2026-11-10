@@ -653,7 +653,9 @@
     "removeFallbackProvider": "移除该备用节点",
     "testConnection": "测试连接",
     "apiBaseUrl": "API Base URL（留空使用官方）",
-    "model": "Model（留空使用默认 gpt-5-nano）",
+    "model": "模型",
+    "aiModelOpenAI": "模型（OpenAI 默认 gpt-5-nano）",
+    "aiModelCloudflare": "模型（Cloudflare 默认 @cf/meta/llama-3.2-11b-vision-instruct）",
     "apiKey": "API Key（留空表示不修改）",
     "saveAiConfig": "保存 AI 配置",
     "jevEnable": "启用 JEV 语义接口",
@@ -1277,7 +1279,9 @@
     "cloudflareAccountIdPlaceholder": "32 位十六进制 Account ID（留空沿用已保存）",
     "cloudflareAccountIdHint": "位于 Cloudflare 控制台右侧侧边栏，32 位十六进制格式",
     "testAiSavedNote": "测试基于已保存配置",
-    "apiToken": "API Token（留空表示不修改）"
+    "apiToken": "API Token（留空表示不修改）",
+    "cloudflareApiToken": "Cloudflare Workers AI API Token",
+    "cloudflareApiTokenHint": "填写 Cloudflare Workers AI 的 API Token；请求会以 Bearer Token 方式发送。留空表示不修改已保存的 Token。"
   },
   "profile": {
     "title": "个人中心",

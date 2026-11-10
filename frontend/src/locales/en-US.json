@@ -653,7 +653,9 @@
     "removeFallbackProvider": "Remove this fallback provider",
     "testConnection": "Test",
     "apiBaseUrl": "API Base URL (empty for official)",
-    "model": "Model (empty for default gpt-5-nano)",
+    "model": "Model",
+    "aiModelOpenAI": "Model (OpenAI default: gpt-5-nano)",
+    "aiModelCloudflare": "Model (Cloudflare default: @cf/meta/llama-3.2-11b-vision-instruct)",
     "apiKey": "API Key (empty to keep unchanged)",
     "saveAiConfig": "Save AI Config",
     "jevEnable": "Enable JEV Semantic Interface",
@@ -1277,7 +1279,9 @@
     "cloudflareAccountIdPlaceholder": "32-character hex Account ID (leave empty to keep)",
     "cloudflareAccountIdHint": "Found in the Cloudflare dashboard right sidebar (32 hex characters)",
     "testAiSavedNote": "Tests saved config",
-    "apiToken": "API Token (leave empty to keep unchanged)"
+    "apiToken": "API Token (leave empty to keep unchanged)",
+    "cloudflareApiToken": "Cloudflare Workers AI API Token",
+    "cloudflareApiTokenHint": "Enter your Cloudflare Workers AI API Token; requests are sent as a Bearer Token. Leave empty to keep the saved token."
   },
   "profile": {
     "title": "Profile",

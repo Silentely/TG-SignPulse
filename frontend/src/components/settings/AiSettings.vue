@@ -166,35 +166,24 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
         <input id="ai-base-url" :value="aiModelValue.base_url" @input="onAiInput('base_url', $event)" type="text" placeholder="https://api.openai.com/v1" class="ui-input">
       </div>
 
-      <!-- 模型名称（支持 datalist 候选列表） -->
+      <!-- 模型名称：按 provider 显示默认模型，但允许填写自定义模型 -->
       <div class="space-y-1.5">
-        <label class="ui-label" for="ai-model">{{ t('settings.model') }}</label>
+        <label class="ui-label" for="ai-model">
+          {{ aiModelValue.provider === 'cloudflare' ? t('settings.aiModelCloudflare') : t('settings.aiModelOpenAI') }}
+        </label>
         <input
           id="ai-model"
           :value="aiModelValue.model"
           @input="onAiInput('model', $event)"
           type="text"
-          list="ai-model-candidates"
           :placeholder="aiModelValue.provider === 'cloudflare' ? '@cf/meta/llama-3.2-11b-vision-instruct' : 'gpt-5-nano'"
           class="ui-input"
         />
-        <datalist id="ai-model-candidates">
-          <template v-if="aiModelValue.provider === 'cloudflare'">
-            <option value="@cf/meta/llama-3.2-11b-vision-instruct"></option>
-            <option value="@cf/meta/llama-3.2-3b-instruct"></option>
-            <option value="@cf/qwen/qwen1.5-7b-chat-awq"></option>
-          </template>
-          <template v-else>
-            <option value="gpt-5-nano"></option>
-            <option value="gpt-4o"></option>
-            <option value="gpt-4o-mini"></option>
-          </template>
-        </datalist>
       </div>
 
       <!-- API Key / Token -->
       <div class="space-y-1.5">
-        <label class="ui-label" for="ai-api-key">{{ aiModelValue.provider === 'cloudflare' ? t('settings.apiToken') : t('settings.apiKey') }}</label>
+        <label class="ui-label" for="ai-api-key">{{ aiModelValue.provider === 'cloudflare' ? t('settings.cloudflareApiToken') : t('settings.apiKey') }}</label>
         <div class="relative">
           <input
             id="ai-api-key"
@@ -208,6 +197,7 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
             <EyeOff v-if="reveal.aiKey" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
           </button>
         </div>
+        <SettingsFieldHint v-if="aiModelValue.provider === 'cloudflare'" :text="t('settings.cloudflareApiTokenHint')" />
         <p v-if="keyDecryptFailed" class="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
           {{ t('settings.aiKeyDecryptFailed') }}
         </p>

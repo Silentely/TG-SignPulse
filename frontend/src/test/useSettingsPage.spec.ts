@@ -143,6 +143,15 @@ describe('useSettingsPage (mount + dirty)', () => {
     unmount()
   })
 
+  it('starts a new AI configuration with the OpenAI default model', async () => {
+    api.getAIConfig.mockResolvedValueOnce({ has_config: false })
+    const { result, unmount } = mountComposable(() => useSettingsPage())
+    await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+
+    expect(result.aiConfig.value.model).toBe('gpt-5-nano')
+    unmount()
+  })
+
   it('starts independent runtime metadata loads without waiting for backup status', async () => {
     let releaseBackup!: (value: unknown) => void
     api.getBackupStatus.mockImplementationOnce(

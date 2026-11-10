@@ -14,9 +14,10 @@ AI 主要负责解决机器人交互里“无法直接靠固定文本匹配”�
 
 在系统设置里配置 AI：
 
-- `API Key`
-- `Base URL`，可选
-- `Model`，可选
+- 选择 AI 提供商：**OpenAI 兼容端点** 或 **Cloudflare Workers AI**
+- `API Key` / Cloudflare Workers AI `API Token`
+- `Base URL`（仅 OpenAI 兼容端点，可选）
+- `Model`（可选；不填写时使用所选提供商的默认模型）
 
 这些设置会保存到数据目录下的 `.openai_config.json`。
 
@@ -26,10 +27,13 @@ AI 主要负责解决机器人交互里“无法直接靠固定文本匹配”�
 
 1. **OpenAI 兼容接口**：支持 OpenAI 官方及各类兼容网关（如 Azure OpenAI、DeepSeek、OneAPI 等）。
 2. **Cloudflare Workers AI**：原生适配 Cloudflare 视觉模型：
-   - **Model**：填写 `@cf/` 开头的模型名（如 `@cf/meta/llama-3.2-11b-vision-instruct`）。
-   - **Base URL**：填写 Cloudflare Account AI 端点（格式：`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai`）。
-   - **API Key**：填写具备 Workers AI 权限的 Cloudflare API Token。
+   - **Cloudflare 账户 ID**：填写控制台中的 32 位十六进制 Account ID。
+   - **Model**：默认使用 `@cf/meta/llama-3.2-11b-vision-instruct`，也可以手动填写其他 `@cf/` 模型名。
+   - **API Token**：填写具备 Workers AI 权限的 Cloudflare API Token。请求会以 Bearer Token 方式发送。
+   - **Base URL**：不需要手填。系统会根据 Account ID 自动拼接 `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai`，避免把 Token 发到错误端点。
    - 系统会自动调用 Cloudflare REST 接口，直接传递图像二进制数据并解析结构化答案。在面板「系统设置」中点击「测试 AI 连接」可直接检验连通性。
+
+OpenAI 兼容端点默认使用 `gpt-5-nano`。需要使用其他模型时，直接在 **Model** 字段填写模型名；需要使用兼容网关时，在 **Base URL** 填写该服务的公开 HTTPS 地址。
 
 ## 备用节点（故障转移）
 
@@ -57,10 +61,18 @@ OPENAI_FALLBACK_PROVIDERS='[{"base_url":"https://backup.example.com/v1","api_key
 
 ## 默认模型
 
-系统默认模型是：
+不同 AI 提供商使用不同的默认模型：
+
+- OpenAI 兼容端点：
 
 ```text
 gpt-5-nano
+```
+
+- Cloudflare Workers AI：
+
+```text
+@cf/meta/llama-3.2-11b-vision-instruct
 ```
 
 如果你在设置里指定了别的模型，系统会优先使用你填写的模型。

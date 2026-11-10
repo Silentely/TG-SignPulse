@@ -41,4 +41,13 @@ describe('locales 键一致性', () => {
     expect(badZh, `zh-CN 含双花括号: ${badZh.join(' | ')}`).toEqual([])
     expect(badEn, `en-US 含双花括号: ${badEn.join(' | ')}`).toEqual([])
   })
+
+  it('为两种 AI provider 提供独立的模型与凭据说明', () => {
+    expect(zhCN.settings.aiModelOpenAI).toContain('gpt-5-nano')
+    expect(zhCN.settings.aiModelCloudflare).toContain('@cf/meta/llama-3.2-11b-vision-instruct')
+    expect(zhCN.settings.cloudflareApiTokenHint).toContain('Workers AI')
+    expect(enUS.settings.aiModelOpenAI).toContain('gpt-5-nano')
+    expect(enUS.settings.aiModelCloudflare).toContain('@cf/meta/llama-3.2-11b-vision-instruct')
+    expect(enUS.settings.cloudflareApiTokenHint).toContain('Workers AI')
+  })
 })

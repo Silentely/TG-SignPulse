@@ -119,7 +119,7 @@ export function useSettingsPage() {
     cloudflare_account_id: '',
     cloudflare_account_id_masked: null,
     base_url: '',
-    model: '',
+    model: 'gpt-5-nano',
     api_key: '',
     fallback_providers: []
   })
@@ -314,7 +314,11 @@ export function useSettingsPage() {
         aiConfig.value.cloudflare_account_id = ''
         aiConfig.value.cloudflare_account_id_masked = aiRes.cloudflare_account_id_masked ?? null
         aiConfig.value.base_url = aiRes.base_url || ''
-        aiConfig.value.model = aiRes.model || ''
+        aiConfig.value.model = aiRes.model || (
+          aiConfig.value.provider === 'cloudflare'
+            ? '@cf/meta/llama-3.2-11b-vision-instruct'
+            : 'gpt-5-nano'
+        )
         aiKeyDecryptFailed.value = !!aiRes.api_key_decrypt_failed
         aiConfig.value.fallback_providers = (aiRes.fallback_providers || []).map(
           (p) => ({
