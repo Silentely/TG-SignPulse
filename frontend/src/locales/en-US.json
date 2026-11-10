@@ -1269,7 +1269,15 @@
     "webdavSkipSslVerifyDesc": "Ignore SSL certificate validity. This does not allow private or intranet addresses.",
     "webdavAllowPrivate": "Allow private WebDAV address",
     "webdavAllowPrivateDesc": "Allow WebDAV targets on a private network. Enable only for a trusted NAS or internal service.",
-    "noMarketReadme": "No documentation available"
+    "noMarketReadme": "No documentation available",
+    "aiProvider": "AI Provider Type",
+    "aiProviderOpenAI": "OpenAI Compatible",
+    "aiProviderCloudflare": "Cloudflare Workers AI",
+    "cloudflareAccountId": "Cloudflare Account ID",
+    "cloudflareAccountIdPlaceholder": "32-character hex Account ID (leave empty to keep)",
+    "cloudflareAccountIdHint": "Found in the Cloudflare dashboard right sidebar (32 hex characters)",
+    "testAiSavedNote": "Tests saved config",
+    "apiToken": "API Token (leave empty to keep unchanged)"
   },
   "profile": {
     "title": "Profile",

@@ -59,6 +59,8 @@ export interface AIFallbackProvider {
 
 export interface AIConfig {
   has_config: boolean;
+  provider?: 'openai' | 'cloudflare';
+  cloudflare_account_id_masked?: string | null;
   base_url?: string;
   model?: string;
   api_key_masked?: string;
@@ -80,6 +82,8 @@ export const getAIConfig = (token: string) =>
 export const saveAIConfig = (
   token: string,
   config: {
+    provider?: 'openai' | 'cloudflare';
+    cloudflare_account_id?: string;
     api_key?: string;
     base_url?: string;
     model?: string;

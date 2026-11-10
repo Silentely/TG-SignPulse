@@ -160,17 +160,30 @@ export function useSettingsSave(options: {
         } else {
           options.markSectionClean('tg')
         }
-        if (
-          options.aiConfig.value.base_url ||
-          options.aiConfig.value.model ||
-          options.aiConfig.value.api_key
-        ) {
+        const hasAllAiInput = !!(
+          options.aiConfig.value.provider === 'cloudflare'
+            ? (options.aiConfig.value.cloudflare_account_id || options.aiConfig.value.api_key || options.aiConfig.value.model)
+            : (options.aiConfig.value.base_url ||
+               options.aiConfig.value.model ||
+               options.aiConfig.value.api_key)
+        )
+        if (hasAllAiInput) {
           try {
             await saveAIConfig(token, {
+              provider: options.aiConfig.value.provider || 'openai',
+              cloudflare_account_id: options.aiConfig.value.cloudflare_account_id?.trim() || undefined,
               base_url: options.aiConfig.value.base_url || undefined,
               model: options.aiConfig.value.model || undefined,
               api_key: options.aiConfig.value.api_key || undefined,
             })
+            if (options.aiConfig.value.cloudflare_account_id) {
+              const rawId = options.aiConfig.value.cloudflare_account_id.trim()
+              options.aiConfig.value.cloudflare_account_id_masked =
+                rawId.length > 8
+                  ? rawId.slice(0, 4) + '*'.repeat(Math.max(rawId.length - 8, 0)) + rawId.slice(-4)
+                  : '****'
+              options.aiConfig.value.cloudflare_account_id = ''
+            }
             options.aiConfig.value.api_key = ''
             options.markSectionClean('ai')
           } catch (e: unknown) {
@@ -254,9 +267,11 @@ export function useSettingsSave(options: {
     try {
       await saveGlobalSettings(token, options.buildAiRuntimePayload())
       const hasAiInput = !!(
-        options.aiConfig.value.base_url ||
-        options.aiConfig.value.model ||
-        options.aiConfig.value.api_key
+        options.aiConfig.value.provider === 'cloudflare'
+          ? (options.aiConfig.value.cloudflare_account_id || options.aiConfig.value.api_key || options.aiConfig.value.model)
+          : (options.aiConfig.value.base_url ||
+             options.aiConfig.value.model ||
+             options.aiConfig.value.api_key)
       )
       try {
         // 仅当服务端 AI 配置已成功加载时才提交备用节点，避免用空数组清空已保存的密钥
@@ -273,11 +288,21 @@ export function useSettingsSave(options: {
                   api_key: p.api_key || undefined,
                 }))
         await saveAIConfig(token, {
+          provider: options.aiConfig.value.provider || 'openai',
+          cloudflare_account_id: options.aiConfig.value.cloudflare_account_id?.trim() || undefined,
           base_url: options.aiConfig.value.base_url || undefined,
           model: options.aiConfig.value.model || undefined,
           api_key: options.aiConfig.value.api_key || undefined,
           fallback_providers: fallbackPayload,
         })
+        if (options.aiConfig.value.cloudflare_account_id) {
+          const rawId = options.aiConfig.value.cloudflare_account_id.trim()
+          options.aiConfig.value.cloudflare_account_id_masked =
+            rawId.length > 8
+              ? rawId.slice(0, 4) + '*'.repeat(Math.max(rawId.length - 8, 0)) + rawId.slice(-4)
+              : '****'
+          options.aiConfig.value.cloudflare_account_id = ''
+        }
         if (options.aiConfig.value.api_key) {
           options.aiKeyDecryptFailed.value = false
         }

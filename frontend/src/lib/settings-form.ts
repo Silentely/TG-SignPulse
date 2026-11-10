@@ -50,6 +50,9 @@ export type SettingsFormState = {
 export type TgFormState = { api_id: string; api_hash: string }
 
 export type AiFormState = {
+  provider?: 'openai' | 'cloudflare'
+  cloudflare_account_id?: string
+  cloudflare_account_id_masked?: string | null
   base_url: string
   model: string
   api_key: string
@@ -224,6 +227,8 @@ export function snapSection(
       })
     case 'ai':
       return JSON.stringify({
+        provider: ai.provider || 'openai',
+        cloudflare_account_id: ai.cloudflare_account_id || '',
         base_url: ai.base_url,
         model: ai.model,
         api_key: ai.api_key ? '***set***' : '',

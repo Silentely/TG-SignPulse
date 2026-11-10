@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * AI 配置区块：base_url / model / api_key，测试连接按钮。
+ * AI 配置区块：provider / base_url / model / api_key，测试连接按钮。
  * 内嵌「高级执行 / AI 视觉」子区块（execTimeout / accountCooldown / flowRetry /
  * historyMaxAge / aiVisionTimeout / aiVisionRetry），与模型配置一并由「保存 AI 配置」提交。
  */
@@ -50,6 +50,18 @@ const updateSettings = <K extends keyof SettingsFormState>(key: K, value: Settin
 
 const onAiInput = (key: keyof AiFormState, e: Event) => {
   updateAi(key, (e.target as HTMLInputElement).value as never)
+}
+
+const onProviderChange = (provider: 'openai' | 'cloudflare') => {
+  const nextModel =
+    provider === 'cloudflare'
+      ? (props.aiModelValue.model?.startsWith('@cf/') ? props.aiModelValue.model : '@cf/meta/llama-3.2-11b-vision-instruct')
+      : (props.aiModelValue.model?.startsWith('@cf/') ? 'gpt-5-nano' : props.aiModelValue.model)
+  emit('update:aiModelValue', {
+    ...props.aiModelValue,
+    provider,
+    model: nextModel,
+  })
 }
 
 type FallbackProvider = AiFormState['fallback_providers'][number]
@@ -102,21 +114,92 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
           <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.aiDesc') }}</p>
         </div>
       </div>
-      <button type="button" class="ui-btn-secondary !px-3 !py-1 !text-xs shrink-0" :disabled="aiLoading" @click="emit('test-ai')">{{ t('settings.testConnection') }}</button>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="text-[10px] text-[var(--sp-text-muted)] hidden sm:inline">{{ t('settings.testAiSavedNote') }}</span>
+        <button
+          type="button"
+          class="ui-btn-secondary !px-3 !py-1 !text-xs shrink-0"
+          :title="t('settings.testAiSavedNote')"
+          :disabled="aiLoading"
+          @click="emit('test-ai')"
+        >
+          {{ t('settings.testConnection') }}
+        </button>
+      </div>
     </div>
     <div class="space-y-5">
+      <!-- 提供商类型选择 -->
       <div class="space-y-1.5">
+        <label class="ui-label" for="ai-provider">{{ t('settings.aiProvider') }}</label>
+        <select
+          id="ai-provider"
+          :value="aiModelValue.provider || 'openai'"
+          @change="onProviderChange(($event.target as HTMLSelectElement).value as 'openai' | 'cloudflare')"
+          class="ui-input"
+        >
+          <option value="openai">{{ t('settings.aiProviderOpenAI') }}</option>
+          <option value="cloudflare">{{ t('settings.aiProviderCloudflare') }}</option>
+        </select>
+      </div>
+
+      <!-- Cloudflare 账户 ID（仅在 cloudflare 时展示） -->
+      <div v-if="aiModelValue.provider === 'cloudflare'" class="space-y-1.5">
+        <label class="ui-label" for="ai-cf-account-id">{{ t('settings.cloudflareAccountId') }}</label>
+        <input
+          id="ai-cf-account-id"
+          :value="aiModelValue.cloudflare_account_id"
+          @input="onAiInput('cloudflare_account_id', $event)"
+          type="text"
+          :placeholder="aiModelValue.cloudflare_account_id_masked ? aiModelValue.cloudflare_account_id_masked : t('settings.cloudflareAccountIdPlaceholder')"
+          class="ui-input font-mono"
+        />
+        <SettingsFieldHint :text="t('settings.cloudflareAccountIdHint')" />
+      </div>
+
+      <!-- Base URL（仅在 openai 时展示，cloudflare 端点由 Account ID 自动拼接） -->
+      <div v-else class="space-y-1.5">
         <label class="ui-label" for="ai-base-url">{{ t('settings.apiBaseUrl') }}</label>
         <input id="ai-base-url" :value="aiModelValue.base_url" @input="onAiInput('base_url', $event)" type="text" placeholder="https://api.openai.com/v1" class="ui-input">
       </div>
+
+      <!-- 模型名称（支持 datalist 候选列表） -->
       <div class="space-y-1.5">
         <label class="ui-label" for="ai-model">{{ t('settings.model') }}</label>
-        <input id="ai-model" :value="aiModelValue.model" @input="onAiInput('model', $event)" type="text" placeholder="gpt-5-nano" class="ui-input">
+        <input
+          id="ai-model"
+          :value="aiModelValue.model"
+          @input="onAiInput('model', $event)"
+          type="text"
+          list="ai-model-candidates"
+          :placeholder="aiModelValue.provider === 'cloudflare' ? '@cf/meta/llama-3.2-11b-vision-instruct' : 'gpt-5-nano'"
+          class="ui-input"
+        />
+        <datalist id="ai-model-candidates">
+          <template v-if="aiModelValue.provider === 'cloudflare'">
+            <option value="@cf/meta/llama-3.2-11b-vision-instruct"></option>
+            <option value="@cf/meta/llama-3.2-3b-instruct"></option>
+            <option value="@cf/qwen/qwen1.5-7b-chat-awq"></option>
+          </template>
+          <template v-else>
+            <option value="gpt-5-nano"></option>
+            <option value="gpt-4o"></option>
+            <option value="gpt-4o-mini"></option>
+          </template>
+        </datalist>
       </div>
+
+      <!-- API Key / Token -->
       <div class="space-y-1.5">
-        <label class="ui-label" for="ai-api-key">{{ t('settings.apiKey') }}</label>
+        <label class="ui-label" for="ai-api-key">{{ aiModelValue.provider === 'cloudflare' ? t('settings.apiToken') : t('settings.apiKey') }}</label>
         <div class="relative">
-          <input id="ai-api-key" :value="aiModelValue.api_key" @input="onAiInput('api_key', $event)" :type="reveal.aiKey ? 'text' : 'password'" placeholder="sk-..." class="ui-input pr-10">
+          <input
+            id="ai-api-key"
+            :value="aiModelValue.api_key"
+            @input="onAiInput('api_key', $event)"
+            :type="reveal.aiKey ? 'text' : 'password'"
+            :placeholder="aiModelValue.provider === 'cloudflare' ? 'Bearer token...' : 'sk-...'"
+            class="ui-input pr-10"
+          >
           <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]" :aria-label="reveal.aiKey ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'aiKey')">
             <EyeOff v-if="reveal.aiKey" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
           </button>

@@ -115,6 +115,9 @@ export function useSettingsPage() {
   })
 
   const aiConfig = ref<AiFormState>({
+    provider: 'openai',
+    cloudflare_account_id: '',
+    cloudflare_account_id_masked: null,
     base_url: '',
     model: '',
     api_key: '',
@@ -307,6 +310,9 @@ export function useSettingsPage() {
       }
 
       if (aiRes && aiRes.has_config) {
+        aiConfig.value.provider = (aiRes.provider as 'openai' | 'cloudflare') || 'openai'
+        aiConfig.value.cloudflare_account_id = ''
+        aiConfig.value.cloudflare_account_id_masked = aiRes.cloudflare_account_id_masked ?? null
         aiConfig.value.base_url = aiRes.base_url || ''
         aiConfig.value.model = aiRes.model || ''
         aiKeyDecryptFailed.value = !!aiRes.api_key_decrypt_failed

@@ -1269,7 +1269,15 @@
     "webdavSkipSslVerifyDesc": "忽略 SSL 证书有效性，但不会允许访问私有或内网地址。",
     "webdavAllowPrivate": "允许内网 WebDAV 地址",
     "webdavAllowPrivateDesc": "允许连接内网 WebDAV。仅在使用可信 NAS 或内部服务时开启。",
-    "noMarketReadme": "暂无文档说明"
+    "noMarketReadme": "暂无文档说明",
+    "aiProvider": "AI 提供商类型",
+    "aiProviderOpenAI": "OpenAI 兼容端点",
+    "aiProviderCloudflare": "Cloudflare Workers AI",
+    "cloudflareAccountId": "Cloudflare 账户 ID",
+    "cloudflareAccountIdPlaceholder": "32 位十六进制 Account ID（留空沿用已保存）",
+    "cloudflareAccountIdHint": "位于 Cloudflare 控制台右侧侧边栏，32 位十六进制格式",
+    "testAiSavedNote": "测试基于已保存配置",
+    "apiToken": "API Token（留空表示不修改）"
   },
   "profile": {
     "title": "个人中心",

@@ -47,16 +47,26 @@ describe('useSettingsSave', () => {
 
   function setup(over?: {
     tg?: { api_id: string; api_hash: string }
-    ai?: { base_url: string; model: string; api_key: string; fallback_providers: AiFormState['fallback_providers'] }
+    ai?: Partial<AiFormState>
     aiConfigLoaded?: boolean
   }) {
     const markSectionClean = vi.fn()
     const afterBotTokenSaved = vi.fn()
     const afterWebdavSettingsSaved = vi.fn()
     const loadBackupStatus = vi.fn(async () => {})
+    const aiRef = ref<AiFormState>({
+      provider: 'openai',
+      cloudflare_account_id: '',
+      cloudflare_account_id_masked: null,
+      base_url: '',
+      model: '',
+      api_key: '',
+      fallback_providers: [],
+      ...(over?.ai || {}),
+    })
     const save = useSettingsSave({
       tgConfig: ref(over?.tg || { api_id: '', api_hash: '' }),
-      aiConfig: ref(over?.ai || { base_url: '', model: '', api_key: '', fallback_providers: [] }),
+      aiConfig: aiRef,
       aiKeyDecryptFailed: ref(false),
       aiConfigLoaded: ref(over?.aiConfigLoaded ?? true),
       buildGeneralPayload: () => ({ general: 1 }),
@@ -71,6 +81,7 @@ describe('useSettingsSave', () => {
     })
     return {
       save,
+      ai: aiRef,
       markSectionClean,
       afterBotTokenSaved,
       afterWebdavSettingsSaved,
@@ -272,6 +283,8 @@ describe('useSettingsSave', () => {
     })
     await save.saveAiConfig()
     expect(api.saveAIConfig).toHaveBeenCalledWith('tok', {
+      provider: 'openai',
+      cloudflare_account_id: undefined,
       base_url: 'u',
       model: 'm',
       api_key: undefined,
@@ -289,11 +302,37 @@ describe('useSettingsSave', () => {
     const { save } = setup({ aiConfigLoaded: false })
     await save.saveAiConfig()
     expect(api.saveAIConfig).toHaveBeenCalledWith('tok', {
+      provider: 'openai',
+      cloudflare_account_id: undefined,
       base_url: undefined,
       model: undefined,
       api_key: undefined,
       // fallback_providers 字段必须缺失，避免空数组清空服务端已保存密钥
       fallback_providers: undefined,
     })
+  })
+  it('saveAiConfig forwards provider and cloudflare_account_id', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    api.saveAIConfig.mockResolvedValue({})
+    const { save, ai } = setup({
+      ai: {
+        provider: 'cloudflare',
+        cloudflare_account_id: '0123456789abcdef0123456789abcdef',
+        base_url: '',
+        model: '@cf/meta/llama-3.2-11b-vision-instruct',
+        api_key: 'cf-token',
+        fallback_providers: [],
+      },
+      aiConfigLoaded: true,
+    })
+    await save.saveAiConfig()
+    expect(api.saveAIConfig).toHaveBeenCalledWith('tok', expect.objectContaining({
+      provider: 'cloudflare',
+      cloudflare_account_id: '0123456789abcdef0123456789abcdef',
+      model: '@cf/meta/llama-3.2-11b-vision-instruct',
+      api_key: 'cf-token',
+    }))
+    expect(ai.value.cloudflare_account_id).toBe('')
+    expect(ai.value.cloudflare_account_id_masked).toBe('0123************************cdef')
   })
 })
