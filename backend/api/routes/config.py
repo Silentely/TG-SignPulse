@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Literal, Optional
 
 from fastapi import (
@@ -335,22 +336,6 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
         else:
             masked = None
 
-        # 备用节点只暴露 base_url/model（及是否已配置密钥），不回传明文
-        fallback_out: list[dict[str, Any]] = []
-        for entry in config.get("fallback_providers") or []:
-            fk = str(entry.get("api_key") or "").strip()
-            fallback_out.append(
-                {
-                    "base_url": entry.get("base_url"),
-                    "model": entry.get("model"),
-                    "api_key_masked": (
-                        fk[:4] + "*" * max(len(fk) - 8, 0) + fk[-4:]
-                        if len(fk) > 4
-                        else ("****" if fk else None)
-                    ),
-                }
-            )
-
         cf_id = config.get("cloudflare_account_id")
         masked_cf_id = None
         if cf_id:
@@ -361,9 +346,44 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
                 else "****"
             )
 
+        def _mask_url_account(url: Optional[str]) -> Optional[str]:
+            if not url:
+                return url
+            url_str = str(url)
+            # 掩码 /accounts/<32-hex-id>/
+            masked_url = re.sub(
+                r"/accounts/([a-fA-F0-9]{32})(/|$)",
+                lambda m: (
+                    f"/accounts/{m.group(1)[:4]}****{m.group(1)[-4:]}{m.group(2)}"
+                ),
+                url_str,
+            )
+            # 若配置中的 cf_id 以明文残留在任何位置，替换为 masked_cf_id
+            if cf_id and str(cf_id) in masked_url and masked_cf_id:
+                masked_url = masked_url.replace(str(cf_id), masked_cf_id)
+            return masked_url
+
+        # 备用节点只暴露 base_url/model（及是否已配置密钥），不回传明文
+        fallback_out: list[dict[str, Any]] = []
+        for entry in config.get("fallback_providers") or []:
+            fk = str(entry.get("api_key") or "").strip()
+            fallback_out.append(
+                {
+                    "base_url": _mask_url_account(entry.get("base_url")),
+                    "model": entry.get("model"),
+                    "api_key_masked": (
+                        fk[:4] + "*" * max(len(fk) - 8, 0) + fk[-4:]
+                        if len(fk) > 4
+                        else ("****" if fk else None)
+                    ),
+                }
+            )
+
+        resp_base_url = _mask_url_account(config.get("base_url"))
+
         return AIConfigResponse(
             has_config=True,
-            base_url=config.get("base_url"),
+            base_url=resp_base_url,
             model=config.get("model"),
             api_key_masked=masked,
             api_key_decrypt_failed=decrypt_failed,
@@ -384,6 +404,15 @@ def save_ai_config(
     request: AIConfigRequest, current_user: User = Depends(get_current_user)
 ):
     try:
+        # P4 校验：只允许 openai 或 cloudflare，非法值直接返回 400
+        if request.provider is not None and request.provider not in (
+            "openai",
+            "cloudflare",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的 AI 提供商: {request.provider}，仅支持 openai 或 cloudflare",
+            )
         if not get_config_service().save_ai_config(
             api_key=request.api_key,
             base_url=request.base_url,
@@ -400,7 +429,12 @@ def save_ai_config(
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        from tg_signer.ai_tools import mask_secret_token
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=mask_secret_token(str(e)),
+        )
     except Exception as e:
         logger.error("保存 AI 配置失败: %s", e, exc_info=True)
         raise HTTPException(

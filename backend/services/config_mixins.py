@@ -1161,6 +1161,11 @@ class AIConfigMixin:
         existing_provider = existing.get("provider") or "openai"
         target_provider = provider or existing_provider
 
+        if target_provider not in ("openai", "cloudflare"):
+            raise ValueError(
+                f"不支持的 AI 提供商类型: {target_provider}，仅支持 openai 或 cloudflare"
+            )
+
         target_cf_id = cloudflare_account_id
         if target_provider == "cloudflare":
             if target_cf_id is not None:
@@ -1169,14 +1174,22 @@ class AIConfigMixin:
                 target_cf_id = existing.get("cloudflare_account_id")
             if target_cf_id and not re.fullmatch(r"[a-fA-F0-9]{32}", target_cf_id):
                 raise ValueError("Cloudflare Account ID 必须为 32 位十六进制字符串")
-            if not base_url and target_cf_id:
-                base_url = (
-                    f"https://api.cloudflare.com/client/v4/accounts/{target_cf_id}/ai"
-                )
+            if not target_cf_id:
+                raise ValueError("Cloudflare 提供商必须配置 32 位 Account ID")
+            # P1: 目标为 cloudflare 时，必须严格以 target_cf_id 为准重建 base_url，
+            # 丢弃外部残留的旧端点（如旧 OpenAI URL），防止 Token 错发
+            base_url = (
+                f"https://api.cloudflare.com/client/v4/accounts/{target_cf_id}/ai"
+            )
             if not model:
                 model = (
                     existing.get("model") or "@cf/meta/llama-3.2-11b-vision-instruct"
                 )
+        elif target_provider == "openai":
+            if existing_provider != target_provider:
+                # 切换为 OpenAI 时，若残留为 CF 端点或未传，则置空
+                if not base_url or "api.cloudflare.com" in str(base_url):
+                    base_url = None
 
         if base_url:
             from tg_signer.utils import validate_public_http_url

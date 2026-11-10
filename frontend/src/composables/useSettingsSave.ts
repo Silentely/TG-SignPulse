@@ -172,7 +172,10 @@ export function useSettingsSave(options: {
             await saveAIConfig(token, {
               provider: options.aiConfig.value.provider || 'openai',
               cloudflare_account_id: options.aiConfig.value.cloudflare_account_id?.trim() || undefined,
-              base_url: options.aiConfig.value.base_url || undefined,
+              base_url:
+                options.aiConfig.value.provider === 'cloudflare'
+                  ? undefined
+                  : (options.aiConfig.value.base_url || undefined),
               model: options.aiConfig.value.model || undefined,
               api_key: options.aiConfig.value.api_key || undefined,
             })
@@ -290,7 +293,10 @@ export function useSettingsSave(options: {
         await saveAIConfig(token, {
           provider: options.aiConfig.value.provider || 'openai',
           cloudflare_account_id: options.aiConfig.value.cloudflare_account_id?.trim() || undefined,
-          base_url: options.aiConfig.value.base_url || undefined,
+          base_url:
+            options.aiConfig.value.provider === 'cloudflare'
+              ? undefined
+              : (options.aiConfig.value.base_url || undefined),
           model: options.aiConfig.value.model || undefined,
           api_key: options.aiConfig.value.api_key || undefined,
           fallback_providers: fallbackPayload,

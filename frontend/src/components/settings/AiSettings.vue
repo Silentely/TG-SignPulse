@@ -61,6 +61,10 @@ const onProviderChange = (provider: 'openai' | 'cloudflare') => {
     ...props.aiModelValue,
     provider,
     model: nextModel,
+    base_url:
+      provider === 'cloudflare'
+        ? ''
+        : (props.aiModelValue.base_url?.includes('api.cloudflare.com') ? '' : props.aiModelValue.base_url),
   })
 }
 
