@@ -696,28 +696,24 @@ class AITools:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.RequestError as exc:
             safe_exc = _sanitize(str(exc))
-            err = _RetryableAIResponseError(
+            raise _RetryableAIResponseError(
                 f"Cloudflare network request error: {safe_exc}"
-            )
-            err.__cause__ = Exception(safe_exc)
-            raise err
+            ) from None
 
         if resp.status_code >= 400:
             safe_text = _sanitize(resp.text[:500])
             raise _CloudflareAPIError(
                 f"Cloudflare API returned status {resp.status_code}: {safe_text}",
                 status_code=resp.status_code,
-            )
+            ) from None
 
         try:
             body = resp.json()
         except Exception:
             safe_text = _sanitize(resp.text[:300])
-            err = _RetryableAIResponseError(
+            raise _RetryableAIResponseError(
                 f"Cloudflare returned invalid JSON: {safe_text}"
-            )
-            err.__cause__ = Exception(safe_text)
-            raise err
+            ) from None
 
         if not isinstance(body, dict):
             raise _RetryableAIResponseError(

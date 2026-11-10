@@ -540,3 +540,39 @@ class TestCloudflareVisionFullIntegration:
             # 第二次命中缓存，底层翻译接口没有发起新的请求（总次数仍然为 1）
             trans_calls_2 = [c for c in post_calls if "@cf/meta/m2m100-1.2b" in c[0]]
             assert len(trans_calls_2) == 1
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_exception_chain_traceback_does_not_contain_full_token(
+        self,
+    ):
+        """B3 验收：底层异常消息含完整 token，展开整个 format_exception 链，断言无完整 token 且 __cause__ 为 None。"""
+        import traceback
+
+        full_token = "secret-token-abcdef123456"
+        tools = AITools(
+            {
+                "api_key": full_token,
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+            # 模拟底层的 httpx RequestError，其原始异常消息带完整 token
+            mock_post.side_effect = httpx.ConnectError(
+                f"Failed to connect using Bearer {full_token}"
+            )
+
+            with pytest.raises(_RetryableAIResponseError) as exc_info:
+                await tools._cloudflare_post(
+                    "https://api.cloudflare.com/client/v4/accounts/acc12345/ai/run/model",
+                    {"prompt": "test"},
+                )
+
+            exc = exc_info.value
+            # 使用 traceback.format_exception 展开整条异常链（若未切断 context/cause 链，原始 ConnectError 会被打出）
+            tb_output = "".join(traceback.format_exception(exc))
+
+            assert full_token not in tb_output
+            assert "secr***" in tb_output
+            assert exc.__cause__ is None
+            assert exc.__suppress_context__ is True
