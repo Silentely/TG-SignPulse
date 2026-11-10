@@ -100,6 +100,7 @@ describe('useSettingsPage (mount + dirty)', () => {
       has_config: true,
       base_url: 'https://ai',
       model: 'm1',
+      api_key_masked: 'cf-t****oken',
       api_key_decrypt_failed: false,
     })
     api.getBackupStatus.mockResolvedValue({ last: 'ok' })
@@ -126,6 +127,7 @@ describe('useSettingsPage (mount + dirty)', () => {
     expect(result.webdavPasswordSet.value).toBe(true)
     expect(result.tgConfig.value.api_id).toBe('123')
     expect(result.aiConfig.value.model).toBe('m1')
+    expect(result.aiConfig.value.api_key_masked).toBe('cf-t****oken')
     expect(result.runtimeStatus.value).toEqual({ uptime: 1 })
     expect(result.memoryStats.value).toEqual({ rss: 1 })
     expect(result.backupStatus.value).toEqual({ last: 'ok' })

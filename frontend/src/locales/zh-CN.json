@@ -1281,6 +1281,8 @@
     "testAiSavedNote": "测试基于已保存配置",
     "apiToken": "API Token（留空表示不修改）",
     "cloudflareApiToken": "Cloudflare Workers AI API Token",
+    "cloudflareApiTokenPlaceholder": "已保存（留空不修改，输入新 Token 可覆盖）",
+    "cloudflareApiTokenKeepHint": "已保存，留空不修改",
     "cloudflareApiTokenHint": "填写 Cloudflare Workers AI 的 API Token；请求会以 Bearer Token 方式发送。首次使用 Cloudflare 模型时，请点击“测试 AI 连接”完成模型授权。留空表示不修改已保存的 Token。"
   },
   "profile": {

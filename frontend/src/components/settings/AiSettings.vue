@@ -190,7 +190,11 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
             :value="aiModelValue.api_key"
             @input="onAiInput('api_key', $event)"
             :type="reveal.aiKey ? 'text' : 'password'"
-            :placeholder="aiModelValue.provider === 'cloudflare' ? 'Bearer token...' : 'sk-...'"
+            :placeholder="aiModelValue.provider === 'cloudflare'
+              ? (aiModelValue.api_key_masked
+                ? `${t('settings.cloudflareApiTokenKeepHint')} (${aiModelValue.api_key_masked})`
+                : t('settings.cloudflareApiTokenPlaceholder'))
+              : 'sk-...'"
             class="ui-input pr-10"
           >
           <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]" :aria-label="reveal.aiKey ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'aiKey')">

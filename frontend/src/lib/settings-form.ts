@@ -56,6 +56,7 @@ export type AiFormState = {
   base_url: string
   model: string
   api_key: string
+  api_key_masked?: string | null
   /** 备用 AI 节点（故障转移）：api_key 留空表示沿用已保存密钥 */
   fallback_providers: Array<{
     base_url: string

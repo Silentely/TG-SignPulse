@@ -47,9 +47,11 @@ describe('locales 键一致性', () => {
     expect(zhCN.settings.aiModelOpenAI).toContain('gpt-5-nano')
     expect(zhCN.settings.aiModelCloudflare).toContain('Cloudflare')
     expect(zhCN.settings.cloudflareApiTokenHint).toContain('Workers AI')
+    expect(zhCN.settings.cloudflareApiTokenPlaceholder).toContain('Token')
     expect(enUS.settings.aiModelOpenAI).toContain('gpt-5-nano')
     expect(enUS.settings.aiModelCloudflare).toContain('Cloudflare')
     expect(enUS.settings.cloudflareApiTokenHint).toContain('Workers AI')
+    expect(enUS.settings.cloudflareApiTokenPlaceholder).toContain('token')
   })
 
   it('Cloudflare 模型文案可以被 vue-i18n 正常解析', () => {

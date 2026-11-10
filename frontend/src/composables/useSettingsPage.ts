@@ -121,6 +121,7 @@ export function useSettingsPage() {
     base_url: '',
     model: 'gpt-5-nano',
     api_key: '',
+    api_key_masked: null,
     fallback_providers: []
   })
   /** 服务端 AI Key 解密失败标记（APP_SECRET_KEY 不匹配） */
@@ -319,6 +320,7 @@ export function useSettingsPage() {
             ? '@cf/meta/llama-3.2-11b-vision-instruct'
             : 'gpt-5-nano'
         )
+        aiConfig.value.api_key_masked = aiRes.api_key_masked ?? null
         aiKeyDecryptFailed.value = !!aiRes.api_key_decrypt_failed
         aiConfig.value.fallback_providers = (aiRes.fallback_providers || []).map(
           (p) => ({

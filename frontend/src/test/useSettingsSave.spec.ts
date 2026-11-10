@@ -320,7 +320,7 @@ describe('useSettingsSave', () => {
         cloudflare_account_id: '0123456789abcdef0123456789abcdef',
         base_url: '',
         model: '@cf/meta/llama-3.2-11b-vision-instruct',
-        api_key: 'cf-token',
+        api_key: 'cf-new-token',
         fallback_providers: [],
       },
       aiConfigLoaded: true,
@@ -330,9 +330,11 @@ describe('useSettingsSave', () => {
       provider: 'cloudflare',
       cloudflare_account_id: '0123456789abcdef0123456789abcdef',
       model: '@cf/meta/llama-3.2-11b-vision-instruct',
-      api_key: 'cf-token',
+      api_key: 'cf-new-token',
     }))
     expect(ai.value.cloudflare_account_id).toBe('')
     expect(ai.value.cloudflare_account_id_masked).toBe('0123************************cdef')
+    expect(ai.value.api_key).toBe('')
+    expect(ai.value.api_key_masked).toBe('cf-n****oken')
   })
 })

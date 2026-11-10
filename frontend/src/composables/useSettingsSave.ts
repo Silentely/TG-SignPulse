@@ -187,6 +187,13 @@ export function useSettingsSave(options: {
                   : '****'
               options.aiConfig.value.cloudflare_account_id = ''
             }
+            if (options.aiConfig.value.api_key) {
+              const rawKey = options.aiConfig.value.api_key.trim()
+              options.aiConfig.value.api_key_masked =
+                rawKey.length > 8
+                  ? rawKey.slice(0, 4) + '*'.repeat(Math.max(rawKey.length - 8, 0)) + rawKey.slice(-4)
+                  : '****'
+            }
             options.aiConfig.value.api_key = ''
             options.markSectionClean('ai')
           } catch (e: unknown) {
@@ -311,6 +318,11 @@ export function useSettingsSave(options: {
         }
         if (options.aiConfig.value.api_key) {
           options.aiKeyDecryptFailed.value = false
+          const rawKey = options.aiConfig.value.api_key.trim()
+          options.aiConfig.value.api_key_masked =
+            rawKey.length > 8
+              ? rawKey.slice(0, 4) + '*'.repeat(Math.max(rawKey.length - 8, 0)) + rawKey.slice(-4)
+              : '****'
         }
         options.aiConfig.value.api_key = ''
       } catch (e: unknown) {
