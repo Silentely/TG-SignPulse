@@ -324,6 +324,7 @@ export function useSettingsPage() {
         aiKeyDecryptFailed.value = !!aiRes.api_key_decrypt_failed
         aiConfig.value.fallback_providers = (aiRes.fallback_providers || []).map(
           (p) => ({
+            id: p.id,
             base_url: p.base_url || '',
             model: p.model || '',
             api_key: '',

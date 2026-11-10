@@ -292,6 +292,7 @@ export function useSettingsSave(options: {
                 // 无 base_url 的空行不提交
                 .filter((p) => (p.base_url || '').trim() || (p.api_key || '').trim())
                 .map((p) => ({
+                  id: p.id,
                   base_url: p.base_url || undefined,
                   model: p.model || undefined,
                   // 留空表示沿用已保存密钥，不发送该字段

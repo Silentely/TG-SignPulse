@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -25,6 +26,13 @@ from backend.utils.storage import (
 )
 
 _logger = logging.getLogger("backend.config")
+
+
+def fallback_provider_id(base_url: Any, model: Any) -> str:
+    """Return a stable opaque identity for a fallback endpoint."""
+    raw = f"{str(base_url or '').strip()}\0{str(model or '').strip()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
 
 # 全局设置短 TTL 缓存：关键词命中/通知等热路径每次调用都读盘全量 JSON，
 # 2 秒窗口内复用，保存路径显式失效，兼顾响应实时性与磁盘 I/O
@@ -1282,12 +1290,14 @@ class AIConfigMixin:
         from tg_signer.security import encrypt_secret
 
         reused: dict[tuple, str] = {}
+        reused_by_id: dict[str, dict] = {}
         for old in existing_raw or []:
             if not isinstance(old, dict):
                 continue
             key = (old.get("base_url"), old.get("model"))
             if old.get("api_key"):
                 reused[key] = old["api_key"]
+                reused_by_id[old.get("id") or fallback_provider_id(*key)] = old
 
         encoded: list[dict] = []
         for entry in fallback_providers:
@@ -1297,11 +1307,28 @@ class AIConfigMixin:
             if api_key:
                 ciphertext = encrypt_secret(api_key)
             else:
-                ciphertext = reused.get((entry.get("base_url"), entry.get("model")))
+                old = reused_by_id.get(str(entry.get("id") or ""))
+                incoming_url = str(entry.get("base_url") or "")
+                if old and (
+                    "****" in incoming_url or incoming_url == old.get("base_url")
+                ):
+                    entry = {
+                        **entry,
+                        "base_url": old.get("base_url"),
+                    }
+                    ciphertext = old.get("api_key")
+                elif old:
+                    raise ValueError(
+                        "备用 AI 节点 URL 已修改，请重新填写该节点的 API Key"
+                    )
+                else:
+                    ciphertext = reused.get((entry.get("base_url"), entry.get("model")))
             if not ciphertext:
                 continue
             encoded.append(
                 {
+                    "id": entry.get("id")
+                    or fallback_provider_id(entry.get("base_url"), entry.get("model")),
                     "base_url": entry.get("base_url"),
                     "model": entry.get("model"),
                     "api_key": ciphertext,

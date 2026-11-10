@@ -360,3 +360,52 @@ class TestAiConfigRouteValidation:
                 api_key="token-123",
                 provider="invalid_type",
             )
+
+    def test_masked_fallback_url_roundtrips_without_dropping_node(
+        self, isolated_env: Path
+    ):
+        from backend.api.routes.config import (
+            AIConfigRequest,
+            get_ai_config,
+            save_ai_config,
+        )
+        from backend.models.user import User
+
+        service = ConfigService()
+        fallback_url = (
+            "https://api.cloudflare.com/client/v4/accounts/"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/ai"
+        )
+        service.save_ai_config(
+            api_key="primary-key",
+            provider="openai",
+            fallback_providers=[
+                {
+                    "base_url": fallback_url,
+                    "model": "@cf/test",
+                    "api_key": "fallback-key",
+                }
+            ],
+        )
+        response = get_ai_config(current_user=User(username="test"))
+        fallback = response.fallback_providers[0]
+
+        save_ai_config(
+            request=AIConfigRequest(
+                provider="openai",
+                fallback_providers=[
+                    {
+                        "id": fallback["id"],
+                        "base_url": fallback["base_url"],
+                        "model": "@cf/changed",
+                    }
+                ],
+            ),
+            current_user=User(username="test"),
+        )
+
+        saved = service.get_ai_config()
+        assert len(saved["fallback_providers"]) == 1
+        assert saved["fallback_providers"][0]["base_url"] == fallback_url
+        assert saved["fallback_providers"][0]["api_key"] == "fallback-key"
+        assert saved["fallback_providers"][0]["model"] == "@cf/changed"

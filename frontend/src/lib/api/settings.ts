@@ -52,6 +52,7 @@ export const changeUsername = (token: string, newUsername: string, password: str
 // ─── AI 配置 ───
 
 export interface AIFallbackProvider {
+  id?: string;
   base_url?: string | null;
   model?: string | null;
   api_key_masked?: string | null;
@@ -88,6 +89,7 @@ export const saveAIConfig = (
     base_url?: string;
     model?: string;
     fallback_providers?: Array<{
+      id?: string;
       base_url?: string | null;
       model?: string | null;
       api_key?: string;

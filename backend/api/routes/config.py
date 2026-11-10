@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.config import get_config_service
+from backend.services.config_mixins import fallback_provider_id
 from backend.utils.names import validate_storage_name
 from backend.utils.storage import is_writable_dir
 
@@ -369,6 +370,8 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
             fk = str(entry.get("api_key") or "").strip()
             fallback_out.append(
                 {
+                    "id": entry.get("id")
+                    or fallback_provider_id(entry.get("base_url"), entry.get("model")),
                     "base_url": _mask_url_account(entry.get("base_url")),
                     "model": entry.get("model"),
                     "api_key_masked": (
