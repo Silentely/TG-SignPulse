@@ -781,10 +781,18 @@ class AITools:
     ) -> str:
         url = self._cloudflare_run_url(model)
         payload = {
-            "task": "query",
-            "image": self._format_image_url(image),
-            "question": question,
-            "reasoning": False,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": question},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": self._format_image_url(image)},
+                        },
+                    ],
+                }
+            ],
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,

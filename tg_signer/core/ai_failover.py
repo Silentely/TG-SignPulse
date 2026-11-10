@@ -65,6 +65,8 @@ def normalize_ai_response(
             raw_answer = result.get("answer")
             if isinstance(raw_answer, str) and raw_answer.strip():
                 answer = raw_answer.strip()
+            elif isinstance(result.get("response"), str) and result["response"].strip():
+                answer = result["response"].strip()
             elif "description" in result:
                 desc = result.get("description")
                 if (

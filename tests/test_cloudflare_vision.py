@@ -191,7 +191,7 @@ class TestCloudflarePostAndUnwrap:
 
 class TestCloudflareVisionQuery:
     @pytest.mark.asyncio
-    async def test_vision_query_request_payload_and_description_unpacking(self):
+    async def test_vision_query_request_payload_and_response_unpacking(self):
         tools = AITools(
             {
                 "api_key": "fake-key",
@@ -203,14 +203,18 @@ class TestCloudflareVisionQuery:
         expected_url = tools._format_image_url(fake_image)
 
         async def fake_post(url, payload):
-            assert payload["task"] == "query"
-            assert payload["image"] == expected_url
-            assert payload["question"] == "图中是什么？"
-            assert payload["reasoning"] is False
+            assert "task" not in payload
             assert payload["stream"] is False
             assert payload["temperature"] == 0.1
             assert payload["max_tokens"] == 128
-            return {"success": True, "result": {"description": ["  motorcycle  "]}}
+            message = payload["messages"][0]
+            assert message["role"] == "user"
+            assert message["content"][0] == {"type": "text", "text": "图中是什么？"}
+            assert message["content"][1] == {
+                "type": "image_url",
+                "image_url": {"url": expected_url},
+            }
+            return {"success": True, "result": {"response": "  motorcycle  "}}
 
         with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
             answer = await tools._cloudflare_vision_query(
