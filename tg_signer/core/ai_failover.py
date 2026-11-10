@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +40,74 @@ class AIProviderResponseError(Exception):
     """
 
 
+def normalize_ai_response(
+    raw_data: Any,
+    provider_type: str = "openai",
+    model: str = "",
+) -> Dict[str, Any]:
+    """核心传输层统一响应归一化。"""
+    if not isinstance(raw_data, dict):
+        raise AIProviderResponseError(
+            f"AI 响应格式非法: 期望 dict，实际为 {type(raw_data).__name__}"
+        )
+
+    if provider_type == "cloudflare":
+        if raw_data.get("success") is False:
+            errors = raw_data.get("errors") or raw_data.get("messages") or raw_data
+            raise AIProviderResponseError(f"Cloudflare 业务执行失败: {errors}")
+
+        result = raw_data.get("result", raw_data)
+        if isinstance(result, dict) and "result" in result:
+            result = result.get("result")
+
+        answer: Optional[str] = None
+        if isinstance(result, dict):
+            raw_answer = result.get("answer")
+            if isinstance(raw_answer, str) and raw_answer.strip():
+                answer = raw_answer.strip()
+            elif "description" in result:
+                desc = result.get("description")
+                if (
+                    isinstance(desc, list)
+                    and desc
+                    and isinstance(desc[0], str)
+                    and desc[0].strip()
+                ):
+                    answer = desc[0].strip()
+
+        # CF 返回 200 但 body 不合法（空 body / result:{} / 空 answer）必须判失败
+        if not answer:
+            raise AIProviderResponseError(
+                f"Cloudflare 响应内容无效（空结果或缺少 answer）: {str(raw_data)[:200]}"
+            )
+
+        return {
+            "id": f"cf-{uuid.uuid4().hex[:8]}",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps({"answer": answer}),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+            "model": model,
+        }
+
+    choices = raw_data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        if "choices" not in raw_data:
+            return raw_data
+        raise AIProviderResponseError(
+            f"OpenAI 兼容响应缺少 choices: {str(raw_data)[:200]}"
+        )
+
+    return raw_data
+
+
 @dataclass
 class ProviderConfig:
     id: str
@@ -46,6 +115,7 @@ class ProviderConfig:
     api_key: str
     model: str
     timeout: float = 15.0
+    provider_type: str = "openai"
 
 
 class AIProviderManager:
@@ -75,13 +145,18 @@ class AIProviderManager:
                 raise AIProviderConfigError(f"HTTP 404 Model Not Found: {resp.text}")
             resp.raise_for_status()
             try:
-                return resp.json()
+                data = resp.json()
             except json.JSONDecodeError as exc:
                 # 200 但响应体不是 JSON：属于该节点瞬时故障，交由上层故障转移，
                 # 不能让 JSONDecodeError（ValueError 子类）误入配置异常分支中断容灾。
                 raise AIProviderResponseError(
                     f"HTTP 200 响应体非 JSON: {resp.text[:200]}"
                 ) from exc
+            return normalize_ai_response(
+                data,
+                provider_type=getattr(provider, "provider_type", "openai"),
+                model=provider.model,
+            )
 
     async def dispatch_request(
         self,

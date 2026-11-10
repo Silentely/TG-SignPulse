@@ -14,6 +14,7 @@ from tg_signer.core.ai_failover import (
     ProviderConfig,
     as_attribute_object,
     build_provider_configs,
+    normalize_ai_response,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "ProviderConfig",
     "as_attribute_object",
     "build_provider_configs",
+    "normalize_ai_response",
 ]

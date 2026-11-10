@@ -1098,12 +1098,40 @@ class AIConfigMixin:
                         continue
                 fallback_providers.append(entry)
 
+        provider = raw.get("provider")
+        cf_account_id = raw.get("cloudflare_account_id")
+        base_url = raw.get("base_url")
+        model = raw.get("model")
+
+        # 存量配置自适应识别（读时识别 CF URL / 模型自动转新格式，旧配置不失效）
+        if not provider:
+            if base_url:
+                cf_match = re.search(
+                    r"^https://api\.cloudflare\.com/client/v4/accounts/([a-fA-F0-9]{32})/ai(?:/|$)",
+                    str(base_url).strip(),
+                )
+                if cf_match:
+                    provider = "cloudflare"
+                    if not cf_account_id:
+                        cf_account_id = cf_match.group(1)
+            if not provider and model and str(model).strip().startswith("@cf/"):
+                provider = "cloudflare"
+            if not provider:
+                provider = "openai"
+
+        if provider == "cloudflare" and not base_url and cf_account_id:
+            base_url = (
+                f"https://api.cloudflare.com/client/v4/accounts/{cf_account_id}/ai"
+            )
+
         return {
             "api_key": api_key,
-            "base_url": raw.get("base_url"),
-            "model": raw.get("model"),
+            "base_url": base_url,
+            "model": model,
             "api_key_decrypt_failed": decrypt_failed,
             "fallback_providers": fallback_providers,
+            "provider": provider,
+            "cloudflare_account_id": cf_account_id,
         }
 
     def save_ai_config(
@@ -1112,7 +1140,44 @@ class AIConfigMixin:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         fallback_providers: Optional[list[dict]] = None,
+        provider: Optional[str] = None,
+        cloudflare_account_id: Optional[str] = None,
     ) -> bool:
+        """
+        保存 AI 配置，API Key 使用 Fernet 加密存储
+
+        Args:
+            api_key: API Key / Token
+            base_url: API Base URL（可选）
+            model: 模型名称（可选）
+            fallback_providers: 备用节点列表（可选）
+            provider: 提供商类型（openai / cloudflare）
+            cloudflare_account_id: Cloudflare Account ID（32 位 hex）
+
+        Returns:
+            是否成功保存
+        """
+        existing = self.get_ai_config() or {}
+        existing_provider = existing.get("provider") or "openai"
+        target_provider = provider or existing_provider
+
+        target_cf_id = cloudflare_account_id
+        if target_provider == "cloudflare":
+            if target_cf_id is not None:
+                target_cf_id = str(target_cf_id).strip()
+            if not target_cf_id:
+                target_cf_id = existing.get("cloudflare_account_id")
+            if target_cf_id and not re.fullmatch(r"[a-fA-F0-9]{32}", target_cf_id):
+                raise ValueError("Cloudflare Account ID 必须为 32 位十六进制字符串")
+            if not base_url and target_cf_id:
+                base_url = (
+                    f"https://api.cloudflare.com/client/v4/accounts/{target_cf_id}/ai"
+                )
+            if not model:
+                model = (
+                    existing.get("model") or "@cf/meta/llama-3.2-11b-vision-instruct"
+                )
+
         if base_url:
             from tg_signer.utils import validate_public_http_url
 
@@ -1123,38 +1188,43 @@ class AIConfigMixin:
                 from tg_signer.utils import validate_public_http_url
 
                 validate_public_http_url(str(entry_base).strip())
-        """
-        保存 AI 配置，API Key 使用 Fernet 加密存储
 
-        Args:
-            api_key: OpenAI API Key
-            base_url: API Base URL（可选）
-            model: 模型名称（可选）
-
-        Returns:
-            是否成功保存
-
-        边界：
-        - 未传 api_key 时优先复用已解密的明文；若解密失败但磁盘仍有密文，
-          则保留原密文仅更新 base_url/model，避免「密钥在盘上却无法改模型」。
-        """
-        existing = self.get_ai_config() or {}
         normalized_api_key = (api_key or "").strip()
+
+        # D1 校验：切换 provider 时强制要求重新提供 key，禁止静默复用旧 provider 密钥
+        if (
+            existing
+            and existing.get("api_key")
+            and existing_provider != target_provider
+            and not normalized_api_key
+        ):
+            raise ValueError(
+                f"切换 AI 提供商（{existing_provider} -> {target_provider}）必须重新提供对应的 API Key/Token，禁止复用旧密钥"
+            )
+
         final_api_key = normalized_api_key or (existing.get("api_key") or "")
 
         config_file = self._get_ai_config_file()
         existing_raw = self._read_json_file(config_file) or {}
         raw_disk_key = str(existing_raw.get("api_key") or "").strip()
 
-        # 解密失败且本次未提供新 key：保留磁盘密文，只改 base_url/model
+        # 解密失败且本次未提供新 key：仅在 provider 未变更时保留磁盘密文
         keep_ciphertext = (
-            not normalized_api_key
+            existing_provider == target_provider
+            and not normalized_api_key
             and not final_api_key
             and bool(existing.get("api_key_decrypt_failed"))
             and bool(raw_disk_key)
         )
         if not final_api_key and not keep_ciphertext:
             raise ValueError("API Key 不能为空")
+
+        existing_raw["provider"] = target_provider
+        if target_provider == "cloudflare":
+            if target_cf_id:
+                existing_raw["cloudflare_account_id"] = target_cf_id
+        else:
+            existing_raw.pop("cloudflare_account_id", None)
 
         if keep_ciphertext:
             # 密文保持不动，仅写元数据字段

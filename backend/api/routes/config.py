@@ -289,6 +289,8 @@ class AIConfigRequest(BaseModel):
     model: Optional[str] = None
     # 备用 AI 节点列表（故障转移）：每项含 base_url/api_key/model
     fallback_providers: Optional[list[dict[str, Any]]] = None
+    provider: Optional[str] = None
+    cloudflare_account_id: Optional[str] = None
 
 
 class AIConfigResponse(BaseModel):
@@ -300,6 +302,8 @@ class AIConfigResponse(BaseModel):
     api_key_decrypt_failed: bool = False
     # 备用节点仅回传 URL 与模型，绝不回传明文密钥
     fallback_providers: list[dict[str, Any]] = Field(default_factory=list)
+    provider: Optional[str] = "openai"
+    cloudflare_account_id_masked: Optional[str] = None
 
 
 class AIConfigSaveResponse(BaseModel):
@@ -347,6 +351,16 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
                 }
             )
 
+        cf_id = config.get("cloudflare_account_id")
+        masked_cf_id = None
+        if cf_id:
+            cfs = str(cf_id).strip()
+            masked_cf_id = (
+                cfs[:4] + "*" * max(len(cfs) - 8, 0) + cfs[-4:]
+                if len(cfs) > 8
+                else "****"
+            )
+
         return AIConfigResponse(
             has_config=True,
             base_url=config.get("base_url"),
@@ -354,6 +368,8 @@ def get_ai_config(current_user: User = Depends(get_current_user)):
             api_key_masked=masked,
             api_key_decrypt_failed=decrypt_failed,
             fallback_providers=fallback_out,
+            provider=config.get("provider") or "openai",
+            cloudflare_account_id_masked=masked_cf_id,
         )
     except Exception as e:
         logger.error("读取 AI 配置失败: %s", e, exc_info=True)
@@ -373,6 +389,8 @@ def save_ai_config(
             base_url=request.base_url,
             model=request.model,
             fallback_providers=request.fallback_providers,
+            provider=request.provider,
+            cloudflare_account_id=request.cloudflare_account_id,
         ):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

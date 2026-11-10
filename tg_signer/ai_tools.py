@@ -7,7 +7,6 @@ import os
 import pathlib
 import re
 import time
-import uuid
 from typing import TYPE_CHECKING, Any, ClassVar, Union
 
 import httpx
@@ -90,7 +89,13 @@ class _CloudflareAPIError(RuntimeError):
         self.status_code = status_code
 
 
-def is_cloudflare_vision(model: str | None = None, base_url: str | None = None) -> bool:
+def is_cloudflare_vision(
+    model: str | None = None,
+    base_url: str | None = None,
+    provider: str | None = None,
+) -> bool:
+    if provider == "cloudflare":
+        return True
     if model and str(model).strip().startswith("@cf/"):
         return True
     if base_url and re.search(
@@ -651,8 +656,36 @@ class AITools:
 
     def __init__(self, cfg: OpenAIConfig):
         self.api_key = str(cfg.get("api_key") or "")
+        self.provider = cfg.get("provider")
+        self.cloudflare_account_id = cfg.get("cloudflare_account_id")
         self.base_url = cfg.get("base_url") or ""
         self.default_model = cfg.get("model") or DEFAULT_MODEL
+
+        # 存量配置识别与自动组装
+        if not self.provider:
+            if self.base_url and re.search(
+                r"^https://api\.cloudflare\.com/client/v4/accounts/([a-fA-F0-9]{32})/ai(?:/|$)",
+                self.base_url.strip(),
+            ):
+                self.provider = "cloudflare"
+                if not self.cloudflare_account_id:
+                    m = re.search(
+                        r"/accounts/([a-fA-F0-9]{32})/ai", self.base_url.strip()
+                    )
+                    if m:
+                        self.cloudflare_account_id = m.group(1)
+            elif str(self.default_model).startswith("@cf/"):
+                self.provider = "cloudflare"
+            else:
+                self.provider = "openai"
+
+        if (
+            self.provider == "cloudflare"
+            and not self.base_url
+            and self.cloudflare_account_id
+        ):
+            self.base_url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/ai"
+
         if self._is_cloudflare_vision():
             self.client = None
         else:
@@ -663,14 +696,22 @@ class AITools:
 
     def _is_cloudflare_vision(self, model: str | None = None) -> bool:
         target_model = model or getattr(self, "default_model", "")
-        return is_cloudflare_vision(target_model, getattr(self, "base_url", ""))
+        return is_cloudflare_vision(
+            target_model,
+            getattr(self, "base_url", ""),
+            provider=getattr(self, "provider", None),
+        )
 
     def _cloudflare_run_url(self, model: str) -> str:
         base = (getattr(self, "base_url", None) or "").strip().rstrip("/")
         if not base:
-            raise ValueError(
-                "Cloudflare AI 请求需要配置 base_url (包含 Cloudflare account endpoint)"
-            )
+            cf_id = getattr(self, "cloudflare_account_id", None)
+            if cf_id:
+                base = f"https://api.cloudflare.com/client/v4/accounts/{cf_id}/ai"
+            else:
+                raise ValueError(
+                    "Cloudflare AI 请求需要配置 base_url (包含 Cloudflare account endpoint) 或 cloudflare_account_id"
+                )
         clean_model = model.strip().lstrip("/")
         if base.endswith("/ai/run"):
             return f"{base}/{clean_model}"
@@ -749,29 +790,25 @@ class AITools:
             "stream": False,
         }
         body = await self._cloudflare_post(url, payload)
-        result = self._unwrap_cloudflare_result(body)
+        from tg_signer.core.ai_failover import (
+            AIProviderResponseError,
+            normalize_ai_response,
+        )
 
-        answer = None
-        if isinstance(result, dict):
-            raw_answer = result.get("answer")
-            if isinstance(raw_answer, str) and raw_answer.strip():
-                answer = raw_answer.strip()
-            elif "description" in result:
-                desc = result.get("description")
-                if (
-                    isinstance(desc, list)
-                    and desc
-                    and isinstance(desc[0], str)
-                    and desc[0].strip()
-                ):
-                    answer = desc[0].strip()
-
-        if not isinstance(answer, str) or not answer.strip():
-            safe_result = mask_secret_token(str(result)[:300], self.api_key)
-            raise _RetryableAIResponseError(
-                f"Cloudflare vision returned an empty answer: {safe_result}"
+        try:
+            normalized = normalize_ai_response(
+                body, provider_type="cloudflare", model=model
             )
-        return answer.strip()
+            content_json = json.loads(normalized["choices"][0]["message"]["content"])
+            answer = content_json.get("answer")
+            if not isinstance(answer, str) or not answer.strip():
+                raise AIProviderResponseError("Cloudflare vision answer is empty")
+            return answer.strip()
+        except AIProviderResponseError as exc:
+            safe_err = mask_secret_token(str(exc)[:300], self.api_key)
+            raise _RetryableAIResponseError(
+                f"Cloudflare vision returned an empty answer: {safe_err}"
+            ) from None
 
     async def _call_cloudflare_vision_with_retries(
         self,
@@ -1820,28 +1857,16 @@ class AITools:
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
-            from tg_signer.core.ai_failover import as_attribute_object
-
-            return as_attribute_object(
-                {
-                    "id": f"cf-{uuid.uuid4().hex[:8]}",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": json.dumps({"answer": answer}),
-                            },
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                        "total_tokens": 0,
-                    },
-                }
+            from tg_signer.core.ai_failover import (
+                as_attribute_object,
+                normalize_ai_response,
             )
+
+            raw_cf = {"result": {"answer": answer}, "success": True}
+            normalized = normalize_ai_response(
+                raw_cf, provider_type="cloudflare", model=model
+            )
+            return as_attribute_object(normalized)
 
         stages = self._build_visual_request_stages(
             messages=messages,
