@@ -655,7 +655,7 @@
     "apiBaseUrl": "API Base URL（留空使用官方）",
     "model": "模型",
     "aiModelOpenAI": "模型（OpenAI 默认 gpt-5-nano）",
-    "aiModelCloudflare": "模型（Cloudflare 默认 @cf/meta/llama-3.2-11b-vision-instruct）",
+    "aiModelCloudflare": "模型（Cloudflare 默认视觉模型）",
     "apiKey": "API Key（留空表示不修改）",
     "saveAiConfig": "保存 AI 配置",
     "jevEnable": "启用 JEV 语义接口",

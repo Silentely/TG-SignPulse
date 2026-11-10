@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createI18n } from 'vue-i18n'
 import zhCN from '../locales/zh-CN.json'
 import enUS from '../locales/en-US.json'
 
@@ -44,10 +45,19 @@ describe('locales 键一致性', () => {
 
   it('为两种 AI provider 提供独立的模型与凭据说明', () => {
     expect(zhCN.settings.aiModelOpenAI).toContain('gpt-5-nano')
-    expect(zhCN.settings.aiModelCloudflare).toContain('@cf/meta/llama-3.2-11b-vision-instruct')
+    expect(zhCN.settings.aiModelCloudflare).toContain('Cloudflare')
     expect(zhCN.settings.cloudflareApiTokenHint).toContain('Workers AI')
     expect(enUS.settings.aiModelOpenAI).toContain('gpt-5-nano')
-    expect(enUS.settings.aiModelCloudflare).toContain('@cf/meta/llama-3.2-11b-vision-instruct')
+    expect(enUS.settings.aiModelCloudflare).toContain('Cloudflare')
     expect(enUS.settings.cloudflareApiTokenHint).toContain('Workers AI')
+  })
+
+  it('Cloudflare 模型文案可以被 vue-i18n 正常解析', () => {
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'zh-CN',
+      messages: { 'zh-CN': { settings: zhCN.settings } },
+    })
+    expect(i18n.global.t('settings.aiModelCloudflare')).toContain('Cloudflare')
   })
 })

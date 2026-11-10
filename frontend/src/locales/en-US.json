@@ -655,7 +655,7 @@
     "apiBaseUrl": "API Base URL (empty for official)",
     "model": "Model",
     "aiModelOpenAI": "Model (OpenAI default: gpt-5-nano)",
-    "aiModelCloudflare": "Model (Cloudflare default: @cf/meta/llama-3.2-11b-vision-instruct)",
+    "aiModelCloudflare": "Model (Cloudflare default vision model)",
     "apiKey": "API Key (empty to keep unchanged)",
     "saveAiConfig": "Save AI Config",
     "jevEnable": "Enable JEV Semantic Interface",
