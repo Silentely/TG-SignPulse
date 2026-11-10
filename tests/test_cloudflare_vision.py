@@ -208,7 +208,12 @@ class TestCloudflareVisionQuery:
                     status_code=403,
                 )
             if payload == {"prompt": "agree"}:
-                return {"success": True, "result": {"response": "agreed"}}
+                raise _CloudflareAPIError(
+                    "Cloudflare API returned status 403: "
+                    "Model Agreement: Thank you for agreeing to this model's terms. "
+                    "You may now use the model.",
+                    status_code=403,
+                )
             return {"success": True, "result": {"response": "accepted"}}
 
         with patch.object(tools, "_cloudflare_post", side_effect=fake_post):

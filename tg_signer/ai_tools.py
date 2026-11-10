@@ -806,7 +806,14 @@ class AITools:
             # Cloudflare requires a one-time license acknowledgement for some
             # Meta models. This path is intentionally limited to the explicit
             # Model Agreement response; unrelated 403 errors are not retried.
-            await self._cloudflare_post(url, {"prompt": "agree"})
+            try:
+                await self._cloudflare_post(url, {"prompt": "agree"})
+            except _CloudflareAPIError as agreement_exc:
+                # Cloudflare reports a successful agreement as HTTP 403/code
+                # 5016 with a confirmation message. Treat that response as
+                # success and continue with the original request.
+                if "thank you for agreeing" not in str(agreement_exc).lower():
+                    raise
             body = await self._cloudflare_post(url, payload)
         from tg_signer.core.ai_failover import (
             AIProviderResponseError,
