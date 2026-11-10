@@ -180,9 +180,12 @@ class SignerRunnerMixin:
                 self.app,
                 chat.chat_id,
                 name=chat.name,
+                expected_name=chat.name,
                 dialog_limit=dialog_limit,
                 cache_lookup=cache_lookup,
             )
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             if raise_on_error:
                 self.log(

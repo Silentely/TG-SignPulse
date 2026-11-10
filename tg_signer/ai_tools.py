@@ -110,6 +110,40 @@ def _unwrap_cloudflare_result(body: dict) -> Any:
     return result
 
 
+def mask_secret_token(text: str, secret: str | None = None) -> str:
+    """对包含敏感 token 的字符串进行安全脱敏。
+
+    1. 若提供了 secret 且非空，将其精确替换为前4位+***（<=4位则全***）；
+    2. 对常见 Bearer <token> 或 token=<token> 模式进行通用正则脱敏；
+    3. 绝不回显完整 token。
+    """
+    if not text:
+        return text
+    result = str(text)
+    if secret:
+        clean_secret = secret.strip()
+        if clean_secret:
+            masked = clean_secret[:4] + "***" if len(clean_secret) > 4 else "***"
+            result = result.replace(clean_secret, masked)
+    result = re.sub(
+        r"(Bearer\\s+)([A-Za-z0-9_\\-\\.]{5,})",
+        lambda m: f"{m.group(1)}{m.group(2)[:4]}***",
+        result,
+        flags=re.IGNORECASE,
+    )
+    result = re.sub(
+        r"((?:token|api[_-]?key)\\s*[:=]\\s*[\x27\x22]?)([A-Za-z0-9_\\-\\.]{5,})",
+        lambda m: (
+            f"{m.group(1)}{m.group(2)[:4]}***"
+            if len(m.group(2)) > 4
+            else f"{m.group(1)}***"
+        ),
+        result,
+        flags=re.IGNORECASE,
+    )
+    return result
+
+
 def prefers_max_completion_tokens(model: Any) -> bool:
     """判断模型是否优先/要求使用 max_completion_tokens 而非 max_tokens。
 
@@ -626,7 +660,6 @@ class AITools:
                 api_key=cfg["api_key"], base_url=cfg.get("base_url")
             )
         self._fallback_entries = parse_fallback_providers(cfg.get("fallback_providers"))
-        self._cloudflare_translation_cache: dict[str, str] = {}
 
     def _is_cloudflare_vision(self, model: str | None = None) -> bool:
         target_model = model or getattr(self, "default_model", "")
@@ -654,26 +687,32 @@ class AITools:
 
         headers["User-Agent"] = get_user_agent("CloudflareVision")
 
+        def _sanitize(msg: Any) -> str:
+            return mask_secret_token(str(msg), self.api_key)
+
         timeout = self._ai_timeout()
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.RequestError as exc:
+            safe_exc = _sanitize(str(exc))
             raise _RetryableAIResponseError(
-                f"Cloudflare network request error: {exc}"
+                f"Cloudflare network request error: {safe_exc}"
             ) from exc
 
         if resp.status_code >= 400:
+            safe_text = _sanitize(resp.text[:500])
             raise _CloudflareAPIError(
-                f"Cloudflare API returned status {resp.status_code}: {resp.text[:500]}",
+                f"Cloudflare API returned status {resp.status_code}: {safe_text}",
                 status_code=resp.status_code,
             )
 
         try:
             body = resp.json()
         except Exception as exc:
+            safe_text = _sanitize(resp.text[:300])
             raise _RetryableAIResponseError(
-                f"Cloudflare returned invalid JSON: {resp.text[:300]}"
+                f"Cloudflare returned invalid JSON: {safe_text}"
             ) from exc
 
         if not isinstance(body, dict):
@@ -683,8 +722,9 @@ class AITools:
 
         if body.get("success") is False:
             errors = body.get("errors") or body.get("messages") or body
+            safe_errors = _sanitize(str(errors))
             raise _RetryableAIResponseError(
-                f"Cloudflare API response success is False: {errors}"
+                f"Cloudflare API response success is False: {safe_errors}"
             )
 
         return body
@@ -711,20 +751,25 @@ class AITools:
         body = await self._cloudflare_post(url, payload)
         result = self._unwrap_cloudflare_result(body)
 
-        desc = result.get("description") if isinstance(result, dict) else None
-        if (
-            isinstance(desc, list)
-            and desc
-            and isinstance(desc[0], str)
-            and desc[0].strip()
-        ):
-            answer = desc[0].strip()
-        else:
-            answer = result.get("answer") if isinstance(result, dict) else None
+        answer = None
+        if isinstance(result, dict):
+            raw_answer = result.get("answer")
+            if isinstance(raw_answer, str) and raw_answer.strip():
+                answer = raw_answer.strip()
+            elif "description" in result:
+                desc = result.get("description")
+                if (
+                    isinstance(desc, list)
+                    and desc
+                    and isinstance(desc[0], str)
+                    and desc[0].strip()
+                ):
+                    answer = desc[0].strip()
 
         if not isinstance(answer, str) or not answer.strip():
+            safe_result = mask_secret_token(str(result)[:300], self.api_key)
             raise _RetryableAIResponseError(
-                f"Cloudflare vision returned an empty answer: {str(result)[:300]}"
+                f"Cloudflare vision returned an empty answer: {safe_result}"
             )
         return answer.strip()
 
@@ -761,13 +806,52 @@ class AITools:
                         attempt,
                         attempts,
                         type(exc).__name__,
-                        safe_text_preview(exc, 200),
+                        mask_secret_token(safe_text_preview(exc, 200), self.api_key),
                     )
                     await asyncio.sleep(delay)
                     continue
                 raise
         if last_error:
             raise last_error
+
+    @classmethod
+    def _cloudflare_needs_translation(cls, text: str) -> bool:
+        return bool(re.search(r"[㐀-鿿぀-ヿ가-힯]", str(text)))
+
+    async def _cloudflare_translate_text(self, text: str) -> str:
+        source = str(text).strip()
+        if not source or not self._cloudflare_needs_translation(source):
+            return source
+        known = self._CLOUDFLARE_OPTION_TRANSLATIONS.get(source)
+        if known:
+            return known
+        cached = type(self)._cloudflare_translation_cache.get(source)
+        if cached:
+            return cached
+
+        payload = {
+            "text": source,
+            "source_lang": "zh",
+            "target_lang": "en",
+        }
+        try:
+            body = await self._cloudflare_post(
+                self._cloudflare_run_url("@cf/meta/m2m100-1.2b"), payload
+            )
+            result = self._unwrap_cloudflare_result(body)
+            translated = (
+                result.get("translated_text") if isinstance(result, dict) else None
+            )
+            if isinstance(translated, str) and translated.strip():
+                clean_trans = translated.strip()
+                type(self)._cloudflare_translation_cache[source] = clean_trans
+                return clean_trans
+        except Exception as exc:
+            safe_exc = mask_secret_token(str(exc), self.api_key)
+            logger.warning(
+                "Cloudflare option translation failed for %r: %s", source, safe_exc
+            )
+        return source
         raise RuntimeError("Cloudflare 视觉请求未返回有效结果")
 
     @staticmethod

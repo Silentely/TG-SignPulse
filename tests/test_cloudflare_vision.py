@@ -386,3 +386,95 @@ class TestCloudflareVisionFullIntegration:
             # "motorcycle" matches "摩托车" (index 1) via Task 3's bilingual mapping
             assert idx == 1
             assert mock_call.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_vision_query_prioritizes_answer_over_description(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+
+        async def fake_post_both(url, payload):
+            return {
+                "success": True,
+                "result": {
+                    "answer": "answer_first",
+                    "description": ["description_fallback"],
+                },
+            }
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post_both):
+            answer = await tools._cloudflare_vision_query(
+                b"img",
+                "question",
+                model="@cf/meta/llama-3.2-11b-vision-instruct",
+            )
+            assert answer == "answer_first"
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_post_sanitizes_token_in_error_and_log(self, caplog):
+        full_token = "secret-cf-token-12345678"
+        tools = AITools(
+            {
+                "api_key": full_token,
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 401
+        mock_resp.text = f"Invalid token {full_token} supplied in header"
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_resp
+            with pytest.raises(_CloudflareAPIError) as exc_info:
+                await tools._cloudflare_post(
+                    "https://api.cloudflare.com/client/v4/accounts/acc12345/ai/run/model",
+                    {"prompt": "test"},
+                )
+            assert full_token not in str(exc_info.value)
+            assert "secr***" in str(exc_info.value)
+
+            for record in caplog.records:
+                assert full_token not in record.message
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_translation_cache_class_level_sharing(self):
+        tools1 = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+        tools2 = AITools(
+            {
+                "api_key": "fake-key-2",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+
+        AITools._cloudflare_translation_cache.clear()
+        initial_size = len(AITools._cloudflare_translation_cache)
+
+        post_calls = 0
+
+        async def fake_post(url, payload):
+            nonlocal post_calls
+            post_calls += 1
+            return {
+                "success": True,
+                "result": {"translated_text": "electric drill"},
+            }
+
+        with patch.object(AITools, "_cloudflare_post", side_effect=fake_post):
+            res1 = await tools1._cloudflare_translate_text("电钻工具")
+            assert res1 == "electric drill"
+            assert post_calls == 1
+            assert len(AITools._cloudflare_translation_cache) == initial_size + 1
+            assert AITools._cloudflare_translation_cache["电钻工具"] == "electric drill"
+
+            res2 = await tools2._cloudflare_translate_text("电钻工具")
+            assert res2 == "electric drill"
+            assert post_calls == 1

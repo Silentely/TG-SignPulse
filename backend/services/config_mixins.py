@@ -1289,40 +1289,38 @@ class AIConfigMixin:
 
         if is_cloudflare_vision(model=model, base_url=base_url):
             try:
-                from tg_signer.ai_tools import AITools
+                from tg_signer.ai_tools import AITools, mask_secret_token
 
                 ai_tools = AITools(
                     {"api_key": api_key, "base_url": base_url, "model": model}
                 )
-                run_url = ai_tools._cloudflare_run_url(model)
-                body = await ai_tools._cloudflare_post(
-                    run_url,
-                    {"prompt": "Say 'test ok' in 2 words", "max_tokens": 16},
+                # 连通性探测必须走和生产完全同一条视觉请求代码路径
+                _TINY_PNG = (
+                    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+                    b"\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00"
+                    b"\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
                 )
-                result = ai_tools._unwrap_cloudflare_result(body)
-                answer = None
-                if isinstance(result, dict):
-                    desc = result.get("description")
-                    if (
-                        isinstance(desc, list)
-                        and desc
-                        and isinstance(desc[0], str)
-                        and desc[0].strip()
-                    ):
-                        answer = desc[0].strip()
-                    else:
-                        answer = result.get("response") or result.get("answer")
-                elif isinstance(result, str):
-                    answer = result.strip()
-                if not answer:
-                    answer = str(result)
+                answer = await ai_tools._cloudflare_vision_query(
+                    _TINY_PNG,
+                    "Say test ok in 2 words",
+                    model=model,
+                    max_tokens=16,
+                )
+                if not answer or not isinstance(answer, str) or not answer.strip():
+                    return {
+                        "success": False,
+                        "message": "连接失败: Cloudflare 响应中未包含有效 answer",
+                    }
                 return {
                     "success": True,
-                    "message": f"连接成功！Cloudflare 响应: {answer}",
+                    "message": f"连接成功！Cloudflare 响应: {answer.strip()}",
                     "model_used": model,
                 }
             except Exception as e:
-                return {"success": False, "message": f"连接失败: {str(e)}"}
+                from tg_signer.ai_tools import mask_secret_token
+
+                safe_msg = mask_secret_token(str(e), api_key)
+                return {"success": False, "message": f"连接失败: {safe_msg}"}
 
         try:
             from openai import AsyncOpenAI

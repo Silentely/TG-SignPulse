@@ -26,7 +26,7 @@ class TestCloudflareConfigMixin:
 
         mock_post_result = {
             "success": True,
-            "result": {"response": "test ok"},
+            "result": {"answer": "test ok"},
         }
 
         with (
@@ -118,3 +118,51 @@ class TestCloudflareConfigMixin:
             assert "模型响应: test ok" in res["message"]
             assert res["model_used"] == "gpt-5-nano"
             mock_openai.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "invalid_body",
+        [
+            {},  # ① 空 body
+            {"result": {}},  # ② result 为空 dict
+            {"result": {"answer": "   "}},  # ③ answer 为空字符串
+        ],
+    )
+    async def test_cloudflare_connection_detects_empty_answer_as_failure(
+        self, invalid_body
+    ):
+        service = DummyService(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/fake-acc/ai",
+                "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+            }
+        )
+        with patch(
+            "tg_signer.ai_tools.AITools._cloudflare_post", new_callable=AsyncMock
+        ) as mock_post:
+            mock_post.return_value = invalid_body
+            res = await service.test_ai_connection()
+            assert res["success"] is False
+            assert "连接失败" in res["message"]
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_connection_sanitizes_token_in_error_message(self):
+        full_token = "secret-token-abcdef123456"
+        service = DummyService(
+            {
+                "api_key": full_token,
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/fake-acc/ai",
+                "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+            }
+        )
+        with patch(
+            "tg_signer.ai_tools.AITools._cloudflare_post", new_callable=AsyncMock
+        ) as mock_post:
+            mock_post.side_effect = RuntimeError(
+                f"Unauthorized with Bearer {full_token} on remote"
+            )
+            res = await service.test_ai_connection()
+            assert res["success"] is False
+            assert full_token not in res["message"]
+            assert "secr***" in res["message"]

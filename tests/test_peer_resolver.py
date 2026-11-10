@@ -82,8 +82,17 @@ class FakeClient:
         if self.dialog_delay > 0:
             await asyncio.sleep(self.dialog_delay)
         for chat_id in self.dialog_ids[: limit or None]:
-            self.storage.setdefault(chat_id, f"dialog-{chat_id}")
-            yield SimpleNamespace(chat=SimpleNamespace(id=chat_id))
+            self.storage.setdefault(
+                chat_id,
+                {"title": f"dialog-{chat_id}", "username": f"user_{abs(chat_id)}"},
+            )
+            yield SimpleNamespace(
+                chat=SimpleNamespace(
+                    id=chat_id,
+                    username=f"user_{abs(chat_id)}",
+                    title=f"dialog-{chat_id}",
+                )
+            )
 
     async def start(self):
         self.calls.append(("start",))
@@ -185,11 +194,26 @@ async def test_warmup_concurrent_calls_executed_only_once():
 
 
 def test_candidate_ids_applied_after_warmup():
-    """候选 ID 变换（缺失 -100 前缀）必须在预热之后生效。"""
-    client = FakeClient(dialogs=[CHANNEL_ID])
+    """候选 ID 变换（缺失 -100 前缀）必须在预热之后生效（需核对目标身份）。"""
+    client = FakeClient(
+        dialogs=[CHANNEL_ID],
+        storage={
+            CHANNEL_ID: {
+                "title": "ChannelBot",
+                "username": "channel_bot",
+            }
+        },
+    )
     raw_id = abs(CHANNEL_ID) - 10**12  # 8104413787
 
-    result = asyncio.run(resolve_peer_id(client, raw_id))
+    result = asyncio.run(
+        resolve_peer_id(
+            client,
+            raw_id,
+            name="ChannelBot",
+            expected_name="ChannelBot",
+        )
+    )
 
     assert result.chat_id == CHANNEL_ID
     assert result.method == f"id-variant:{CHANNEL_ID}"
@@ -266,7 +290,15 @@ async def test_handler_registration_ordering_and_updated_ids(monkeypatch, tmp_pa
     且 add_handler 注册的 filters.chat 中必须包含修正后的 peer ID。
     """
     raw_id = abs(CHANNEL_ID) - 10**12  # 8104413787
-    fake_client = FakeClient(dialogs=[CHANNEL_ID])
+    fake_client = FakeClient(
+        dialogs=[CHANNEL_ID],
+        storage={
+            CHANNEL_ID: {
+                "title": "TestChannel",
+                "username": "test_channel",
+            }
+        },
+    )
 
     added_handlers = []
 
@@ -398,3 +430,59 @@ async def test_single_chat_warmup_failure_does_not_abort_preheat():
     # 检查日志中有针对坏会话的 WARNING 记录
     warnings = [msg for lvl, msg in runner.logs if lvl == "WARNING"]
     assert any("peer 预热" in w for w in warnings)
+
+
+@pytest.mark.asyncio
+async def test_candidate_ids_rejects_when_only_id_without_username():
+    """① 只有 ID 无 username → 必须拒绝（严禁仅凭数学变体 ID 放行）。"""
+    raw_id = 123456789
+    candidate_channel_id = -100123456789
+    client = FakeClient(
+        storage={
+            candidate_channel_id: {
+                "title": "NoUsernameGroup",
+                "username": None,
+            }
+        }
+    )
+    with pytest.raises(PeerResolveError) as exc_info:
+        await resolve_peer_id(client, raw_id)
+    assert f"无法解析 chat_id={raw_id}" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_candidate_ids_rejects_when_expected_name_mismatched():
+    """② expected_name 与 candidate 身份不符 → 必须拒绝。"""
+    raw_id = 123456789
+    candidate_channel_id = -100123456789
+    client = FakeClient(
+        storage={
+            candidate_channel_id: {
+                "title": "真实群组",
+                "username": "real_group",
+            }
+        }
+    )
+    with pytest.raises(PeerResolveError) as exc_info:
+        await resolve_peer_id(
+            client,
+            raw_id,
+            name="恶意伪装群",
+            expected_name="恶意伪装群",
+        )
+    assert f"无法解析 chat_id={raw_id}" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_resolve_peer_cancelled_error_propagates_upward():
+    """③ 取消信号（asyncio.CancelledError） → 必须向上抛，绝不被吞。"""
+    raw_id = 123456789
+    client = FakeClient()
+
+    async def cancel_get_chat(chat_id):
+        raise asyncio.CancelledError("Task was cancelled")
+
+    client.get_chat = cancel_get_chat
+
+    with pytest.raises(asyncio.CancelledError):
+        await resolve_peer_id(client, raw_id)

@@ -77,6 +77,8 @@ async def _attempt(
         if inspect.isawaitable(res):
             return await res
         return res
+    except asyncio.CancelledError:
+        raise
     except BaseException as exc:  # noqa: BLE001 - 记录后继续尝试其他方式
         attempts.append((label, exc))
         return None
@@ -117,6 +119,8 @@ async def warm_peer_cache(
             setattr(client, _WARM_FLAG, True)
             logger.info("peer 预热完成：扫描 %s 个会话（limit=%s）", fetched, limit)
             return fetched
+        except asyncio.CancelledError:
+            raise
         except BaseException as exc:  # noqa: BLE001 - 预热失败不致命，允许下次重试
             logger.warning(
                 "预热对话列表失败（limit=%s）：%s: %s", limit, type(exc).__name__, exc
@@ -146,44 +150,79 @@ def _verify_candidate_identity(
     """核对形态转换后的候选 chat 是否为真正目标。
 
     要求：
-    1. 命中后必须做身份核对（用户名 / ID 双向比对，二者至少一个能对上）；
-    2. 对不上就丢弃该候选并降级，不许「猜一个最像的」；
-    3. 若有预期用户名，且候选 chat 存在用户名但两者不符，必须拒绝（防冒名/误发）。
+    1. 候选 chat 必须具备可核对的真实身份（username 必须存在；若无 username 直接拒绝，严禁单纯靠 ID 变体放行）；
+    2. 若只有 ID、既无 expected_username 也无 expected_name 时，无法确认目标身份，必须拒绝；
+    3. 若提供了 expected_username，必须与 candidate 的 username 完全一致，否则拒绝；
+    4. 若提供了 expected_name，必须与 candidate 的 username / title / first_name 匹配，否则拒绝；
+    5. candidate_id 必须是 original_chat_id 的有效数字形态变体。
     """
     cand_id = getattr(candidate_chat, "id", None)
     if cand_id is None:
         return False
 
     cand_username = getattr(candidate_chat, "username", None)
+    cand_title = getattr(candidate_chat, "title", None)
+    cand_first_name = getattr(candidate_chat, "first_name", None)
 
-    clean_expected_user = (
-        expected_username.lower().lstrip("@").replace("https://t.me/", "").strip()
-        if expected_username
-        else None
-    )
-    clean_cand_user = (
-        cand_username.lower().lstrip("@").strip() if cand_username else None
-    )
+    # 1. 只有 ID、没有 username 时直接拒绝（防冒名与跨会话误发）
+    if not cand_username or not str(cand_username).strip():
+        logger.warning("候选 chat (id=%s) 无 username，拒绝盲目形态转换匹配", cand_id)
+        return False
 
-    # 1. 用户名冲突安全检查：如果有预期用户名，且候选 chat 带有用户名，两者必须一致
-    if clean_expected_user:
-        if clean_cand_user and clean_cand_user != clean_expected_user:
+    clean_cand_user = str(cand_username).lower().lstrip("@").strip()
+
+    # 2. 只有 ID、未提供任何 expected_username 或 expected_name 时，无法确认身份，必须拒绝
+    if not expected_username and not expected_name:
+        logger.warning(
+            "缺少 expected_username 和 expected_name，无法确认候选 chat (id=%s, user=%s) 的目标身份",
+            cand_id,
+            clean_cand_user,
+        )
+        return False
+
+    # 3. 如果提供了 expected_username，必须一致
+    if expected_username:
+        clean_exp_user = (
+            str(expected_username)
+            .lower()
+            .lstrip("@")
+            .replace("https://t.me/", "")
+            .strip()
+        )
+        if clean_exp_user and clean_cand_user != clean_exp_user:
+            logger.warning(
+                "候选 chat username 不匹配: expected=%s, actual=%s",
+                clean_exp_user,
+                clean_cand_user,
+            )
             return False
 
-    # 2. 用户名对上
-    username_matched = False
-    if (
-        clean_expected_user
-        and clean_cand_user
-        and clean_expected_user == clean_cand_user
-    ):
-        username_matched = True
+    # 4. 如果提供了 expected_name，必须与候选身份匹配
+    if expected_name:
+        clean_exp_name = str(expected_name).lower().lstrip("@").strip()
+        name_matched = False
+        if clean_cand_user and (
+            clean_cand_user == clean_exp_name or clean_exp_name in clean_cand_user
+        ):
+            name_matched = True
+        if cand_title and clean_exp_name in str(cand_title).lower():
+            name_matched = True
+        if cand_first_name and clean_exp_name in str(cand_first_name).lower():
+            name_matched = True
 
-    # 3. ID 双向数学比对：candidate_id 必须是原 chat_id 的有效形态变体
-    id_matched = False
+        if not name_matched:
+            logger.warning(
+                "候选 chat 身份与 expected_name 不符: expected_name=%s, candidate=(user=%s, title=%s)",
+                expected_name,
+                cand_username,
+                cand_title,
+            )
+            return False
+
+    # 5. ID 变体数学校验
     cand_str = str(cand_id)
     orig_abs_str = str(abs(original_chat_id))
-
+    id_matched = False
     if cand_str.startswith("-100"):
         stripped_cand = cand_str[4:]
         if stripped_cand == orig_abs_str:
@@ -191,14 +230,7 @@ def _verify_candidate_identity(
     elif abs(cand_id) == abs(original_chat_id):
         id_matched = True
 
-    # 用户名 / ID 双向比对，二者至少一个能对上
-    if username_matched:
-        return True
-
-    if id_matched:
-        return True
-
-    return False
+    return id_matched
 
 
 async def resolve_peer_id(
@@ -206,6 +238,7 @@ async def resolve_peer_id(
     chat_id: Any,
     name: Optional[str] = None,
     username: Optional[str] = None,
+    expected_name: Optional[str] = None,
     dialog_limit: int = DEFAULT_DIALOG_LIMIT,
     cache_lookup: Optional[Callable[[int, Optional[str]], Optional[dict]]] = None,
 ) -> PeerResolution:
@@ -298,7 +331,7 @@ async def resolve_peer_id(
                 chat,
                 chat_id,
                 expected_username=username,
-                expected_name=name,
+                expected_name=expected_name or name,
             ):
                 return PeerResolution(
                     int(chat.id), chat, f"id-variant:{candidate}", dialogs_scanned
