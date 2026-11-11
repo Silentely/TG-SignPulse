@@ -109,6 +109,7 @@ def is_cloudflare_vision(
 def _unwrap_cloudflare_result(body: dict) -> Any:
     if not isinstance(body, dict):
         return body
+
     result = body.get("result", body)
     if isinstance(result, dict) and "result" in result:
         result = result.get("result")
@@ -549,6 +550,13 @@ class AITools:
         "船": "boat",
         "鸟": "bird",
         "鳥": "bird",
+        "口红": "lipstick",
+        "口紅": "lipstick",
+        "美女": "woman",
+        "购物网站": "shopping website",
+        "購物網站": "shopping website",
+        "丝袜": "stockings",
+        "絲襪": "stockings",
         "猫": "cat",
         "貓": "cat",
         "狗": "dog",
@@ -591,7 +599,6 @@ class AITools:
         "電視盒": "television",
         "路由器": "router",
         "路由": "router",
-        "美女": "woman",
         "女人": "woman",
         "女孩": "girl",
         "男人": "man",
@@ -770,6 +777,23 @@ class AITools:
 
         return body
 
+    async def _cloudflare_post_with_model_agreement(
+        self, url: str, payload: dict[str, Any]
+    ) -> dict:
+        """POST to a model, accepting Cloudflare's one-time agreement response."""
+        try:
+            return await self._cloudflare_post(url, payload)
+        except _CloudflareAPIError as exc:
+            error_text = str(exc).lower()
+            if exc.status_code != 403 or "model agreement" not in error_text:
+                raise
+            try:
+                await self._cloudflare_post(url, {"prompt": "agree"})
+            except _CloudflareAPIError as agreement_exc:
+                if "thank you for agreeing" not in str(agreement_exc).lower():
+                    raise
+            return await self._cloudflare_post(url, payload)
+
     async def _cloudflare_vision_query(
         self,
         image: bytes,
@@ -797,24 +821,7 @@ class AITools:
             "max_tokens": max_tokens,
             "stream": False,
         }
-        try:
-            body = await self._cloudflare_post(url, payload)
-        except _CloudflareAPIError as exc:
-            error_text = str(exc).lower()
-            if exc.status_code != 403 or "model agreement" not in error_text:
-                raise
-            # Cloudflare requires a one-time license acknowledgement for some
-            # Meta models. This path is intentionally limited to the explicit
-            # Model Agreement response; unrelated 403 errors are not retried.
-            try:
-                await self._cloudflare_post(url, {"prompt": "agree"})
-            except _CloudflareAPIError as agreement_exc:
-                # Cloudflare reports a successful agreement as HTTP 403/code
-                # 5016 with a confirmation message. Treat that response as
-                # success and continue with the original request.
-                if "thank you for agreeing" not in str(agreement_exc).lower():
-                    raise
-            body = await self._cloudflare_post(url, payload)
+        body = await self._cloudflare_post_with_model_agreement(url, payload)
         from tg_signer.core.ai_failover import (
             AIProviderResponseError,
             normalize_ai_response,
@@ -897,7 +904,7 @@ class AITools:
             "target_lang": "en",
         }
         try:
-            body = await self._cloudflare_post(
+            body = await self._cloudflare_post_with_model_agreement(
                 self._cloudflare_run_url("@cf/meta/m2m100-1.2b"), payload
             )
             result = self._unwrap_cloudflare_result(body)

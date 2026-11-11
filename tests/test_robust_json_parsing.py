@@ -104,6 +104,13 @@ def test_coerce_option_indexes_handles_dict_wrapped_and_single_int():
     assert AITools._coerce_option_indexes({"answer": "cherry"}, options) == [3]
 
 
+def test_coerce_option_indexes_matches_english_vision_answer_to_chinese_buttons():
+    options = [(1, "口红"), (2, "美女"), (3, "购物网站"), (4, "丝袜")]
+
+    assert AITools._coerce_option_indexes("The image shows a lipstick.", options) == [1]
+    assert AITools._coerce_option_indexes("The image shows stockings.", options) == [4]
+
+
 def test_coerce_option_indexes_filters_out_of_bounds():
     options = [(1, "first"), (2, "second"), (3, "third")]
 
