@@ -38,6 +38,12 @@ from tg_signer.core.timeout_defaults import (
     DEFAULT_ACTION_TIMEOUT_SECONDS,
     DEFAULT_FLOW_NODE_TIMEOUT_SECONDS,
 )
+from tg_signer.log_utils import safe_text_preview
+from tg_signer.semantic.action_policy import (
+    DEFAULT_RESULT_GOAL,
+    resolve_action_semantic_policy,
+    semantic_decision_summary,
+)
 
 logger = logging.getLogger("tg_signer.flow_engine")
 
@@ -1486,8 +1492,10 @@ class PulseFlowEngine:
                     unmatched_replies.append(text)
 
                     # 若配置了 assist 模式，执行语义辅助结果判定
-                    sem_res = getattr(node, "semantic_result", None)
-                    if isinstance(sem_res, dict) and sem_res.get("mode") == "assist":
+                    sem_res = resolve_action_semantic_policy(
+                        getattr(node, "semantic_result", None)
+                    )
+                    if sem_res.get("mode") == "assist":
                         disp = "wait"
                         decision = None
                         try:
@@ -1501,7 +1509,8 @@ class PulseFlowEngine:
                             )
 
                             runtime = get_registered_semantic_runtime()
-                            if runtime and runtime.service:
+                            service = runtime.service if runtime else None
+                            if service is not None:
                                 account_name = (
                                     getattr(ctx, "account", {}).get("name", "")
                                     if hasattr(ctx, "account")
@@ -1510,7 +1519,7 @@ class PulseFlowEngine:
                                 task_name = ctx.system.get("task_name", "")
                                 config_rev = ctx.system.get("config_revision", "")
                                 s_key = f"{account_name}:{task_name}:{event.chat_id}:{node.id}"
-                                goal = sem_res.get("goal", "")
+                                goal = sem_res.get("goal") or DEFAULT_RESULT_GOAL
                                 req = DecisionRequest(
                                     kind="result",
                                     scope=s_key,
@@ -1535,7 +1544,12 @@ class PulseFlowEngine:
                                     min_margin=float(sem_res.get("min_margin", 0.25)),
                                 )
                                 eval_deadline = min(deadline, time.monotonic() + 10.0)
-                                decision = await runtime.service.evaluate(
+                                _log_msg(
+                                    f"[JEV 回复] 开始语义判断：步骤={node.id} | "
+                                    f"目标={safe_text_preview(goal, 120)} | "
+                                    f"输入文本={safe_text_preview(text, 400)}"
+                                )
+                                decision = await service.evaluate(
                                     req,
                                     deadline=eval_deadline,
                                     run_id=ctx.system.get("run_id", ""),
@@ -1550,6 +1564,10 @@ class PulseFlowEngine:
                                     decision=decision,
                                     policy=pol,
                                     rule_result="unmatched",
+                                )
+                                _log_msg(
+                                    f"[JEV 回复] 判断返回：{semantic_decision_summary(decision)} | "
+                                    f"处理={disp}（success=确认完成，failure=确认失败，wait=继续等待）"
                                 )
                             if disp == "success":
                                 gap = _delivery_gap()
@@ -1590,12 +1608,17 @@ class PulseFlowEngine:
                                     level="INFO",
                                 )
                             else:
-                                _log_msg(
-                                    f"步骤 [{node.id}] JEV 语义服务未启用或未就绪，跳过语义辅助判断",
-                                    level="DEBUG",
-                                )
+                                unavailable_key = f"jev_unavailable_logged:{node.id}"
+                                if not ctx.system.get(unavailable_key):
+                                    _log_msg(
+                                        f"[JEV 回复] 未调用：步骤={node.id}，系统未启用 JEV、未配置密钥或服务未就绪"
+                                    )
+                                    ctx.system[unavailable_key] = True
                         except Exception as sem_err:
-                            _log_msg(f"语义辅助判断异常: {sem_err}", level="WARNING")
+                            _log_msg(
+                                f"[JEV 回复] 调用异常，继续等待：{safe_text_preview(sem_err, 160)}",
+                                level="WARNING",
+                            )
                     preview = " ".join(text.strip().split())[:100]
                     _log_msg(
                         f"收到机器人回复（但未匹配成功规则）：{preview}",

@@ -63,6 +63,10 @@ from tg_signer.log_utils import (
     safe_ai_result_meta,
     safe_text_preview,
 )
+from tg_signer.semantic.action_policy import (
+    resolve_action_semantic_policy,
+    semantic_decision_summary,
+)
 from tg_signer.utils import (
     print_to_user,
     read_positive_float_env,
@@ -130,6 +134,129 @@ class SignerActionsMixin:
             getattr(action, "continue_on_error", False)
             and isinstance(next_action, ClickKeyboardByTextAction)
         )
+
+    async def _next_click_action_is_semantically_available(
+        self, message: Message, next_action: Any
+    ) -> bool:
+        """Check the next menu through JEV without clicking or marking side effects."""
+        if self._next_click_action_is_available(message, next_action):
+            return True
+        if not isinstance(next_action, ClickKeyboardByTextAction):
+            return False
+        return await self._resolve_semantic_button(message, next_action) is not None
+
+    async def _resolve_semantic_button(self, message: Message, action: Any) -> Any:
+        policy = resolve_action_semantic_policy(
+            getattr(action, "semantic_button", None)
+        )
+        if policy.get("mode") != "assist":
+            return None
+        from tg_signer.semantic.buttons import build_button_snapshot, resolve_button
+        from tg_signer.semantic.models import DecisionRequest, config_revision
+        from tg_signer.semantic.policy import accept_decision
+        from tg_signer.semantic.runtime_port import get_registered_semantic_runtime
+
+        try:
+            snapshot = build_button_snapshot(message)
+            if not snapshot.candidates:
+                return None
+            runtime = get_registered_semantic_runtime()
+            service = runtime.service if runtime else None
+            if service is None:
+                if getattr(self, "_jev_unavailable_logged", False) is not True:
+                    self.log(
+                        "[JEV 按钮] 未调用：系统未启用 JEV、未配置密钥或服务未就绪，继续文字匹配"
+                    )
+                    self._jev_unavailable_logged = True
+                return None
+            goal = policy.get("goal") or action.text
+            input_text = _get_message_text(message)
+            task_cfg = getattr(self, "task_config", None)
+            cfg_dict = (
+                task_cfg.to_dict()
+                if hasattr(task_cfg, "to_dict")
+                else task_cfg.dict()
+                if hasattr(task_cfg, "dict")
+                else {}
+            )
+            cfg_revision = config_revision(cfg_dict) if cfg_dict else ""
+            cache_key = (
+                id(service),
+                snapshot.revision,
+                action.text,
+                json.dumps(policy, sort_keys=True, default=str),
+                cfg_revision,
+            )
+            cache = getattr(self, "_jev_button_cache", None)
+            if not isinstance(cache, dict):
+                cache = self._jev_button_cache = {}
+            if cache_key in cache:
+                selected_ref = cache[cache_key]
+                return (
+                    resolve_button(snapshot, message, selected_ref)
+                    if selected_ref
+                    else None
+                )
+            if len(cache) >= 128:
+                cache.clear()
+            req = DecisionRequest(
+                kind="button",
+                scope=f"{getattr(self, '_account', '')}:{getattr(task_cfg, 'name', '')}:{snapshot.chat_id}:{snapshot.thread_id}:{snapshot.message_id}",
+                state={
+                    "goal": goal,
+                    "target": action.text,
+                    "revision": snapshot.revision,
+                    "text": input_text,
+                },
+                choices={
+                    **{c.ref: c.text for c in snapshot.candidates},
+                    "none": "没有符合的按钮",
+                },
+                instructions=f"请选出最符合业务目标的按钮: {goal}",
+                request_key=f"btn:{snapshot.chat_id}:{snapshot.message_id}:{snapshot.revision}:{action.text}:{goal}",
+                config_revision=cfg_revision,
+            )
+            run_id = getattr(getattr(self, "context", None), "run_id", "")
+            self.log(
+                f"[JEV 按钮] 开始语义判断：目标={safe_text_preview(goal, 120)} | "
+                f"匹配词={safe_text_preview(action.text, 80)} | "
+                f"消息={safe_text_preview(input_text, 240)} | "
+                f"候选={safe_text_preview(json.dumps(req.choices, ensure_ascii=False), 500)}"
+            )
+            decision = await service.evaluate(
+                req, deadline=time.monotonic() + 10.0, run_id=run_id
+            )
+            runtime.record_observation(
+                req, decision, rule_result="unmatched", run_id=run_id
+            )
+            self.log(f"[JEV 按钮] 判断返回：{semantic_decision_summary(decision)}")
+            if not accept_decision(
+                decision,
+                min_probability=float(policy.get("min_probability", 0.98)),
+                min_margin=float(policy.get("min_margin", 0.30)),
+                abstain=frozenset({"none", "unknown"}),
+            ):
+                if decision.status == "ok":
+                    cache[cache_key] = None
+                self.log(
+                    "[JEV 按钮] 未采纳：结果不确定或未达到阈值，继续等待", level="INFO"
+                )
+                return None
+            button = resolve_button(snapshot, message, decision.selected)
+            if button is not None:
+                cache[cache_key] = decision.selected
+                self.log(
+                    f"[JEV 按钮] 采纳语义匹配：[{safe_text_preview(button.text, 80)}] (目标: {safe_text_preview(goal, 120)})"
+                )
+            else:
+                self.log("[JEV 按钮] 未采纳：菜单已变化或候选无效，继续等待")
+            return button
+        except Exception as exc:
+            self.log(
+                f"[JEV 按钮] 调用异常，继续原流程：{safe_text_preview(exc, 160)}",
+                level="WARNING",
+            )
+            return None
 
     def _mark_action_already_satisfied(self) -> None:
         context = getattr(self, "context", None)
@@ -249,120 +376,12 @@ class SignerActionsMixin:
                         if before_click:
                             await before_click()
                         return await self._click_inline_button(message, btn), True
-                # 精确规则未命中，若配置了 semantic_button 则尝试语义回退
-                sem_btn = getattr(action, "semantic_button", None)
-                if (
-                    sem_btn
-                    and isinstance(sem_btn, dict)
-                    and sem_btn.get("mode") == "assist"
-                ):
-                    try:
-                        import time
-
-                        from tg_signer.semantic.buttons import (
-                            build_button_snapshot,
-                            resolve_button,
-                        )
-                        from tg_signer.semantic.models import (
-                            DecisionRequest,
-                            config_revision,
-                        )
-                        from tg_signer.semantic.policy import accept_decision
-                        from tg_signer.semantic.runtime_port import (
-                            get_registered_semantic_runtime,
-                        )
-
-                        snapshot = build_button_snapshot(message)
-                        if snapshot.candidates:
-                            choices = {c.ref: c.text for c in snapshot.candidates}
-                            choices["none"] = "没有符合的按钮"
-                            goal = sem_btn.get("goal", action.text)
-                            task_cfg = getattr(self, "task_config", None)
-                            cfg_rev = ""
-                            if task_cfg:
-                                cfg_d = (
-                                    task_cfg.to_dict()
-                                    if hasattr(task_cfg, "to_dict")
-                                    else (
-                                        task_cfg.dict()
-                                        if hasattr(task_cfg, "dict")
-                                        else {}
-                                    )
-                                )
-                                cfg_rev = config_revision(cfg_d) if cfg_d else ""
-                            account_name = getattr(self, "_account", "")
-                            task_name = (
-                                getattr(task_cfg, "name", "") if task_cfg else ""
-                            )
-                            s_key = f"{account_name}:{task_name}:{message.chat.id}:{message.id}"
-                            req = DecisionRequest(
-                                kind="button",
-                                scope=s_key,
-                                state={"goal": goal, "target": action.text},
-                                choices=choices,
-                                instructions=f"请选出最符合业务目标的按钮: {goal}",
-                                request_key=f"btn:{message.chat.id}:{message.id}",
-                                config_revision=cfg_rev,
-                            )
-                            runtime = get_registered_semantic_runtime()
-                            if runtime and runtime.service:
-                                run_id = getattr(
-                                    getattr(self, "context", None), "run_id", ""
-                                )
-                                decision = await runtime.service.evaluate(
-                                    req, deadline=time.monotonic() + 10.0, run_id=run_id
-                                )
-                                runtime.record_observation(
-                                    req,
-                                    decision,
-                                    rule_result="unmatched",
-                                    run_id=run_id,
-                                )
-                                min_prob = float(sem_btn.get("min_probability", 0.98))
-                                min_marg = float(sem_btn.get("min_margin", 0.30))
-                                if accept_decision(
-                                    decision,
-                                    min_probability=min_prob,
-                                    min_margin=min_marg,
-                                    abstain=frozenset({"none", "unknown"}),
-                                ):
-                                    target_btn = resolve_button(
-                                        snapshot, message, decision.selected
-                                    )
-                                    if target_btn is not None:
-                                        self.log(
-                                            f"[AI 语义选择按钮] 选中按钮: [{target_btn.text}] (目标: {goal})"
-                                        )
-                                        if before_click:
-                                            await before_click()
-                                        return await self._click_inline_button(
-                                            message, target_btn
-                                        ), True
-                                    else:
-                                        self.log(
-                                            "[AI 语义选择按钮] 按钮快照二次校验未通过，放弃点击",
-                                            level="WARNING",
-                                        )
-                                else:
-                                    err_reason = (
-                                        f"，原因: {decision.error_message or decision.reason_code}"
-                                        if (
-                                            decision.error_message
-                                            or decision.reason_code
-                                        )
-                                        else ""
-                                    )
-                                    self.log(
-                                        f"[AI 语义选择按钮] 决策未采纳 (status={decision.status}, selected={decision.selected}, conf={decision.confidence:.2f}, 阈值>={min_prob:.2f}{err_reason})",
-                                        level="INFO",
-                                    )
-                            else:
-                                self.log(
-                                    "[AI 语义选择按钮] JEV 语义服务未启用或未就绪，跳过语义匹配",
-                                    level="DEBUG",
-                                )
-                    except Exception as e:
-                        self.log(f"AI 语义选择按钮失败: {e}", level="WARNING")
+                # Match semantics without clicking, then execute only after validation.
+                target_btn = await self._resolve_semantic_button(message, action)
+                if target_btn is not None:
+                    if before_click:
+                        await before_click()
+                    return await self._click_inline_button(message, target_btn), True
                 if log_not_found:
                     self.log(
                         f"Target button '{action.text}' not found in inline keyboard.",
@@ -1208,6 +1227,8 @@ class SignerActionsMixin:
         *,
         next_action: Optional[ActionT] = None,
     ):
+        self._jev_unavailable_logged = False
+        self._jev_button_cache = {}
         if timeout is None:
             timeout = read_positive_float_env(
                 "SIGN_TASK_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT_SECONDS, 5.0
@@ -1470,7 +1491,7 @@ class SignerActionsMixin:
                         if (
                             not matched
                             and self._can_skip_to_next_click(action, next_action)
-                            and self._next_click_action_is_available(
+                            and await self._next_click_action_is_semantically_available(
                                 message, next_action
                             )
                         ):
@@ -1574,7 +1595,7 @@ class SignerActionsMixin:
                                     and self._can_skip_to_next_click(
                                         action, next_action
                                     )
-                                    and self._next_click_action_is_available(
+                                    and await self._next_click_action_is_semantically_available(
                                         message, next_action
                                     )
                                 ):

@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import i18n from '../i18n'
 import TaskFormActionsSection from '../components/tasks/TaskFormActionsSection.vue'
 import * as pluginsApi from '../lib/api/plugins'
+import type { TaskActionItem } from '../lib/types'
 
 vi.mock('../lib/api/core', () => ({
   withToken: vi.fn((cb) => cb('mock-token')),
@@ -11,6 +12,31 @@ vi.mock('../lib/api/core', () => ({
 describe('TaskFormActionsSection.vue 动作区插件调试集成', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('在动作高级设置中配置 JEV 辅助模式和业务目标', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([])
+    const action: TaskActionItem = {
+      id: 1, type: 'click_text_button', value: '签到', aiPrompt: '', wait_for_reply: true,
+    }
+    const wrapper = mount(TaskFormActionsSection, {
+      props: { actions: [action], stepNum: '2' },
+      global: { plugins: [i18n] },
+    })
+    const advanced = wrapper.findAll('button').find(btn => btn.attributes('title')?.includes('高级'))
+    expect(advanced).toBeDefined()
+    await advanced!.trigger('click')
+    const buttonLabel = wrapper.findAll('label').find(label => label.text().includes('JEV 按钮语义匹配'))!
+    expect((buttonLabel.get('input').element as HTMLInputElement).checked).toBe(true)
+    await wrapper.get('input[aria-label="按钮目标，例如：返回机器人主菜单"]').setValue('完成每日签到')
+    expect(action.semantic_button).toEqual({ mode: 'assist', goal: '完成每日签到' })
+    const resultLabel = wrapper.findAll('label').find(label => label.text().includes('JEV 回复语义判定'))!
+    expect((resultLabel.get('input').element as HTMLInputElement).checked).toBe(true)
+    await resultLabel.get('input').setValue(false)
+    await resultLabel.get('input').setValue(true)
+    expect(action.semantic_result?.mode).toBe('assist')
+    await buttonLabel.get('input').setValue(false)
+    expect(action.semantic_button?.mode).toBe('off')
   })
 
   it('当动作类型为 custom_plugin 时展示在线调试按钮，并能打开内联调试弹窗', async () => {

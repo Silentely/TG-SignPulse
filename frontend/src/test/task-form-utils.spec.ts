@@ -11,6 +11,38 @@ import {
 } from '../lib/task-form-utils'
 import type { RawTaskAction, TaskActionItem } from '../lib/types'
 
+it('defaults JEV assistance on for legacy actions and preserves explicit off', () => {
+  const parsed = parseSingleAction({ action: 3, text: '签到', wait_for_reply: true })[0]
+  expect(parsed.semantic_button?.mode).toBe('assist')
+  expect(parsed.semantic_result?.mode).toBe('assist')
+  parsed.semantic_button = { mode: 'off' }
+  parsed.semantic_result = { mode: 'off' }
+  const rebuilt = actionsToFlowSteps(buildActions([parsed]))
+  expect(rebuilt[0].params.semantic_button.mode).toBe('off')
+  expect(rebuilt[1].semantic_result.mode).toBe('off')
+  const fresh = buildSingleAction({ id: 100, type: 'click_text_button', value: '签到', aiPrompt: '', wait_for_reply: true })!
+  expect(fresh.semantic_button?.mode).toBe('assist')
+  expect(fresh.semantic_result?.mode).toBe('assist')
+})
+
+it('preserves JEV policies through actions, flow steps and editing', () => {
+  const button = { mode: 'assist', goal: '返回首页', min_probability: 0.98 }
+  const result = { mode: 'assist', goal: '确认今日已完成' }
+  const steps = actionsToFlowSteps([{
+    action: 3, text: '返回主菜单', continue_on_error: true,
+    semantic_button: button, semantic_result: result, wait_for_reply: true,
+  }])
+  expect(steps[0].params.semantic_button).toEqual(button)
+  expect(steps[0].params.continue_on_error).toBe(true)
+  expect(steps[1].semantic_result).toEqual(result)
+  const parsed = parseStepsToActions(steps)!
+  expect(parsed[0].semantic_button).toEqual(button)
+  expect(parsed[0].semantic_result).toEqual(result)
+  const rebuilt = actionsToFlowSteps(buildActions(parsed))
+  expect(rebuilt[0].params.semantic_button).toEqual(button)
+  expect(rebuilt[1].semantic_result).toEqual(result)
+})
+
 describe('nextActionId', () => {
   beforeEach(() => resetActionIdCounter())
 

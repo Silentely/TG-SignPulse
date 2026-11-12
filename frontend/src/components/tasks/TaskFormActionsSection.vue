@@ -32,6 +32,15 @@ import {
 
 const { t } = useI18n()
 
+function setSemanticAssist(action: TaskActionItem, key: 'semantic_button' | 'semantic_result', event: Event) {
+  const enabled = (event.target as HTMLInputElement).checked
+  action[key] = { ...action[key], mode: enabled ? 'assist' : 'off' }
+}
+
+function setSemanticGoal(action: TaskActionItem, key: 'semantic_button' | 'semantic_result', event: Event) {
+  action[key] = { mode: 'assist', ...action[key], goal: (event.target as HTMLInputElement).value }
+}
+
 // 动作插件在线调试状态
 const isActionDebugModalOpen = ref(false)
 const debugAction = ref<TaskActionItem | null>(null)
@@ -657,6 +666,21 @@ const emit = defineEmits<{
           v-if="expandedAdvanced[action.id] && action.type !== 'delay'"
           class="border-t border-[var(--sp-border)] dark:border-[var(--sp-border)] p-2.5 sm:px-3 sm:py-2.5 bg-[var(--sp-surface)] dark:bg-black/20 flex flex-col gap-2 text-xs"
         >
+          <div v-if="action.type === 'click_text_button'" class="flex flex-col gap-2">
+            <label class="flex items-center gap-2">
+              <input type="checkbox" :checked="(action.semantic_button?.mode ?? 'assist') === 'assist'" @change="setSemanticAssist(action, 'semantic_button', $event)" />
+              {{ t('taskForm.jevButtonAssist') }}
+            </label>
+            <input v-if="(action.semantic_button?.mode ?? 'assist') === 'assist'" :value="action.semantic_button?.goal ?? ''" @input="setSemanticGoal(action, 'semantic_button', $event)" :aria-label="t('taskForm.jevButtonGoal')" :placeholder="t('taskForm.jevButtonGoal')" class="ui-input" />
+            <span class="text-[var(--sp-text-muted)]">{{ t('taskForm.jevAssistHint') }}</span>
+          </div>
+          <div v-if="action.wait_for_reply" class="flex flex-col gap-2">
+            <label class="flex items-center gap-2">
+              <input type="checkbox" :checked="(action.semantic_result?.mode ?? 'assist') === 'assist'" @change="setSemanticAssist(action, 'semantic_result', $event)" />
+              {{ t('taskForm.jevResultAssist') }}
+            </label>
+            <input v-if="(action.semantic_result?.mode ?? 'assist') === 'assist'" :value="action.semantic_result?.goal ?? ''" @input="setSemanticGoal(action, 'semantic_result', $event)" :aria-label="t('taskForm.jevResultGoal')" :placeholder="t('taskForm.jevResultGoal')" class="ui-input" />
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- 容错继续开关 -->
             <label class="flex items-start gap-2 cursor-pointer">

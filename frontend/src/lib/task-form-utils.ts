@@ -146,11 +146,11 @@ export function parseSingleAction(raw: RawTaskAction): TaskActionItem[] {
       item.reply_retry_max_attempts = raw.reply_retry_max_attempts
     }
   }
-  if (raw.semantic_result) {
-    item.semantic_result = { ...raw.semantic_result }
+  if (raw.semantic_result || raw.wait_for_reply) {
+    item.semantic_result = { mode: 'assist', ...raw.semantic_result }
   }
-  if (raw.semantic_button) {
-    item.semantic_button = { ...raw.semantic_button }
+  if (raw.semantic_button || type === 'click_text_button') {
+    item.semantic_button = { mode: 'assist', ...raw.semantic_button }
   }
   if (raw.semantic_triage) {
     item.semantic_triage = { ...raw.semantic_triage }
@@ -253,11 +253,11 @@ export function buildSingleAction(
       result.reply_retry_max_attempts = Number(action.reply_retry_max_attempts)
     }
   }
-  if (action.semantic_result) {
-    result.semantic_result = { ...action.semantic_result }
+  if (action.semantic_result || action.wait_for_reply) {
+    result.semantic_result = { mode: 'assist', ...action.semantic_result }
   }
-  if (action.semantic_button) {
-    result.semantic_button = { ...action.semantic_button }
+  if (action.semantic_button || action.type === 'click_text_button') {
+    result.semantic_button = { mode: 'assist', ...action.semantic_button }
   }
   if (action.semantic_triage) {
     result.semantic_triage = { ...action.semantic_triage }
@@ -333,6 +333,9 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
       if (act.plugin_name !== undefined) params.plugin_name = act.plugin_name
       if (act.params !== undefined) params.params = act.params
       if (act.mode !== undefined) params.mode = act.mode
+      if (act.semantic_button) params.semantic_button = { ...act.semantic_button }
+      if (act.semantic_triage) params.semantic_triage = { ...act.semantic_triage }
+      if (act.continue_on_error) params.continue_on_error = true
 
       const step: any = {
         step_id: item.stepId,
@@ -374,6 +377,7 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
         next_step_id: nextStepId,
         on_failure_step_id: 'FAIL',
       }
+      if (act.semantic_result) step.semantic_result = { ...act.semantic_result }
       steps.push(step)
     }
   }
@@ -432,6 +436,8 @@ export function parseStepsToActions(steps: any[]): TaskActionItem[] | null {
         continue_on_error: step.on_failure_step_id !== 'FAIL' && step.on_failure_step_id !== '_TERMINAL_FAIL' && !!step.on_failure_step_id,
         skip_if_matched: step.skip_if,
         stop_flow_on_terminal: step.terminal_policy === 'stop_flow',
+        semantic_button: params.semantic_button,
+        semantic_triage: params.semantic_triage,
       }
       const parsed = parseSingleAction(rawAct)
       if (parsed.length === 0) {
@@ -446,6 +452,9 @@ export function parseStepsToActions(steps: any[]): TaskActionItem[] | null {
         const nextNtype = String(nextStep.node_type || '').toLowerCase()
         if (nextNtype === 'wait_event') {
           actionItem.wait_for_reply = true
+          if (nextStep.semantic_result) {
+            actionItem.semantic_result = { ...nextStep.semantic_result }
+          }
           actionItem.reply_success_patterns = Array.isArray(nextStep.success_patterns) && nextStep.success_patterns.length > 0
             ? [...nextStep.success_patterns]
             : (Array.isArray(nextStep.filter_patterns) && nextStep.filter_patterns.length > 0 ? [...nextStep.filter_patterns] : [])

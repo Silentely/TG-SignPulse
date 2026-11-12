@@ -341,6 +341,11 @@
     "runAlreadyFinished": "Task run has already finished"
   },
   "taskForm": {
+    "jevButtonAssist": "JEV semantic button matching",
+    "jevButtonGoal": "Button goal, e.g. return to the bot main menu",
+    "jevAssistHint": "On by default. Applies only when text rules do not match and JEV is enabled with an API key. A blank goal uses the action text or the default check-in confirmation goal.",
+    "jevResultAssist": "JEV semantic reply confirmation",
+    "jevResultGoal": "Reply goal, e.g. confirm today's check-in or reward claim",
     "taskName": "Task Name",
     "taskNamePlaceholder": "Auto-generate if empty",
     "taskNameInvalid": "Name is too long or contains / \\ characters",

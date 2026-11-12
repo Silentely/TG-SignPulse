@@ -341,6 +341,11 @@
     "runAlreadyFinished": "该任务运行已结束"
   },
   "taskForm": {
+    "jevButtonAssist": "JEV 按钮语义匹配",
+    "jevButtonGoal": "按钮目标，例如：返回机器人主菜单",
+    "jevAssistHint": "默认开启，文字规则未匹配时使用语义判断；仅在系统已启用 JEV 并配置密钥后生效。目标留空时使用动作文本或默认签到确认目标。",
+    "jevResultAssist": "JEV 回复语义判定",
+    "jevResultGoal": "回复目标，例如：确认今天已签到或奖励已领取",
     "taskName": "任务名称",
     "taskNamePlaceholder": "留空自动生成",
     "taskNameInvalid": "任务名过长或包含 / \\ 等非法字符",
