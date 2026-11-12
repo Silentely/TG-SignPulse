@@ -555,7 +555,23 @@ class AITools:
         "美女": "woman",
         "社交平台": "social media platform",
         "社交平台网站": "social media platform",
+        "社交媒体": "social media platform",
+        "社交媒體": "social media platform",
+        "社交软件": "social media platform",
+        "社交軟體": "social media platform",
+        "社交应用": "social media platform",
+        "社交應用": "social media platform",
         "外星人": "alien",
+        "外星生物": "alien",
+        "飞碟": "alien",
+        "飛碟": "alien",
+        "宇航员": "astronaut",
+        "太空人": "astronaut",
+        "航天员": "astronaut",
+        "电商": "shopping website",
+        "電商": "shopping website",
+        "网购": "shopping website",
+        "網購": "shopping website",
         "购物网站": "shopping website",
         "購物網站": "shopping website",
         "丝袜": "stockings",
@@ -1075,6 +1091,48 @@ class AITools:
             "masked": "mask",
             "masks": "mask",
             "facemask": "mask",
+            "telegram": "social",
+            "twitter": "social",
+            "wechat": "social",
+            "weibo": "social",
+            "facebook": "social",
+            "instagram": "social",
+            "tiktok": "social",
+            "discord": "social",
+            "reddit": "social",
+            "whatsapp": "social",
+            "youtube": "social",
+            "line": "social",
+            "qq": "social",
+            "sns": "social",
+            "socialmedia": "social",
+            "socialnetwork": "social",
+            "taobao": "shopping",
+            "jd": "shopping",
+            "amazon": "shopping",
+            "tmall": "shopping",
+            "ebay": "shopping",
+            "aliexpress": "shopping",
+            "pinduoduo": "shopping",
+            "shopee": "shopping",
+            "lazada": "shopping",
+            "ecommerce": "shopping",
+            "marketplace": "shopping",
+            "webshop": "shopping",
+            "store": "shopping",
+            "extraterrestrial": "alien",
+            "extraterrestrials": "alien",
+            "alienware": "alien",
+            "ufo": "alien",
+            "martian": "alien",
+            "cosmetics": "lipstick",
+            "makeup": "lipstick",
+            "lipgloss": "lipstick",
+            "lipsticks": "lipstick",
+            "astronaut": "astronaut",
+            "astronauts": "astronaut",
+            "spaceman": "astronaut",
+            "cosmonaut": "astronaut",
         }
         stopwords = {
             "a",
@@ -1246,6 +1304,17 @@ class AITools:
                     f"AI option index {parsed_int} is out of bounds for {len(options)} options"
                 )
 
+            option_patterns = (
+                r"(?:option|choice|answer|button|index|选项|选择|答案|按钮)\s*[:：#]?\s*(\d+)",
+                r"(?:select|choose|click|is)\s*(?:option|choice|button)?\s*[:：#]?\s*(\d+)",
+                r"(?:->|=>|→|⇒|conclusion)\s*[:：]?\s*(\d+)",
+            )
+            for pat in option_patterns:
+                for match in re.finditer(pat, stripped, re.IGNORECASE):
+                    candidate = int(match.group(1))
+                    if cls._is_valid_option_index(candidate, options):
+                        return candidate
+
             normalized_result = cls._normalize_option_text(stripped)
             for index, option_text in options:
                 normalized_option = cls._normalize_option_text(option_text)
@@ -1314,6 +1383,7 @@ class AITools:
                     raw_options = result[key]
                     break
             if raw_options is not None:
+                original_raw = raw_options
                 opt_texts = [text for _, text in options]
                 if isinstance(raw_options, str):
                     parsed_inner = robust_json_loads(raw_options, fallback=None)
@@ -1337,7 +1407,18 @@ class AITools:
                             collected.append(idx)
                     except (ValueError, TypeError, KeyError):
                         continue
-                return collected
+                if collected:
+                    return collected
+                if isinstance(original_raw, str) and original_raw.strip():
+                    try:
+                        fallback_idx = cls._coerce_option_index(
+                            original_raw.strip(), options
+                        )
+                        if cls._is_valid_option_index(fallback_idx, options):
+                            return [fallback_idx]
+                    except (ValueError, TypeError, KeyError):
+                        pass
+                return []
 
         if isinstance(result, str):
             opt_texts = [text for _, text in options]
@@ -1355,6 +1436,13 @@ class AITools:
                         continue
                 if collected:
                     return collected
+                try:
+                    fallback_idx = cls._coerce_option_index(result.strip(), options)
+                    if cls._is_valid_option_index(fallback_idx, options):
+                        return [fallback_idx]
+                except (ValueError, TypeError, KeyError):
+                    pass
+                return []
 
         try:
             idx = cls._coerce_option_index(result, options)
@@ -1842,8 +1930,10 @@ class AITools:
     ):
         if self._is_cloudflare_vision(model):
             image_bytes = b""
-            question_text = ""
+            system_prompts: list[str] = []
+            user_texts: list[str] = []
             for msg in messages:
+                role = msg.get("role")
                 content_part = msg.get("content")
                 if isinstance(content_part, list):
                     for part in content_part:
@@ -1870,24 +1960,34 @@ class AITools:
                             elif p_type == "text":
                                 txt = str(part.get("text", "")).strip()
                                 if txt:
-                                    question_text = (
-                                        f"{question_text}\n{txt}".strip()
-                                        if question_text
-                                        else txt
-                                    )
+                                    if role == "system":
+                                        system_prompts.append(txt)
+                                    else:
+                                        user_texts.append(txt)
                 elif isinstance(content_part, str):
-                    if msg.get("role") == "user":
-                        txt = content_part.strip()
-                        if txt:
-                            question_text = (
-                                f"{question_text}\n{txt}".strip()
-                                if question_text
-                                else txt
-                            )
+                    txt = content_part.strip()
+                    if txt:
+                        if role == "system":
+                            system_prompts.append(txt)
+                        elif role == "user":
+                            user_texts.append(txt)
+
+            sys_str = "\n".join(system_prompts).strip()
+            user_str = "\n\n".join(user_texts).strip()
+            if sys_str and user_str:
+                combined_question = (
+                    f"Instruction:\n{sys_str}\n\n"
+                    f"Task:\n{user_str}\n\n"
+                    f"Response Requirement: Respond strictly according to the Instruction. Output valid JSON or the exact option index only. Do NOT provide reasoning or descriptions."
+                )
+            elif sys_str:
+                combined_question = sys_str
+            else:
+                combined_question = user_str
 
             answer = await self._call_cloudflare_vision_with_retries(
                 image=image_bytes,
-                question=question_text,
+                question=combined_question,
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,

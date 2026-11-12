@@ -645,3 +645,31 @@ class TestCloudflareVisionFullIntegration:
             assert "secr***" in tb_output
             assert exc.__cause__ is None
             assert exc.__suppress_context__ is True
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_vision_includes_system_prompt_instruction(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+                "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+            }
+        )
+        options = [(1, "社交平台"), (2, "口红"), (3, "外星人"), (4, "购物网站")]
+
+        with patch.object(
+            tools, "_call_cloudflare_vision_with_retries", new_callable=AsyncMock
+        ) as mock_call:
+            mock_call.return_value = '{"options": [1]}'
+
+            res = await tools.choose_options_by_image(
+                image=b"fake-image-bytes",
+                query="请在 30 秒内点击图中事物的按钮以完成签到",
+                options=options,
+            )
+            assert res == [1]
+            assert mock_call.await_count == 1
+            call_kwargs = mock_call.call_args.kwargs
+            sent_question = call_kwargs.get("question") or mock_call.call_args[0][1]
+            assert "Instruction:" in sent_question
+            assert "Response Requirement:" in sent_question

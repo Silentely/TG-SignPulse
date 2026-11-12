@@ -161,3 +161,49 @@ async def test_choose_options_by_text_robust_parsing():
     options = [(1, "apple"), (2, "banana"), (3, "cherry")]
     result = await tools.choose_options_by_text("Which fruit is yellow?", options)
     assert result == [2]
+
+
+def test_coerce_option_indexes_matches_entity_aliases_and_patterns():
+    options = [(1, "社交平台"), (2, "口红"), (3, "外星人"), (4, "购物网站")]
+
+    # Entity alias matching (Telegram / Twitter -> 社交平台)
+    assert AITools._coerce_option_indexes(
+        "The image shows the Telegram logo.", options
+    ) == [1]
+    assert AITools._coerce_option_indexes(
+        "The picture displays a Twitter icon on a blue background.", options
+    ) == [1]
+
+    # Entity alias matching (Amazon / Taobao -> 购物网站)
+    assert AITools._coerce_option_indexes(
+        "An e-commerce website showing Taobao products.", options
+    ) == [4]
+    assert AITools._coerce_option_indexes(
+        "An online store similar to Amazon marketplace.", options
+    ) == [4]
+
+    # Entity alias matching (Extraterrestrial -> 外星人)
+    assert AITools._coerce_option_indexes(
+        "The image depicts an extraterrestrial lifeform.", options
+    ) == [3]
+
+    # Natural language pattern matching (Option 1 / Answer: 2 / Choice #3)
+    assert AITools._coerce_option_indexes(
+        "Based on the image analysis, option 2 is the best match.", options
+    ) == [2]
+    assert AITools._coerce_option_indexes("Conclusion: Answer: 3.", options) == [3]
+    assert AITools._coerce_option_indexes("I suggest clicking button 4.", options) == [
+        4
+    ]
+
+
+def test_coerce_option_indexes_handles_multiline_narrative_fallback():
+    options = [(1, "社交平台"), (2, "口红"), (3, "外星人"), (4, "购物网站")]
+
+    # Multiline text wrapped in dict where each line alone does not match cleanly
+    multiline_text = (
+        "The image shows a graphic representation of a blue circular emblem with a paper airplane inside.\n"
+        "This clearly corresponds to the instant messaging service Telegram, therefore option 1 is the right answer."
+    )
+    result = AITools._coerce_option_indexes({"answer": multiline_text}, options)
+    assert result == [1]
