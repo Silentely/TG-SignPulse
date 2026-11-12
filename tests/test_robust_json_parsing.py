@@ -111,6 +111,15 @@ def test_coerce_option_indexes_matches_english_vision_answer_to_chinese_buttons(
     assert AITools._coerce_option_indexes("The image shows stockings.", options) == [4]
 
 
+def test_coerce_option_indexes_matches_more_english_vision_answers():
+    options = [(1, "社交平台"), (2, "口红"), (3, "外星人"), (4, "购物网站")]
+
+    assert AITools._coerce_option_indexes("I see an alien.", options) == [3]
+    assert AITools._coerce_option_indexes(
+        "The image shows a social media platform.", options
+    ) == [1]
+
+
 def test_coerce_option_indexes_filters_out_of_bounds():
     options = [(1, "first"), (2, "second"), (3, "third")]
 
