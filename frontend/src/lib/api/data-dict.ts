@@ -18,6 +18,14 @@ export interface DataDictDetail {
   updated_at?: string;
 }
 
+export interface BuiltinDataDictMeta {
+  name: string;
+  count: number;
+  remark?: string;
+  entries: string[];
+  exists: boolean;
+}
+
 export interface SaveDataDictPayload {
   name: string;
   entries: string[];
@@ -33,6 +41,20 @@ export interface SampleEntryResponse {
 /** 获取全部数据字典列表 */
 export const listDataDicts = (token: string) => {
   return request<DataDictMeta[]>("/data-dict", {}, token);
+};
+
+/** 获取内置数据字典预设列表 */
+export const listBuiltinDataDicts = (token: string) => {
+  return request<BuiltinDataDictMeta[]>("/data-dict-presets", {}, token);
+};
+
+/** 引用一条内置数据字典写入用户数据目录 */
+export const createDataDictFromBuiltin = (token: string, name: string) => {
+  return request<DataDictDetail>(
+    `/data-dict-presets/${encodeURIComponent(name)}`,
+    { method: "POST" },
+    token,
+  );
 };
 
 /** 获取指定数据字典详情 */

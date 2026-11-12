@@ -62,7 +62,9 @@
     "ACCOUNT_CHECK_FAILED": "账号状态检测失败，请稍后重试",
     "ACCOUNT_CHECK_START_FAILED": "启动批量检测失败，请稍后重试",
     "ACCOUNT_DELETE_FAILED": "删除账号失败，请稍后重试",
-    "ACCOUNT_UPDATE_FAILED": "更新账号信息失败，请稍后重试"
+    "ACCOUNT_UPDATE_FAILED": "更新账号信息失败，请稍后重试",
+    "DATA_DICT_EXISTS": "已存在同名数据字典，请先删除再引用",
+    "BUILTIN_DICT_NOT_FOUND": "内置字典不存在或已下线"
   },
   "dashboard": {
     "runbookTitle": "运行诊断",
@@ -1209,7 +1211,12 @@
     "dataDictEntries": "词条内容（每行一条）",
     "dataDictEntriesPlaceholder": "早上好！\n打卡签到~\n今日打卡完毕！",
     "dataDictCount": "{count} 条词条",
-    "dataDictEmpty": "暂无数据字典，点击上方「新增字典」创建",
+    "dataDictBuiltin": "内置字典",
+    "dataDictBuiltinHint": "点击「引用」即可加入你的字典列表，可继续编辑",
+    "dataDictBuiltinAdd": "引用",
+    "dataDictBuiltinAdded": "已存在",
+    "dataDictBuiltinCreateSuccess": "已引用内置字典「{name}」",
+    "dataDictEmpty": "暂无自建字典，可引用上方内置字典或点击「新增字典」创建",
     "dataDictSample": "抽取测试",
     "dataDictSampleRandom": "随机抽取",
     "dataDictSampleRoundRobin": "轮询抽取 (Round-Robin)",

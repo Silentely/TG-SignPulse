@@ -2,6 +2,9 @@
 
 > 记录 TG-SignPulse 各版本的更新内容与演进历史。变更记录撰写规范参见 [CLAUDE.md](./CLAUDE.md)。
 
+## 2026-11-12 (未发布)
+- **新增**：素材数据字典内置五组常用词条模板——`greetings`（问候）、`checkin`（签到）、`blessings`（祝福）、`thanks`（感谢）、`chitchat`（群聊闲聊）。系统设置中可一键引用写入自己的字典列表，引用后仍可自由编辑或删除，已存在的同名字典不会被覆盖，方便快速搭建任务文案素材池。
+
 ## 2026-11-07 (v2.8.1)
 - **修复**：插件 Context v2 在执行身份不完整（调试、沙箱、关键词监听等场景）时不再抛出 `PLUGIN_IDENTITY_ACCOUNT_REQUIRED`，统一回退到旧版共享命名空间并只告警一次；worker 代理与宿主侧的回退行为保持一致，并统一校验存储作用域参数。
 - **修复**：官方内置插件补齐 Context v2 声明与权限清单。`daily_checkin_helper`、`keyword_reactor`、`math_solver`、`regex_reply`、`stock_sniper`、`webhook_pusher` 均声明 `context_version=2`、`plugin_api`、`min_app_version` 与 `permissions`，其中 `stock_sniper` 补上 `message_read` 权限。

@@ -57,6 +57,14 @@ describe('api barrel 完整性', () => {
     expect(api.testPlugin.length).toBeGreaterThanOrEqual(3)
   })
 
+  it('data-dict API 导出', () => {
+    expect(typeof api.listDataDicts).toBe('function')
+    expect(typeof api.listBuiltinDataDicts).toBe('function')
+    expect(typeof api.createDataDictFromBuiltin).toBe('function')
+    expect(typeof api.saveDataDict).toBe('function')
+    expect(typeof api.deleteDataDict).toBe('function')
+  })
+
   it('core 工具函数不通过 barrel 对外暴露', () => {
     expect((api as Record<string, unknown>).request).toBeUndefined()
     expect((api as Record<string, unknown>).requestBlob).toBeUndefined()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { BookOpen, Plus, Trash2, Edit2, Play, Sparkles, X, RefreshCw, Layers } from 'lucide-vue-next'
+import { BookOpen, Plus, Trash2, Edit2, Play, Sparkles, X, RefreshCw, Layers, Check } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
@@ -11,7 +11,10 @@ import {
   saveDataDict,
   deleteDataDict,
   sampleDataDictEntry,
+  listBuiltinDataDicts,
+  createDataDictFromBuiltin,
   type DataDictMeta,
+  type BuiltinDataDictMeta,
 } from '../../lib/api/data-dict'
 
 const { t } = useI18n()
@@ -20,6 +23,10 @@ const authStore = useAuthStore()
 
 const loading = ref(false)
 const dicts = ref<DataDictMeta[]>([])
+const builtins = ref<BuiltinDataDictMeta[]>([])
+const builtinsLoading = ref(false)
+const creatingBuiltin = ref('')
+const expandedBuiltin = ref('')
 
 // Modal / Drawer state
 const showModal = ref(false)
@@ -48,6 +55,38 @@ const loadDicts = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const loadBuiltins = async () => {
+  const token = authStore.token
+  if (!token) return
+  builtinsLoading.value = true
+  try {
+    builtins.value = await listBuiltinDataDicts(token)
+  } catch (err: unknown) {
+    error(getLocalizedErrorMessage(err, t, t('common.loadFailed')))
+  } finally {
+    builtinsLoading.value = false
+  }
+}
+
+const handleCreateFromBuiltin = async (name: string) => {
+  const token = authStore.token
+  if (!token) return
+  creatingBuiltin.value = name
+  try {
+    await createDataDictFromBuiltin(token, name)
+    success(t('settings.dataDictBuiltinCreateSuccess', { name }))
+    await Promise.all([loadDicts(), loadBuiltins()])
+  } catch (err: unknown) {
+    error(getLocalizedErrorMessage(err, t, t('common.loadFailed')))
+  } finally {
+    creatingBuiltin.value = ''
+  }
+}
+
+const toggleBuiltinEntries = (name: string) => {
+  expandedBuiltin.value = expandedBuiltin.value === name ? '' : name
 }
 
 const openCreateModal = () => {
@@ -116,7 +155,7 @@ const handleSave = async () => {
     })
     success(t('settings.dataDictSaveSuccess'))
     showModal.value = false
-    await loadDicts()
+    await Promise.all([loadDicts(), loadBuiltins()])
   } catch (err: unknown) {
     formError.value = getLocalizedErrorMessage(err, t, t('settings.saveFailed'))
   } finally {
@@ -135,7 +174,7 @@ const handleDelete = async (name: string) => {
   try {
     await deleteDataDict(token, name)
     success(t('settings.dataDictDeleteSuccess'))
-    await loadDicts()
+    await Promise.all([loadDicts(), loadBuiltins()])
   } catch (err: unknown) {
     error(getLocalizedErrorMessage(err, t, t('tasks.deleteFailed')))
   } finally {
@@ -168,6 +207,7 @@ const runSample = async () => {
 
 onMounted(() => {
   loadDicts()
+  loadBuiltins()
 })
 </script>
 
@@ -195,6 +235,65 @@ onMounted(() => {
         <Plus class="w-3.5 h-3.5" />
         <span>{{ t('settings.dataDictAdd') }}</span>
       </button>
+    </div>
+
+    <!-- Built-in presets -->
+    <div class="mb-4 p-3.5 border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface)]/[0.03]">
+      <div class="flex items-center gap-1.5 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-medium">
+        <Sparkles class="w-3.5 h-3.5 text-amber-500" />
+        <span>{{ t('settings.dataDictBuiltin') }}</span>
+        <span class="text-[10px] text-[var(--sp-text-muted)] font-normal">({{ t('settings.dataDictBuiltinHint') }})</span>
+      </div>
+
+      <div v-if="builtinsLoading && builtins.length === 0" class="py-3 text-center text-xs text-[var(--sp-text-muted)]">
+        <RefreshCw class="w-3.5 h-3.5 animate-spin mx-auto mb-1.5 opacity-60" />
+        {{ t('common.loading') }}
+      </div>
+
+      <div v-else class="mt-2.5 space-y-2">
+        <div
+          v-for="item in builtins"
+          :key="item.name"
+          class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius)] overflow-hidden"
+        >
+          <div class="flex items-center justify-between gap-3 px-3 py-2 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)]">
+            <button
+              type="button"
+              class="min-w-0 flex-1 flex items-center gap-2 text-left"
+              :aria-expanded="expandedBuiltin === item.name"
+              :aria-controls="`builtin-entries-${item.name}`"
+              @click="toggleBuiltinEntries(item.name)"
+            >
+              <span class="font-mono font-semibold text-sm text-sky-600 dark:text-sky-400">{{ item.name }}</span>
+              <span class="px-2 py-0.5 text-[11px] rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 shrink-0">
+                {{ t('settings.dataDictCount', { count: item.count }) }}
+              </span>
+              <span class="hidden sm:inline text-[11px] text-[var(--sp-text-muted)] truncate">{{ item.remark }}</span>
+            </button>
+            <button
+              type="button"
+              class="ui-btn-primary !px-2.5 !py-1 !text-[11px] flex items-center gap-1 shrink-0"
+              :disabled="item.exists || creatingBuiltin === item.name"
+              @click="handleCreateFromBuiltin(item.name)"
+            >
+              <Check v-if="item.exists" class="w-3 h-3" />
+              <Plus v-else class="w-3 h-3" />
+              <span>{{ item.exists ? t('settings.dataDictBuiltinAdded') : t('settings.dataDictBuiltinAdd') }}</span>
+            </button>
+          </div>
+          <div v-if="expandedBuiltin === item.name" :id="`builtin-entries-${item.name}`" class="px-3 py-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="entry in item.entries"
+                :key="entry"
+                class="px-2 py-0.5 text-[11px] rounded-[var(--sp-radius)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] border border-[var(--sp-border)] dark:border-[var(--sp-border)]"
+              >
+                {{ entry }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Dicts list -->

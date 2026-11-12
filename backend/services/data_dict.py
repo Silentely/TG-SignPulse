@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from backend.core.config import get_settings
+from backend.services.data_dict_presets import BUILTIN_DATA_DICT_MAP, BUILTIN_DATA_DICTS
 from backend.utils.atomic_io import read_json_safe, write_json_atomic
 
 logger = logging.getLogger("backend.data_dict")
@@ -58,6 +59,36 @@ class DataDictService:
                     }
                 )
         return results
+
+    def list_builtin_dicts(self) -> List[Dict[str, Any]]:
+        """列出内置字典预设及是否已被用户引用。"""
+        results: List[Dict[str, Any]] = []
+        with self._lock:
+            for preset in BUILTIN_DATA_DICTS:
+                results.append(
+                    {
+                        "name": preset.name,
+                        "count": len(preset.entries),
+                        "remark": preset.remark,
+                        "entries": list(preset.entries),
+                        "exists": self._dict_file(preset.name).exists(),
+                    }
+                )
+        return results
+
+    def create_from_builtin(self, name: str) -> Dict[str, Any]:
+        """将内置字典引用为用户字典；同名已存在时拒绝覆盖。"""
+        preset = BUILTIN_DATA_DICT_MAP.get(name)
+        if preset is None:
+            raise ValueError("BUILTIN_DICT_NOT_FOUND")
+
+        file_path = self._dict_file(name)
+        with self._lock:
+            if file_path.exists():
+                raise ValueError("DATA_DICT_EXISTS")
+            self.save_dict(preset.name, list(preset.entries), remark=preset.remark)
+            logger.info("Created data dict '%s' from builtin preset", name)
+        return self.get_dict(name)
 
     def get_dict(self, name: str) -> Dict[str, Any]:
         """获取指定字典详情及所有条目。"""

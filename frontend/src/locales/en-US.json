@@ -62,7 +62,9 @@
     "ACCOUNT_CHECK_FAILED": "Account status check failed, please try again later",
     "ACCOUNT_CHECK_START_FAILED": "Failed to start batch check, please try again later",
     "ACCOUNT_DELETE_FAILED": "Failed to delete account, please try again later",
-    "ACCOUNT_UPDATE_FAILED": "Failed to update account, please try again later"
+    "ACCOUNT_UPDATE_FAILED": "Failed to update account, please try again later",
+    "DATA_DICT_EXISTS": "A dictionary with this name already exists. Delete it before referencing.",
+    "BUILTIN_DICT_NOT_FOUND": "Built-in dictionary not found or no longer available"
   },
   "dashboard": {
     "runbookTitle": "Operational diagnosis",
@@ -1209,7 +1211,12 @@
     "dataDictEntries": "Entries (one per line)",
     "dataDictEntriesPlaceholder": "Good morning!\nDaily check-in~\nDone for today!",
     "dataDictCount": "{count} entries",
-    "dataDictEmpty": "No data dictionaries yet. Click \"Add Dictionary\" to create one.",
+    "dataDictBuiltin": "Built-in Dictionaries",
+    "dataDictBuiltinHint": "Click \"Reference\" to add one to your list, then edit it freely",
+    "dataDictBuiltinAdd": "Reference",
+    "dataDictBuiltinAdded": "Exists",
+    "dataDictBuiltinCreateSuccess": "Referenced built-in dictionary \"{name}\"",
+    "dataDictEmpty": "No custom dictionaries yet. Reference a built-in dictionary above or click \"Add Dictionary\".",
     "dataDictSample": "Test Sample",
     "dataDictSampleRandom": "Random",
     "dataDictSampleRoundRobin": "Round-Robin",

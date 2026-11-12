@@ -127,9 +127,9 @@ def test_data_dict_api_routes(
 ):
     # Setup data_dict service using tmp_path
     service = DataDictService(base_dir=tmp_path)
-    import backend.services.data_dict as dd_module
+    import backend.api.routes.data_dict as data_dict_routes
 
-    monkeypatch.setattr(dd_module, "get_data_dict_service", lambda: service)
+    monkeypatch.setattr(data_dict_routes, "get_data_dict_service", lambda: service)
 
     # 1. Unauthenticated request should return 401
     resp = api_client.get("/api/data-dict")
@@ -218,6 +218,113 @@ def test_data_dict_api_routes(
     # Get deleted dictionary -> 404
     resp = api_client.get("/api/data-dict/quotes", headers=headers)
     assert resp.status_code == 404
+
+
+def test_builtin_dict_presets_listed_and_referenced(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+
+    builtins = service.list_builtin_dicts()
+    assert [item["name"] for item in builtins] == [
+        "greetings",
+        "checkin",
+        "blessings",
+        "thanks",
+        "chitchat",
+    ]
+    assert all(item["exists"] is False for item in builtins)
+    assert all(item["entries"] for item in builtins)
+
+    created = service.create_from_builtin("greetings")
+    assert created["name"] == "greetings"
+    assert created["entries"]
+    assert service.list_dicts() == [
+        {
+            "name": "greetings",
+            "count": len(created["entries"]),
+            "remark": created["remark"],
+            "updated_at": created["updated_at"],
+        }
+    ]
+
+    refreshed = {item["name"]: item for item in service.list_builtin_dicts()}
+    assert refreshed["greetings"]["exists"] is True
+    assert refreshed["checkin"]["exists"] is False
+
+
+def test_builtin_dict_reference_does_not_overwrite_user_dict(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("greetings", ["自定义问候"])
+
+    with pytest.raises(ValueError, match="DATA_DICT_EXISTS"):
+        service.create_from_builtin("greetings")
+
+    assert service.get_dict("greetings")["entries"] == ["自定义问候"]
+
+
+def test_builtin_dict_rejects_unknown_name(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    with pytest.raises(ValueError, match="BUILTIN_DICT_NOT_FOUND"):
+        service.create_from_builtin("not-a-preset")
+
+
+def test_builtin_dict_api_routes(
+    api_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = DataDictService(base_dir=tmp_path)
+    import backend.api.routes.data_dict as data_dict_routes
+
+    monkeypatch.setattr(data_dict_routes, "get_data_dict_service", lambda: service)
+
+    resp = api_client.get("/api/data-dict-presets")
+    assert resp.status_code == 401
+
+    token = _login(api_client)
+    headers = _auth(token)
+
+    resp = api_client.get("/api/data-dict-presets", headers=headers)
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 5
+    assert all(item["exists"] is False for item in items)
+
+    resp = api_client.post("/api/data-dict-presets/greetings", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "greetings"
+
+    resp = api_client.post("/api/data-dict-presets/greetings", headers=headers)
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "DATA_DICT_EXISTS"
+
+    resp = api_client.post("/api/data-dict-presets/unknown", headers=headers)
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "BUILTIN_DICT_NOT_FOUND"
+
+    resp = api_client.get("/api/data-dict", headers=headers)
+    assert resp.status_code == 200
+    assert [item["name"] for item in resp.json()] == ["greetings"]
+
+
+def test_builtin_presets_do_not_shadow_user_dict_routes(
+    api_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("builtins", ["用户自己的字典"])
+    import backend.api.routes.data_dict as data_dict_routes
+
+    monkeypatch.setattr(data_dict_routes, "get_data_dict_service", lambda: service)
+
+    token = _login(api_client)
+    headers = _auth(token)
+
+    # 预设使用独立路径，用户仍可通过常规详情接口读取同名自定义字典
+    resp = api_client.get("/api/data-dict/builtins", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "builtins"
+    assert resp.json()["entries"] == ["用户自己的字典"]
+
+    resp = api_client.get("/api/data-dict-presets", headers=headers)
+    assert resp.status_code == 200
+    assert len(resp.json()) == 5
 
 
 def test_data_dict_null_byte_filtering_and_negative_cursor(tmp_path: Path):

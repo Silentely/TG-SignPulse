@@ -11,6 +11,7 @@ from backend.models.user import User
 from backend.services.data_dict import get_data_dict_service
 
 router = APIRouter()
+presets_router = APIRouter()
 logger = logging.getLogger("backend.data_dict_api")
 
 
@@ -33,6 +34,14 @@ class SaveDataDictRequest(BaseModel):
     name: str = Field(..., description="字典名称，仅支持字母、数字、下划线、短横线")
     entries: List[str] = Field(..., description="词条列表")
     remark: Optional[str] = Field(default="", description="字典备注说明")
+
+
+class BuiltinDataDictMeta(BaseModel):
+    name: str
+    count: int
+    remark: str = ""
+    entries: List[str] = Field(default_factory=list)
+    exists: bool = False
 
 
 class SampleEntryResponse(BaseModel):
@@ -68,6 +77,45 @@ def save_data_dict(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        )
+
+
+@presets_router.get("", response_model=List[BuiltinDataDictMeta])
+@presets_router.get(
+    "/", response_model=List[BuiltinDataDictMeta], include_in_schema=False
+)
+def list_builtin_data_dicts(
+    _user: User = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    """列出内置素材字典预设。"""
+    service = get_data_dict_service()
+    return service.list_builtin_dicts()
+
+
+@presets_router.post("/{name}", response_model=DataDictDetail)
+def create_data_dict_from_builtin(
+    name: str,
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """引用内置素材字典，写入用户数据目录。"""
+    service = get_data_dict_service()
+    try:
+        return service.create_from_builtin(name)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "BUILTIN_DICT_NOT_FOUND":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=code,
+            )
+        if code == "DATA_DICT_EXISTS":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=code,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=code,
         )
 
 
