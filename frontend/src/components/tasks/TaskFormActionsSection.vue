@@ -31,6 +31,7 @@ import {
 } from '../../lib/task-form-utils'
 
 const { t } = useI18n()
+const expandedJevGoals = ref<Record<string, boolean>>({})
 
 function setSemanticAssist(action: TaskActionItem, key: 'semantic_button' | 'semantic_result', event: Event) {
   const enabled = (event.target as HTMLInputElement).checked
@@ -39,6 +40,16 @@ function setSemanticAssist(action: TaskActionItem, key: 'semantic_button' | 'sem
 
 function setSemanticGoal(action: TaskActionItem, key: 'semantic_button' | 'semantic_result', event: Event) {
   action[key] = { mode: 'assist', ...action[key], goal: (event.target as HTMLInputElement).value }
+}
+
+function jevGoalExpanded(action: TaskActionItem, key: 'semantic_button' | 'semantic_result') {
+  const stateKey = `${action.id}:${key}`
+  return expandedJevGoals.value[stateKey] ?? Boolean(action[key]?.goal)
+}
+
+function toggleJevGoal(action: TaskActionItem, key: 'semantic_button' | 'semantic_result') {
+  const stateKey = `${action.id}:${key}`
+  expandedJevGoals.value[stateKey] = !jevGoalExpanded(action, key)
 }
 
 // 动作插件在线调试状态
@@ -671,15 +682,22 @@ const emit = defineEmits<{
               <input type="checkbox" :checked="(action.semantic_button?.mode ?? 'assist') === 'assist'" @change="setSemanticAssist(action, 'semantic_button', $event)" />
               {{ t('taskForm.jevButtonAssist') }}
             </label>
-            <input v-if="(action.semantic_button?.mode ?? 'assist') === 'assist'" :value="action.semantic_button?.goal ?? ''" @input="setSemanticGoal(action, 'semantic_button', $event)" :aria-label="t('taskForm.jevButtonGoal')" :placeholder="t('taskForm.jevButtonGoal')" class="ui-input" />
-            <span class="text-[var(--sp-text-muted)]">{{ t('taskForm.jevAssistHint') }}</span>
+            <span class="text-[var(--sp-text-muted)]">{{ t('taskForm.jevButtonDefaultHint') }}</span>
+            <button v-if="(action.semantic_button?.mode ?? 'assist') === 'assist'" type="button" class="self-start text-sky-700 dark:text-sky-400 hover:underline" @click="toggleJevGoal(action, 'semantic_button')">
+              {{ jevGoalExpanded(action, 'semantic_button') ? t('taskForm.jevHideGoal') : t('taskForm.jevEditGoal') }}
+            </button>
+            <input v-if="(action.semantic_button?.mode ?? 'assist') === 'assist' && jevGoalExpanded(action, 'semantic_button')" :value="action.semantic_button?.goal ?? ''" @input="setSemanticGoal(action, 'semantic_button', $event)" :aria-label="t('taskForm.jevButtonGoal')" :placeholder="t('taskForm.jevButtonGoal')" class="ui-input" />
           </div>
           <div v-if="action.wait_for_reply" class="flex flex-col gap-2">
             <label class="flex items-center gap-2">
               <input type="checkbox" :checked="(action.semantic_result?.mode ?? 'assist') === 'assist'" @change="setSemanticAssist(action, 'semantic_result', $event)" />
               {{ t('taskForm.jevResultAssist') }}
             </label>
-            <input v-if="(action.semantic_result?.mode ?? 'assist') === 'assist'" :value="action.semantic_result?.goal ?? ''" @input="setSemanticGoal(action, 'semantic_result', $event)" :aria-label="t('taskForm.jevResultGoal')" :placeholder="t('taskForm.jevResultGoal')" class="ui-input" />
+            <span class="text-[var(--sp-text-muted)]">{{ t('taskForm.jevResultDefaultHint') }}</span>
+            <button v-if="(action.semantic_result?.mode ?? 'assist') === 'assist'" type="button" class="self-start text-sky-700 dark:text-sky-400 hover:underline" @click="toggleJevGoal(action, 'semantic_result')">
+              {{ jevGoalExpanded(action, 'semantic_result') ? t('taskForm.jevHideGoal') : t('taskForm.jevEditGoal') }}
+            </button>
+            <input v-if="(action.semantic_result?.mode ?? 'assist') === 'assist' && jevGoalExpanded(action, 'semantic_result')" :value="action.semantic_result?.goal ?? ''" @input="setSemanticGoal(action, 'semantic_result', $event)" :aria-label="t('taskForm.jevResultGoal')" :placeholder="t('taskForm.jevResultGoal')" class="ui-input" />
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- 容错继续开关 -->
