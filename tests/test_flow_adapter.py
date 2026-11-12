@@ -55,6 +55,41 @@ async def test_full_pipeline_with_telegram_adapter_barrier():
 
 
 @pytest.mark.asyncio
+async def test_adapter_preserves_already_satisfied_navigation_without_side_effect():
+    chat = SignChatV3(
+        chat_id=99999,
+        actions=[
+            ClickKeyboardByTextAction(text="返回主菜单", continue_on_error=True),
+            ClickKeyboardByTextAction(text="签到"),
+        ],
+    )
+    graph = GraphNormalizer.from_chat(chat)
+    ctx = ScopedFlowContext()
+
+    mock_runner = MagicMock()
+    mock_runner.context = MagicMock()
+    observed_side_effect_flags = []
+
+    async def wait_for(chat_obj, action, timeout=None, next_action=None):
+        observed_side_effect_flags.append(
+            getattr(mock_runner.context, "pulseflow_side_effect_started", False) is True
+        )
+        if action.text == "返回主菜单":
+            mock_runner.context._action_already_satisfied = True
+        return True
+
+    mock_runner.wait_for = AsyncMock(side_effect=wait_for)
+    executor = TelegramNodeExecutor(mock_runner, chat, graph)
+
+    result = await PulseFlowEngine().run(graph, ctx, executor)
+
+    assert result["status"] == "success"
+    assert result["path"] == ["step_0", "step_1"]
+    assert observed_side_effect_flags == [False, False]
+    assert mock_runner.context.pulseflow_side_effect_started is True
+
+
+@pytest.mark.asyncio
 async def test_adapter_skip_if_matched():
     chat = SignChatV3(
         chat_id=12345,

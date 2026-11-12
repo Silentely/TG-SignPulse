@@ -97,6 +97,45 @@ class SignerActionsMixin:
     _get_message_text = staticmethod(_get_message_text)
     _normalize_button_text = staticmethod(_normalize_button_text)
 
+    @staticmethod
+    def _next_click_action_is_available(message: Message, next_action: Any) -> bool:
+        """Return whether the next click action is already available on this menu."""
+        if not isinstance(next_action, ClickKeyboardByTextAction):
+            return False
+        target_text = clean_text_for_match(next_action.text)
+        if not target_text or not getattr(message, "reply_markup", None):
+            return False
+
+        reply_markup = message.reply_markup
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            buttons = (button for row in reply_markup.inline_keyboard for button in row)
+            labels = (getattr(button, "text", "") for button in buttons)
+        elif isinstance(reply_markup, ReplyKeyboardMarkup):
+            labels = (
+                button if isinstance(button, str) else getattr(button, "text", "")
+                for row in reply_markup.keyboard
+                for button in row
+            )
+        else:
+            return False
+
+        return any(
+            label and button_text_matches(target_text, clean_text_for_match(label))
+            for label in labels
+        )
+
+    @staticmethod
+    def _can_skip_to_next_click(action: Any, next_action: Any) -> bool:
+        return bool(
+            getattr(action, "continue_on_error", False)
+            and isinstance(next_action, ClickKeyboardByTextAction)
+        )
+
+    def _mark_action_already_satisfied(self) -> None:
+        context = getattr(self, "context", None)
+        if context is not None:
+            context._action_already_satisfied = True
+
     def _plugin_execution_identity(self, chat, message=None):
         context = getattr(self, "context", None)
         event_id = str(getattr(message, "id", "")) if message is not None else None
@@ -1428,6 +1467,19 @@ class SignerActionsMixin:
                                 level="WARNING",
                             )
                             return False
+                        if (
+                            not matched
+                            and self._can_skip_to_next_click(action, next_action)
+                            and self._next_click_action_is_available(
+                                message, next_action
+                            )
+                        ):
+                            self._mark_action_already_satisfied()
+                            self.log(
+                                f"当前菜单已包含下一步按钮「{next_action.text}」，"
+                                f"判定已处于目标状态，跳过「{action.text}」"
+                            )
+                            return True
 
                     now_ts = time.perf_counter()
                     if now_ts >= next_history_scan:
@@ -1517,6 +1569,21 @@ class SignerActionsMixin:
                                         level="WARNING",
                                     )
                                     return False
+                                if (
+                                    not matched
+                                    and self._can_skip_to_next_click(
+                                        action, next_action
+                                    )
+                                    and self._next_click_action_is_available(
+                                        message, next_action
+                                    )
+                                ):
+                                    self._mark_action_already_satisfied()
+                                    self.log(
+                                        f"当前菜单已包含下一步按钮「{next_action.text}」，"
+                                        f"判定已处于目标状态，跳过「{action.text}」"
+                                    )
+                                    return True
                         except Exception as e:
                             self.log(f"最近消息按钮查找失败: {e}", level="WARNING")
 

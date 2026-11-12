@@ -390,6 +390,9 @@ class TelegramNodeExecutor:
         try:
             import time as _t
 
+            runner_context = getattr(self.runner, "context", None)
+            if runner_context is not None:
+                runner_context._action_already_satisfied = False
             context.system["last_action_started_at"] = _t.time()
             next_action = self.compat.resolve_next_action(node)
             step_timeout = getattr(node, "timeout_seconds", None)
@@ -399,7 +402,13 @@ class TelegramNodeExecutor:
                 step_timeout=step_timeout,
                 next_action=next_action,
             )
-            if res is not False:
+            already_satisfied = (
+                runner_context is not None
+                and getattr(runner_context, "_action_already_satisfied", False) is True
+            )
+            if already_satisfied:
+                runner_context._action_already_satisfied = False
+            elif res is not False:
                 self.compat.mark_side_effect_started()
                 msg_id = getattr(res, "id", None)
                 if msg_id:
@@ -414,6 +423,18 @@ class TelegramNodeExecutor:
             if matched_term:
                 self._log("检测到任务已完成，停止执行后续动作")
             output_text = self.compat.output_text(res=res, action=exec_action)
+
+            if already_satisfied:
+                self._log(
+                    f"步骤 [{node.id}] 已满足前置状态，跳过当前动作", level="INFO"
+                )
+                return StepOutcome(
+                    node_id=node.id,
+                    status=NodeStatus.SKIPPED,
+                    matched_terminal=matched_term,
+                    output_text=output_text or "Action precondition already satisfied",
+                    updates_last_output=False,
+                )
 
             if res is False:
                 self._log(f"步骤 [{node.id}] 执行未达预期/失败", level="WARNING")
