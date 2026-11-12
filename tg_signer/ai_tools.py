@@ -116,6 +116,20 @@ def _unwrap_cloudflare_result(body: dict) -> Any:
     return result
 
 
+# 支持 chat_template_kwargs.enable_thinking 的 Workers AI 推理模型前缀。
+# qwen3.8 的 reasoning_effort 只有 low/medium/xhigh（默认 xhigh），关闭思考需用
+# chat_template_kwargs.enable_thinking=False（Qwen 官方非思考模式）。
+# 视觉验证码场景需要低延迟，思考模式既慢又可能耗尽输出预算导致 content 为空。
+_CLOUDFLARE_THINKING_MODEL_PREFIXES = ("@cf/qwen/qwen3",)
+
+
+def disables_cloudflare_thinking(model: str | None) -> bool:
+    name = str(model or "").strip().lower()
+    return any(
+        name.startswith(prefix) for prefix in _CLOUDFLARE_THINKING_MODEL_PREFIXES
+    )
+
+
 def mask_secret_token(text: str, secret: str | None = None) -> str:
     """对包含敏感 token 的字符串进行安全脱敏。
 
@@ -815,7 +829,7 @@ class AITools:
 
     async def _cloudflare_vision_query(
         self,
-        image: bytes,
+        image: bytes | None,
         question: str,
         *,
         model: str,
@@ -823,23 +837,23 @@ class AITools:
         temperature: float = 0.1,
     ) -> str:
         url = self._cloudflare_run_url(model)
-        payload = {
-            "messages": [
+        thinking_disabled = disables_cloudflare_thinking(model)
+        content_parts: list[dict[str, Any]] = [{"type": "text", "text": question}]
+        if image:
+            content_parts.append(
                 {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": question},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": self._format_image_url(image)},
-                        },
-                    ],
+                    "type": "image_url",
+                    "image_url": {"url": self._format_image_url(image)},
                 }
-            ],
+            )
+        payload: dict[str, Any] = {
+            "messages": [{"role": "user", "content": content_parts}],
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if thinking_disabled:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         body = await self._cloudflare_post_with_model_agreement(url, payload)
         from tg_signer.core.ai_failover import (
             AIProviderResponseError,
@@ -848,7 +862,10 @@ class AITools:
 
         try:
             normalized = normalize_ai_response(
-                body, provider_type="cloudflare", model=model
+                body,
+                provider_type="cloudflare",
+                model=model,
+                allow_reasoning_fallback=thinking_disabled,
             )
             content_json = json.loads(normalized["choices"][0]["message"]["content"])
             answer = content_json.get("answer")
@@ -1277,6 +1294,9 @@ class AITools:
 
         if isinstance(result, str):
             stripped = result.strip()
+            parsed_json = robust_json_loads(stripped, fallback=None)
+            if isinstance(parsed_json, (dict, list)):
+                return cls._coerce_option_index(parsed_json, options)
             if stripped.lstrip("+-").isdigit():
                 parsed_int = int(stripped)
                 if cls._is_valid_option_index(parsed_int, options):
@@ -1421,6 +1441,9 @@ class AITools:
                 return []
 
         if isinstance(result, str):
+            parsed_json = robust_json_loads(result, fallback=None)
+            if isinstance(parsed_json, (dict, list)):
+                return cls._coerce_option_indexes(parsed_json, options)
             opt_texts = [text for _, text in options]
             from tg_signer.compat import parse_click_targets
 
@@ -1975,10 +1998,16 @@ class AITools:
             sys_str = "\n".join(system_prompts).strip()
             user_str = "\n\n".join(user_texts).strip()
             if sys_str and user_str:
+                requirement = (
+                    "Output valid JSON or the exact option index only."
+                    if expect_json
+                    else "Output plain text only."
+                )
                 combined_question = (
                     f"Instruction:\n{sys_str}\n\n"
                     f"Task:\n{user_str}\n\n"
-                    f"Response Requirement: Respond strictly according to the Instruction. Output valid JSON or the exact option index only. Do NOT provide reasoning or descriptions."
+                    f"Response Requirement: Respond strictly according to the Instruction. "
+                    f"{requirement} Do NOT provide reasoning or descriptions."
                 )
             elif sys_str:
                 combined_question = sys_str
@@ -2150,6 +2179,15 @@ class AITools:
                 return result
 
         raise last_error
+
+    def _completion_text(self, completion: Any, model: str | None = None) -> str:
+        """提取纯文本结果；Cloudflare 归一化响应会包一层 {"answer": ...}。"""
+        content = (completion.choices[0].message.content or "").strip()
+        if self._is_cloudflare_vision(model):
+            parsed = robust_json_loads(content, fallback=None)
+            if isinstance(parsed, dict) and isinstance(parsed.get("answer"), str):
+                return parsed["answer"].strip()
+        return content
 
     async def choose_option_by_image(
         self,
@@ -2347,7 +2385,7 @@ class AITools:
             max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
             expect_json=False,
         )
-        return (completion.choices[0].message.content or "").strip()
+        return self._completion_text(completion, model)
 
     async def calculate_problem(
         self,
@@ -2374,7 +2412,7 @@ class AITools:
             max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
             expect_json=False,
         )
-        return completion.choices[0].message.content.strip()
+        return self._completion_text(completion, model)
 
     async def get_reply(
         self,
@@ -2402,8 +2440,7 @@ class AITools:
             max_tokens=read_positive_int_env("AI_VISION_MAX_TOKENS", 512, 16),
             expect_json=False,
         )
-        message = completion.choices[0].message
-        return message.content
+        return self._completion_text(completion, model)
 
 
 is_token_param_rejection_error = AITools.is_token_param_rejection_error

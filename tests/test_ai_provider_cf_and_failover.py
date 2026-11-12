@@ -231,6 +231,91 @@ class TestNormalizationAndEmptyCheck:
         content = json.loads(choice["message"]["content"])
         assert content["answer"] == "Option 2: dog"
 
+    def test_normalize_cloudflare_openai_compatible_choices(self):
+        """新版 Workers AI 模型返回 result.choices[0].message.content"""
+        cf_raw = {
+            "success": True,
+            "result": {
+                "id": "chatcmpl-83ab0e92",
+                "object": "chat.completion",
+                "created": 1794480142,
+                "model": "@cf/qwen/qwen3.8-27b",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": '{"options":[2]}'},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        }
+        res = normalize_ai_response(
+            cf_raw, provider_type="cloudflare", model="@cf/qwen/qwen3.8-27b"
+        )
+        content = json.loads(res["choices"][0]["message"]["content"])
+        assert content["answer"] == '{"options":[2]}'
+
+    def test_normalize_cloudflare_choice_content_parts(self):
+        """多模态 content 片段列表按文本拼接"""
+        cf_raw = {
+            "success": True,
+            "result": {
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": "motor"},
+                                {"type": "text", "text": "cycle"},
+                            ],
+                        },
+                    }
+                ]
+            },
+        }
+        res = normalize_ai_response(cf_raw, provider_type="cloudflare")
+        content = json.loads(res["choices"][0]["message"]["content"])
+        assert content["answer"] == "motor\ncycle"
+
+    def test_normalize_cloudflare_reasoning_fallback_requires_opt_in(self):
+        """关闭思考后答案落在 reasoning_content 时，仅在显式允许时回退"""
+        cf_raw = {
+            "success": True,
+            "result": {
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "reasoning_content": "42",
+                        },
+                    }
+                ]
+            },
+        }
+        with pytest.raises(AIProviderResponseError, match="响应内容无效"):
+            normalize_ai_response(cf_raw, provider_type="cloudflare")
+
+        res = normalize_ai_response(
+            cf_raw, provider_type="cloudflare", allow_reasoning_fallback=True
+        )
+        content = json.loads(res["choices"][0]["message"]["content"])
+        assert content["answer"] == "42"
+
+    def test_normalize_cloudflare_openai_compatible_empty_content_raises(self):
+        cf_raw = {
+            "success": True,
+            "result": {
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": "  "}}
+                ]
+            },
+        }
+        with pytest.raises(AIProviderResponseError, match="响应内容无效"):
+            normalize_ai_response(cf_raw, provider_type="cloudflare")
+
     def test_normalize_cloudflare_empty_body_raises(self):
         """CF 返回 200 但 body 为空或缺少有效 answer 必须判失败"""
         # 1. 缺少 answer 字段

@@ -314,6 +314,135 @@ class TestCloudflareVisionQuery:
             assert answer == "router"
 
     @pytest.mark.asyncio
+    async def test_vision_query_accepts_openai_compatible_chat_completion(self):
+        """@cf/qwen/qwen3.8-27b 等新模型返回 result.choices[].message.content"""
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+
+        async def fake_post(url, payload):
+            return {
+                "success": True,
+                "result": {
+                    "id": "chatcmpl-83ab0e92",
+                    "object": "chat.completion",
+                    "model": "@cf/qwen/qwen3.8-27b",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"options":[2]}',
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+            }
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools._cloudflare_vision_query(
+                b"img",
+                "请选择图片中的物体",
+                model="@cf/qwen/qwen3.8-27b",
+            )
+
+        assert answer == '{"options":[2]}'
+
+    @pytest.mark.asyncio
+    async def test_vision_query_disables_thinking_for_qwen3(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+        payloads = []
+
+        async def fake_post(url, payload):
+            payloads.append(payload)
+            return {
+                "success": True,
+                "result": {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "cat"},
+                        }
+                    ]
+                },
+            }
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools._cloudflare_vision_query(
+                b"img", "question", model="@cf/qwen/qwen3.8-27b"
+            )
+
+        assert answer == "cat"
+        assert payloads[0]["chat_template_kwargs"] == {"enable_thinking": False}
+
+    @pytest.mark.asyncio
+    async def test_vision_query_keeps_thinking_for_legacy_models(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+        payloads = []
+
+        async def fake_post(url, payload):
+            payloads.append(payload)
+            return {"success": True, "result": {"response": "cat"}}
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools._cloudflare_vision_query(
+                b"img",
+                "question",
+                model="@cf/meta/llama-3.2-11b-vision-instruct",
+            )
+
+        assert answer == "cat"
+        assert "chat_template_kwargs" not in payloads[0]
+
+    @pytest.mark.asyncio
+    async def test_vision_query_uses_reasoning_content_when_thinking_disabled(self):
+        """部分推理模型关闭思考后会把答案放进 reasoning_content"""
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+
+        async def fake_post(url, payload):
+            return {
+                "success": True,
+                "result": {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "reasoning_content": "router",
+                            },
+                        }
+                    ]
+                },
+            }
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools._cloudflare_vision_query(
+                b"img", "question", model="@cf/qwen/qwen3.8-27b"
+            )
+
+        assert answer == "router"
+
+    @pytest.mark.asyncio
     async def test_vision_query_empty_answer_raises_retryable_error(self):
         tools = AITools(
             {
@@ -673,3 +802,104 @@ class TestCloudflareVisionFullIntegration:
             sent_question = call_kwargs.get("question") or mock_call.call_args[0][1]
             assert "Instruction:" in sent_question
             assert "Response Requirement:" in sent_question
+
+
+class TestCloudflareTextAndOptionResponses:
+    """新版 OpenAI 兼容模型在文本动作与选项解析上的回归测试。"""
+
+    @staticmethod
+    def _tools() -> AITools:
+        return AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+                "model": "@cf/qwen/qwen3.8-27b",
+            }
+        )
+
+    @staticmethod
+    def _chat_completion(content: str) -> dict:
+        return {
+            "success": True,
+            "result": {
+                "id": "chatcmpl-1",
+                "object": "chat.completion",
+                "model": "@cf/qwen/qwen3.8-27b",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": content},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_text_only_query_omits_image_part(self):
+        tools = self._tools()
+        payloads = []
+
+        async def fake_post(url, payload):
+            payloads.append(payload)
+            return self._chat_completion("4")
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools._cloudflare_vision_query(
+                b"", "1+1=?", model="@cf/qwen/qwen3.8-27b"
+            )
+
+        assert answer == "4"
+        content = payloads[0]["messages"][0]["content"]
+        assert content == [{"type": "text", "text": "1+1=?"}]
+
+    @pytest.mark.asyncio
+    async def test_calculate_problem_returns_plain_text(self):
+        tools = self._tools()
+        payloads = []
+
+        async def fake_post(url, payload):
+            payloads.append(payload)
+            return self._chat_completion("42")
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools.calculate_problem("6*7=?")
+
+        assert answer == "42"
+        parts = payloads[0]["messages"][0]["content"]
+        assert all(part["type"] != "image_url" for part in parts)
+        text = "\n".join(part.get("text", "") for part in parts)
+        assert "Output plain text only" in text
+
+    @pytest.mark.asyncio
+    async def test_extract_text_by_image_returns_plain_text(self):
+        tools = self._tools()
+
+        async def fake_post(url, payload):
+            return self._chat_completion("签到成功")
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            answer = await tools.extract_text_by_image(b"fake-image")
+
+        assert answer == "签到成功"
+
+    @pytest.mark.asyncio
+    async def test_choose_single_option_from_nested_json(self):
+        tools = self._tools()
+
+        async def fake_post(url, payload):
+            return self._chat_completion('{"options":[2]}')
+
+        with patch.object(tools, "_cloudflare_post", side_effect=fake_post):
+            index = await tools.choose_option_by_image(
+                b"fake-image",
+                "选择图片中的物体",
+                [(1, "猫"), (2, "狗")],
+            )
+
+        assert index == 2
+
+    def test_coerce_option_parses_json_string_payload(self):
+        options = [(1, "猫"), (2, "狗")]
+        assert AITools._coerce_option_index('{"options":[2]}', options) == 2
+        assert AITools._coerce_option_indexes('{"options":[2]}', options) == [2]

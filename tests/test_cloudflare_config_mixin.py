@@ -75,6 +75,47 @@ class TestCloudflareConfigMixin:
             mock_openai.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_cloudflare_connection_supports_openai_compatible_model(self):
+        """qwen3.8-27b 等新模型返回 chat.completion 形状时也能连通"""
+        service = DummyService(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/fake-acc/ai",
+                "model": "@cf/qwen/qwen3.8-27b",
+            }
+        )
+
+        mock_post_result = {
+            "success": True,
+            "result": {
+                "id": "chatcmpl-83ab0e92",
+                "object": "chat.completion",
+                "model": "@cf/qwen/qwen3.8-27b",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "test ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        }
+
+        with (
+            patch(
+                "tg_signer.ai_tools.AITools._cloudflare_post", new_callable=AsyncMock
+            ) as mock_post,
+        ):
+            mock_post.return_value = mock_post_result
+
+            res = await service.test_ai_connection()
+            assert res["success"] is True
+            assert "Cloudflare 响应: test ok" in res["message"]
+            assert res["model_used"] == "@cf/qwen/qwen3.8-27b"
+            sent_payload = mock_post.await_args.args[1]
+            assert sent_payload["chat_template_kwargs"] == {"enable_thinking": False}
+
+    @pytest.mark.asyncio
     async def test_cloudflare_connection_failure_returns_failure_dict(self):
         service = DummyService(
             {

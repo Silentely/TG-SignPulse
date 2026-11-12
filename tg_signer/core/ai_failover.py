@@ -40,12 +40,64 @@ class AIProviderResponseError(Exception):
     """
 
 
+def _cloudflare_content_text(value: Any) -> str:
+    """把 message.content 统一成文本（字符串或多模态片段列表）。"""
+    if isinstance(value, str):
+        return value.strip()
+    if not isinstance(value, list):
+        return ""
+    parts: List[str] = []
+    for item in value:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict):
+            text = item.get("text") or item.get("content")
+            if isinstance(text, str):
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _cloudflare_choice_text(result: Any, *, reasoning: bool = False) -> str:
+    """兼容 Workers AI 新版 OpenAI 风格的 choices 响应。
+
+    新模型（如 @cf/qwen/qwen3.8-27b）在 /ai/run 下返回
+    {"result": {"choices": [{"message": {"content": ...}}]}}，
+    而旧视觉模型返回 {"result": {"response": ...}}。
+    """
+    if not isinstance(result, dict):
+        return ""
+    choices = result.get("choices")
+    if not isinstance(choices, list):
+        return ""
+    keys = ("reasoning_content", "reasoning") if reasoning else ("content",)
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if isinstance(message, dict):
+            for key in keys:
+                text = _cloudflare_content_text(message.get(key))
+                if text:
+                    return text
+        if not reasoning:
+            text = _cloudflare_content_text(choice.get("text"))
+            if text:
+                return text
+    return ""
+
+
 def normalize_ai_response(
     raw_data: Any,
     provider_type: str = "openai",
     model: str = "",
+    *,
+    allow_reasoning_fallback: bool = False,
 ) -> Dict[str, Any]:
-    """核心传输层统一响应归一化。"""
+    """核心传输层统一响应归一化。
+
+    allow_reasoning_fallback：请求已显式关闭思考模式时启用。部分 Workers AI
+    推理模型会把答案放进 reasoning_content，同时 content 为 null。
+    """
     if not isinstance(raw_data, dict):
         raise AIProviderResponseError(
             f"AI 响应格式非法: 期望 dict，实际为 {type(raw_data).__name__}"
@@ -76,6 +128,13 @@ def normalize_ai_response(
                     and desc[0].strip()
                 ):
                     answer = desc[0].strip()
+            if not answer:
+                answer = _cloudflare_choice_text(result) or None
+            if not answer and allow_reasoning_fallback:
+                answer = _cloudflare_choice_text(result, reasoning=True) or None
+        elif isinstance(result, str) and result.strip():
+            # 少数模型直接返回纯文本 result
+            answer = result.strip()
 
         # CF 返回 200 但 body 不合法（空 body / result:{} / 空 answer）必须判失败
         if not answer:

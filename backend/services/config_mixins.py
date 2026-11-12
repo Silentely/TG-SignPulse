@@ -1438,7 +1438,7 @@ class AIConfigMixin:
                     TINY_1X1_PNG,
                     "Say test ok in 2 words",
                     model=model,
-                    max_tokens=16,
+                    max_tokens=64,
                 )
                 if not answer or not isinstance(answer, str) or not answer.strip():
                     return _sanitize_res(
