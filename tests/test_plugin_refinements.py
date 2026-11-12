@@ -43,7 +43,7 @@ def test_storage_backend_keys_and_get_all(tmp_path: Path):
     # Set some keys
     backend.set(ns, "token", "abc")
     backend.set(ns, "user_count", 42)
-    backend.set(ns, "temp_code", "xyz", ttl=0.05)
+    backend.set(ns, "temp_code", "xyz", ttl=0.5)
     backend.set("99999:other_plugin", "other_key", 1)
 
     assert backend.keys(ns) == ["temp_code", "token", "user_count"]
@@ -54,7 +54,7 @@ def test_storage_backend_keys_and_get_all(tmp_path: Path):
     assert all_data["temp_code"] == "xyz"
 
     # Test TTL expiration purge
-    time.sleep(0.08)
+    time.sleep(0.55)
     assert backend.keys(ns) == ["token", "user_count"]
     purged_data = backend.get_all(ns)
     assert "temp_code" not in purged_data
@@ -243,11 +243,11 @@ def test_storage_backend_purge_expired(tmp_path: Path):
     ns1 = "user1:plugin_a"
     ns2 = "user2:plugin_b"
 
-    backend.set(ns1, "exp_key1", "val1", ttl=0.05)
+    backend.set(ns1, "exp_key1", "val1", ttl=0.4)
     backend.set(ns1, "keep_key1", "val2")
-    backend.set(ns2, "exp_key2", "val3", ttl=0.05)
+    backend.set(ns2, "exp_key2", "val3", ttl=0.45)
 
-    time.sleep(0.08)
+    time.sleep(0.5)
     purged = backend.purge_expired(namespace=ns1)
     assert purged == 1
     assert backend.get(ns1, "exp_key1") is None
