@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from tg_signer.core.timeout_defaults import DEFAULT_TASK_EXECUTION_TIMEOUT_SECONDS
+
 if TYPE_CHECKING:
     from backend.services.sign_tasks import SignTaskService
 
@@ -71,7 +73,7 @@ class TaskExecutionContext:
     timed_out: bool = False
     lock_acquired: bool = False
     cancelled: bool = False
-    task_timeout: float = 120.0
+    task_timeout: float = DEFAULT_TASK_EXECUTION_TIMEOUT_SECONDS
     failure_category: Optional[str] = None
 
     # Config & signer parameters

@@ -37,6 +37,10 @@ from tg_signer.core.flow_models import (
     TerminalPolicy,
     WaitEventNode,
 )
+from tg_signer.core.timeout_defaults import (
+    DEFAULT_ACTION_TIMEOUT_SECONDS,
+    is_legacy_action_timeout,
+)
 
 
 class GraphValidationError(ValueError):
@@ -73,6 +77,7 @@ class GraphNormalizer:
 
         if isinstance(source, ExecutionGraph):
             graph = source.copy(deep=True)
+            cls._upgrade_legacy_action_timeouts(graph)
             cls.validate_graph(graph, budget=budget, warnings=warnings)
             return graph
 
@@ -80,6 +85,7 @@ class GraphNormalizer:
             src = copy.deepcopy(source)
             if "nodes" in src and ("entry_node_id" in src or "max_total_steps" in src):
                 graph = ExecutionGraph.from_dict(src)
+                cls._upgrade_legacy_action_timeouts(graph)
                 graph.max_total_steps = max(60, len(graph.nodes) * 2)
                 cls.validate_graph(graph, budget=budget, warnings=warnings)
                 return graph
@@ -144,6 +150,7 @@ class GraphNormalizer:
                     node.metadata.setdefault(
                         "message_thread_id", chat.message_thread_id
                     )
+        cls._upgrade_legacy_action_timeouts(graph)
 
         # 动态对齐单流程最大执行步数
         graph.max_total_steps = max(60, len(graph.nodes) * 2)
@@ -211,7 +218,7 @@ class GraphNormalizer:
             from tg_signer.utils import read_positive_float_env
 
             base_timeout = read_positive_float_env(
-                "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
+                "SIGN_TASK_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT_SECONDS, 5.0
             )
             ai_default_timeout = read_positive_float_env(
                 "SIGN_TASK_AI_ACTION_TIMEOUT", 60.0, 10.0
@@ -422,7 +429,7 @@ class GraphNormalizer:
                 from tg_signer.utils import read_positive_float_env
 
                 base_timeout = read_positive_float_env(
-                    "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
+                    "SIGN_TASK_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT_SECONDS, 5.0
                 )
                 ai_default_timeout = read_positive_float_env(
                     "SIGN_TASK_AI_ACTION_TIMEOUT", 60.0, 10.0
@@ -439,7 +446,12 @@ class GraphNormalizer:
                         "timeout_seconds"
                     )
                     try:
-                        step_timeout = max(5.0, float(raw_to))
+                        parsed_timeout = max(5.0, float(raw_to))
+                        step_timeout = (
+                            base_timeout
+                            if is_legacy_action_timeout(parsed_timeout)
+                            else parsed_timeout
+                        )
                     except (ValueError, TypeError):
                         pass
 
@@ -477,6 +489,25 @@ class GraphNormalizer:
         return None
 
     @staticmethod
+    def _upgrade_legacy_action_timeouts(graph: ExecutionGraph) -> None:
+        """Upgrade persisted 25-second action defaults without changing custom values."""
+        from tg_signer.utils import read_positive_float_env
+
+        default_timeout = read_positive_float_env(
+            "SIGN_TASK_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT_SECONDS, 5.0
+        )
+        for node in graph.nodes.values():
+            if isinstance(node, ActionNode) and is_legacy_action_timeout(
+                node.timeout_seconds
+            ):
+                node.timeout_seconds = default_timeout
+            elif isinstance(node, SubflowNode) and node.subflow_graph is not None:
+                GraphNormalizer._upgrade_legacy_action_timeouts(node.subflow_graph)
+            elif isinstance(node, ParallelNode):
+                for branch in node.branches:
+                    GraphNormalizer._upgrade_legacy_action_timeouts(branch)
+
+    @staticmethod
     def _resolve_flow_step_timeout(step: Any) -> float:
         from tg_signer.config import FlowNodeType
         from tg_signer.utils import read_positive_float_env
@@ -493,11 +524,18 @@ class GraphNormalizer:
                 timeout_val = get_reply_timeout()
             else:
                 base_timeout = read_positive_float_env(
-                    "SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0
+                    "SIGN_TASK_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT_SECONDS, 5.0
                 )
                 timeout_val = base_timeout
         else:
             timeout_val = float(timeout_val)
+
+        if getattr(
+            step, "node_type", None
+        ) == FlowNodeType.ACTION and is_legacy_action_timeout(timeout_val):
+            timeout_val = read_positive_float_env(
+                "SIGN_TASK_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT_SECONDS, 5.0
+            )
 
         if getattr(step, "node_type", None) == FlowNodeType.WAIT_EVENT:
             timeout_val = max(30.0, min(3600.0, timeout_val))

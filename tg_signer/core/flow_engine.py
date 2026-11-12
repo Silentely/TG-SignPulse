@@ -34,6 +34,10 @@ from tg_signer.core.flow_models import (
     WaitEventNode,
     redact_sensitive_value,
 )
+from tg_signer.core.timeout_defaults import (
+    DEFAULT_ACTION_TIMEOUT_SECONDS,
+    DEFAULT_FLOW_NODE_TIMEOUT_SECONDS,
+)
 
 logger = logging.getLogger("tg_signer.flow_engine")
 
@@ -303,17 +307,24 @@ class PulseFlowEngine:
                         timeout_sec = (
                             float(node.timeout_seconds)
                             if node.timeout_seconds and node.timeout_seconds > 0
-                            else 25.0
+                            else DEFAULT_ACTION_TIMEOUT_SECONDS
                         )
-                        wait_for_timeout = timeout_sec
+                        wait_for_timeout = (
+                            max(timeout_sec, DEFAULT_FLOW_NODE_TIMEOUT_SECONDS)
+                            if timeout_sec >= DEFAULT_ACTION_TIMEOUT_SECONDS
+                            else timeout_sec
+                        )
                         if isinstance(node, WaitEventNode):
                             action = graph.nodes.get(
                                 node.action_node_id
                             ) or ctx.system.get("last_action_node")
                             resend_timeout = (
-                                float(action.timeout_seconds or 25.0)
+                                float(
+                                    action.timeout_seconds
+                                    or DEFAULT_ACTION_TIMEOUT_SECONDS
+                                )
                                 if action
-                                else 25.0
+                                else DEFAULT_ACTION_TIMEOUT_SECONDS
                             )
                             # 每次重试均有独立回复窗口，另预留发送和间隔时间。
                             wait_for_timeout = (
@@ -1381,7 +1392,10 @@ class PulseFlowEngine:
                         try:
                             retry_outcome = await asyncio.wait_for(
                                 executor(action_node, ctx),
-                                timeout=float(action_node.timeout_seconds or 25.0),
+                                timeout=float(
+                                    action_node.timeout_seconds
+                                    or DEFAULT_ACTION_TIMEOUT_SECONDS
+                                ),
                             )
                         except Exception as re_err:
                             return StepOutcome(

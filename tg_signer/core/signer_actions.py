@@ -57,6 +57,7 @@ from tg_signer.core.plugins import (
 )
 from tg_signer.core.signer_config import FLOOD_WAIT_RETRY_MAX_SECONDS
 from tg_signer.core.telegram_actions import click_inline_button_unified
+from tg_signer.core.timeout_defaults import DEFAULT_ACTION_TIMEOUT_SECONDS
 from tg_signer.log_utils import (
     safe_ai_request_meta,
     safe_ai_result_meta,
@@ -1169,7 +1170,9 @@ class SignerActionsMixin:
         next_action: Optional[ActionT] = None,
     ):
         if timeout is None:
-            timeout = read_positive_float_env("SIGN_TASK_ACTION_TIMEOUT", 25.0, 5.0)
+            timeout = read_positive_float_env(
+                "SIGN_TASK_ACTION_TIMEOUT", DEFAULT_ACTION_TIMEOUT_SECONDS, 5.0
+            )
             if isinstance(
                 action,
                 (

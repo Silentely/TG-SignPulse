@@ -346,6 +346,43 @@ async def test_node_execution_records_duration_and_timeout_status():
 
 
 @pytest.mark.asyncio
+async def test_action_node_uses_three_minute_outer_budget_for_ninety_second_action(
+    monkeypatch,
+):
+    graph = ExecutionGraph(
+        entry_node_id="action",
+        nodes={
+            "action": ActionNode(
+                id="action",
+                timeout_seconds=90.0,
+                next_node_id=TERMINAL_COMPLETE_ID,
+            )
+        },
+    )
+    observed_timeouts = []
+    original_wait_for = asyncio.wait_for
+
+    async def capture_wait_for(awaitable, timeout):
+        observed_timeouts.append(timeout)
+        return await original_wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", capture_wait_for)
+
+    result = await PulseFlowEngine().run(
+        graph,
+        ScopedFlowContext(),
+        lambda node, context: _success_outcome(node),
+    )
+
+    assert result["status"] == "success"
+    assert observed_timeouts == [180.0]
+
+
+async def _success_outcome(node):
+    return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+
+@pytest.mark.asyncio
 async def test_extractor_numeric_groups_json_and_required():
     # 测试数字索引捕获组
     ext_node = ExtractorNode(

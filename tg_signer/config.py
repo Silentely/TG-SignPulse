@@ -369,7 +369,7 @@ class FlowStepConfig(BaseModel):
     terminal_branch_target: Optional[str] = None
     run_if: Optional[str] = None
     skip_if: Optional[str] = None
-    timeout_seconds: float = 25.0
+    timeout_seconds: float = 90.0
     retry_policy: Dict[str, Any] = Field(default_factory=dict)
     loop_policy: Dict[str, Any] = Field(default_factory=dict)
 

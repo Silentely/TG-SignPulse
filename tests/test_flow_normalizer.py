@@ -278,7 +278,7 @@ def test_graph_normalizer_to_mermaid():
 
 
 def test_normalize_ai_action_timeout_adaptation():
-    """验证普通动作使用默认超时（25s），AI 视觉动作自适应放宽超时（60s），显式配置优先。"""
+    """验证普通动作使用默认超时（90s），AI 视觉动作自适应放宽超时（60s），显式配置优先。"""
     chat = SignChatV3(
         chat_id=12345,
         actions=[
@@ -289,13 +289,56 @@ def test_normalize_ai_action_timeout_adaptation():
     )
     graph = GraphNormalizer.from_chat(chat)
     node0 = graph.nodes["step_0"]
-    assert node0.timeout_seconds == 25.0
+    assert node0.timeout_seconds == 90.0
 
     node1 = graph.nodes["step_1"]
     assert node1.timeout_seconds >= 60.0
 
     node2 = graph.nodes["step_2"]
     assert node2.timeout_seconds == 90.0
+
+
+def test_normalize_legacy_flow_step_timeout_uses_new_action_default():
+    """历史 steps 固化的 25 秒默认值应升级为新的 90 秒动作预算。"""
+    chat = SignChatV3(
+        chat_id=12345,
+        steps=[
+            {
+                "step_id": "legacy_action",
+                "node_type": "action",
+                "action_type": "SEND_TEXT",
+                "timeout_seconds": 25.0,
+                "params": {"text": "/checkin"},
+            }
+        ],
+    )
+
+    graph = GraphNormalizer.from_chat(chat)
+
+    assert graph.nodes["legacy_action"].timeout_seconds == 90.0
+
+
+def test_normalize_legacy_flow_graph_timeout_uses_new_action_default():
+    """旧 flow_graph 入口及其动作节点也应升级历史 25 秒默认值。"""
+    chat = SignChatV3(
+        chat_id=12345,
+        flow_graph={
+            "entry_node_id": "legacy_action",
+            "nodes": {
+                "legacy_action": {
+                    "id": "legacy_action",
+                    "node_type": "action",
+                    "action_type": "SEND_TEXT",
+                    "timeout_seconds": 25.0,
+                    "params": {"text": "/checkin"},
+                }
+            },
+        },
+    )
+
+    graph = GraphNormalizer.from_chat(chat)
+
+    assert graph.nodes["legacy_action"].timeout_seconds == 90.0
 
 
 def test_execution_graph_compile_non_mutating_input_dict():

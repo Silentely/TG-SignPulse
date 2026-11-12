@@ -8,6 +8,8 @@ from typing import Any, Dict, Iterator, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, root_validator, validator
 
+from tg_signer.core.timeout_defaults import DEFAULT_ACTION_TIMEOUT_SECONDS
+
 TERMINAL_COMPLETE_ID = "_TERMINAL_COMPLETE"
 TERMINAL_FAIL_ID = "_TERMINAL_FAIL"
 
@@ -303,7 +305,7 @@ class BaseFlowNode(BaseModel):
     terminal_branch_target: Optional[str] = None
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     loop_policy: LoopPolicy = Field(default_factory=LoopPolicy)
-    timeout_seconds: float = 25.0
+    timeout_seconds: float = DEFAULT_ACTION_TIMEOUT_SECONDS
     run_if: Optional[str] = None
     skip_if: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)

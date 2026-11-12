@@ -28,6 +28,10 @@ from backend.services.sign_task_run_status import (
 )
 from backend.utils.task_logs import extract_last_target_message
 from tg_signer.core import get_client_refcount
+from tg_signer.core.timeout_defaults import (
+    DEFAULT_ACTION_TIMEOUT_SECONDS,
+    DEFAULT_TASK_EXECUTION_TIMEOUT_SECONDS,
+)
 
 try:
     from tg_signer.core.flow_models import FlowLoopLimitExceededError
@@ -388,9 +392,12 @@ async def _runner_prepare_execution(
     )
     _task_retry_count_var.set(task_retry_count)
     try:
-        task_timeout = max(5.0, float(get_execution_timeout() or 120.0))
+        task_timeout = max(
+            5.0,
+            float(get_execution_timeout() or DEFAULT_TASK_EXECUTION_TIMEOUT_SECONDS),
+        )
     except (TypeError, ValueError):
-        task_timeout = 120.0
+        task_timeout = DEFAULT_TASK_EXECUTION_TIMEOUT_SECONDS
 
     # 关键词重试有独立的回复窗口；总任务截止时间不能先于这些窗口耗尽。
     from tg_signer.core.flow_models import ActionNode, WaitEventNode
@@ -402,14 +409,16 @@ async def _runner_prepare_execution(
         graph = GraphNormalizer.compile(chat_cfg)
         resend_timeout = max(
             (
-                float(n.timeout_seconds or 25.0)
+                float(n.timeout_seconds or DEFAULT_ACTION_TIMEOUT_SECONDS)
                 for n in graph.nodes.values()
                 if isinstance(n, ActionNode)
             ),
-            default=25.0,
+            default=DEFAULT_ACTION_TIMEOUT_SECONDS,
         )
         for node in graph.nodes.values():
-            reply_budget += float(node.timeout_seconds or 25.0)
+            reply_budget += float(
+                node.timeout_seconds or DEFAULT_ACTION_TIMEOUT_SECONDS
+            )
             if (
                 isinstance(node, WaitEventNode)
                 and node.retry_keywords
