@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { BookOpen, Plus, Trash2, Edit2, Play, Sparkles, X, RefreshCw, Layers, Check } from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
+import { BookOpen, Plus, Trash2, Edit2, Play, Sparkles, X, RefreshCw, Layers, ChevronDown } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
@@ -25,8 +25,12 @@ const loading = ref(false)
 const dicts = ref<DataDictMeta[]>([])
 const builtins = ref<BuiltinDataDictMeta[]>([])
 const builtinsLoading = ref(false)
+const builtinsExpanded = ref(true)
 const creatingBuiltin = ref('')
 const expandedBuiltin = ref('')
+
+const availableBuiltins = computed(() => builtins.value.filter((item) => !item.exists))
+const referencedBuiltinCount = computed(() => builtins.value.length - availableBuiltins.value.length)
 
 // Modal / Drawer state
 const showModal = ref(false)
@@ -62,7 +66,8 @@ const loadBuiltins = async () => {
   if (!token) return
   builtinsLoading.value = true
   try {
-    builtins.value = await listBuiltinDataDicts(token)
+    const list = await listBuiltinDataDicts(token)
+    builtins.value = Array.isArray(list) ? list : []
   } catch (err: unknown) {
     error(getLocalizedErrorMessage(err, t, t('common.loadFailed')))
   } finally {
@@ -77,6 +82,7 @@ const handleCreateFromBuiltin = async (name: string) => {
   try {
     await createDataDictFromBuiltin(token, name)
     success(t('settings.dataDictBuiltinCreateSuccess', { name }))
+    if (expandedBuiltin.value === name) expandedBuiltin.value = ''
     await Promise.all([loadDicts(), loadBuiltins()])
   } catch (err: unknown) {
     error(getLocalizedErrorMessage(err, t, t('common.loadFailed')))
@@ -87,6 +93,10 @@ const handleCreateFromBuiltin = async (name: string) => {
 
 const toggleBuiltinEntries = (name: string) => {
   expandedBuiltin.value = expandedBuiltin.value === name ? '' : name
+}
+
+const toggleBuiltins = () => {
+  builtinsExpanded.value = !builtinsExpanded.value
 }
 
 const openCreateModal = () => {
@@ -239,57 +249,84 @@ onMounted(() => {
 
     <!-- Built-in presets -->
     <div class="mb-4 p-3.5 border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface)]/[0.03]">
-      <div class="flex items-center gap-1.5 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-medium">
-        <Sparkles class="w-3.5 h-3.5 text-amber-500" />
-        <span>{{ t('settings.dataDictBuiltin') }}</span>
-        <span class="text-[10px] text-[var(--sp-text-muted)] font-normal">({{ t('settings.dataDictBuiltinHint') }})</span>
-      </div>
-
-      <div v-if="builtinsLoading && builtins.length === 0" class="py-3 text-center text-xs text-[var(--sp-text-muted)]">
-        <RefreshCw class="w-3.5 h-3.5 animate-spin mx-auto mb-1.5 opacity-60" />
-        {{ t('common.loading') }}
-      </div>
-
-      <div v-else class="mt-2.5 space-y-2">
-        <div
-          v-for="item in builtins"
-          :key="item.name"
-          class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius)] overflow-hidden"
+      <button
+        type="button"
+        class="w-full flex items-center gap-1.5 text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] font-medium text-left"
+        :aria-expanded="builtinsExpanded"
+        aria-controls="builtin-dict-panel"
+        @click="toggleBuiltins"
+      >
+        <Sparkles class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+        <span class="shrink-0">{{ t('settings.dataDictBuiltin') }}</span>
+        <span
+          v-if="referencedBuiltinCount > 0"
+          class="px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 shrink-0"
         >
-          <div class="flex items-center justify-between gap-3 px-3 py-2 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)]">
-            <button
-              type="button"
-              class="min-w-0 flex-1 flex items-center gap-2 text-left"
-              :aria-expanded="expandedBuiltin === item.name"
-              :aria-controls="`builtin-entries-${item.name}`"
-              @click="toggleBuiltinEntries(item.name)"
-            >
-              <span class="font-mono font-semibold text-sm text-sky-600 dark:text-sky-400">{{ item.name }}</span>
-              <span class="px-2 py-0.5 text-[11px] rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 shrink-0">
-                {{ t('settings.dataDictCount', { count: item.count }) }}
-              </span>
-              <span class="hidden sm:inline text-[11px] text-[var(--sp-text-muted)] truncate">{{ item.remark }}</span>
-            </button>
-            <button
-              type="button"
-              class="ui-btn-primary !px-2.5 !py-1 !text-[11px] flex items-center gap-1 shrink-0"
-              :disabled="item.exists || creatingBuiltin === item.name"
-              @click="handleCreateFromBuiltin(item.name)"
-            >
-              <Check v-if="item.exists" class="w-3 h-3" />
-              <Plus v-else class="w-3 h-3" />
-              <span>{{ item.exists ? t('settings.dataDictBuiltinAdded') : t('settings.dataDictBuiltinAdd') }}</span>
-            </button>
-          </div>
-          <div v-if="expandedBuiltin === item.name" :id="`builtin-entries-${item.name}`" class="px-3 py-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
-            <div class="flex flex-wrap gap-1.5">
-              <span
-                v-for="entry in item.entries"
-                :key="entry"
-                class="px-2 py-0.5 text-[11px] rounded-[var(--sp-radius)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] border border-[var(--sp-border)] dark:border-[var(--sp-border)]"
+          {{ t('settings.dataDictBuiltinReferenced', { count: referencedBuiltinCount }) }}
+        </span>
+        <span class="min-w-0 flex-1 text-[10px] text-[var(--sp-text-muted)] font-normal truncate">
+          ({{ t('settings.dataDictBuiltinHint') }})
+        </span>
+        <ChevronDown
+          class="w-3.5 h-3.5 shrink-0 text-[var(--sp-text-muted)] transition-transform"
+          :class="builtinsExpanded ? '' : '-rotate-90'"
+          aria-hidden="true"
+        />
+      </button>
+
+      <div v-show="builtinsExpanded" id="builtin-dict-panel">
+        <div v-if="builtinsLoading && builtins.length === 0" class="py-3 text-center text-xs text-[var(--sp-text-muted)]">
+          <RefreshCw class="w-3.5 h-3.5 animate-spin mx-auto mb-1.5 opacity-60" />
+          {{ t('common.loading') }}
+        </div>
+
+        <div
+          v-else-if="builtins.length > 0 && availableBuiltins.length === 0"
+          class="mt-2.5 px-3 py-2 text-[11px] text-[var(--sp-text-muted)] border border-dashed border-[var(--sp-border)] rounded-[var(--sp-radius)] text-center"
+        >
+          {{ t('settings.dataDictBuiltinAllReferenced') }}
+        </div>
+
+        <div v-else class="mt-2.5 space-y-2">
+          <div
+            v-for="item in availableBuiltins"
+            :key="item.name"
+            class="border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius)] overflow-hidden"
+          >
+            <div class="flex items-center justify-between gap-3 px-3 py-2 bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)]">
+              <button
+                type="button"
+                class="min-w-0 flex-1 flex items-center gap-2 text-left"
+                :aria-expanded="expandedBuiltin === item.name"
+                :aria-controls="`builtin-entries-${item.name}`"
+                @click="toggleBuiltinEntries(item.name)"
               >
-                {{ entry }}
-              </span>
+                <span class="font-mono font-semibold text-sm text-sky-600 dark:text-sky-400">{{ item.name }}</span>
+                <span class="px-2 py-0.5 text-[11px] rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 shrink-0">
+                  {{ t('settings.dataDictCount', { count: item.count }) }}
+                </span>
+                <span class="hidden sm:inline text-[11px] text-[var(--sp-text-muted)] truncate">{{ item.remark }}</span>
+              </button>
+              <button
+                type="button"
+                class="ui-btn-primary !px-2.5 !py-1 !text-[11px] flex items-center gap-1 shrink-0"
+                :disabled="creatingBuiltin === item.name"
+                @click="handleCreateFromBuiltin(item.name)"
+              >
+                <Plus class="w-3 h-3" />
+                <span>{{ t('settings.dataDictBuiltinAdd') }}</span>
+              </button>
+            </div>
+            <div v-if="expandedBuiltin === item.name" :id="`builtin-entries-${item.name}`" class="px-3 py-2 border-t border-[var(--sp-border)] dark:border-[var(--sp-border)]">
+              <div class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="entry in item.entries"
+                  :key="entry"
+                  class="px-2 py-0.5 text-[11px] rounded-[var(--sp-radius)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] border border-[var(--sp-border)] dark:border-[var(--sp-border)]"
+                >
+                  {{ entry }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
