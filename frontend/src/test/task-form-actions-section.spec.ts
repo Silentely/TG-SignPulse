@@ -28,6 +28,10 @@ describe('TaskFormActionsSection.vue 动作区插件调试集成', () => {
     await advanced!.trigger('click')
     const buttonLabel = wrapper.findAll('label').find(label => label.text().includes('JEV 按钮语义匹配'))!
     expect((buttonLabel.get('input').element as HTMLInputElement).checked).toBe(true)
+    const editGoalButtons = wrapper.findAll('button').filter(btn => btn.text() === '自定义判断目标（可选）')
+    expect(editGoalButtons.length).toBe(2)
+    expect(wrapper.find('input[aria-label="按钮目标，例如：返回机器人主菜单"]').exists()).toBe(false)
+    await editGoalButtons[0].trigger('click')
     await wrapper.get('input[aria-label="按钮目标，例如：返回机器人主菜单"]').setValue('完成每日签到')
     expect(action.semantic_button).toEqual({ mode: 'assist', goal: '完成每日签到' })
     const resultLabel = wrapper.findAll('label').find(label => label.text().includes('JEV 回复语义判定'))!
