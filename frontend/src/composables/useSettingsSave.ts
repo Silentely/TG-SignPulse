@@ -48,6 +48,7 @@ export function useSettingsSave(options: {
   const saveAllLoading = ref(false)
   const tgLoading = ref(false)
   const aiLoading = ref(false)
+  const aiRuntimeLoading = ref(false)
   const botTestLoading = ref(false)
   const keepaliveLoading = ref(false)
 
@@ -144,6 +145,7 @@ export function useSettingsSave(options: {
         options.markSectionClean('general')
         options.markSectionClean('bot')
         options.markSectionClean('advanced')
+        options.markSectionClean('runtime')
         // 任一字段有值即保存（与独立保存一致）：原来用 AND 守卫，
         // 只填一个字段时静默走 else 不保存，用户输入丢失且仍提示"全部已保存"
         if (options.tgConfig.value.api_id || options.tgConfig.value.api_hash) {
@@ -331,12 +333,29 @@ export function useSettingsSave(options: {
         devLog.error('saveAi model skipped (runtime-only or no key yet)', e)
       }
       options.markSectionClean('ai')
+      // 该保存路径仍带上运行时字段（兼容旧路径），一并标记为已保存
+      options.markSectionClean('runtime')
       notifySuccess(t('settings.aiConfigSaved'))
     } catch (e: unknown) {
       notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
     } finally {
       aiLoading.value = false
     }
+  }
+
+  const saveAiRuntime = async () => {
+    return withToken(async (token) => {
+      aiRuntimeLoading.value = true
+      try {
+        await saveGlobalSettings(token, options.buildAiRuntimePayload())
+        options.markSectionClean('runtime')
+        notifySuccess(t('settings.saveSuccess'))
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
+      } finally {
+        aiRuntimeLoading.value = false
+      }
+    })
   }
 
   const testAi = async () => {
@@ -363,6 +382,7 @@ export function useSettingsSave(options: {
     saveAllLoading,
     tgLoading,
     aiLoading,
+    aiRuntimeLoading,
     botTestLoading,
     keepaliveLoading,
     saveSettings,
@@ -370,6 +390,7 @@ export function useSettingsSave(options: {
     saveBotSettings,
     saveAdvancedSettings,
     saveAllSettings,
+    saveAiRuntime,
     testBot,
     saveTgConfig,
     resetTgConfig,

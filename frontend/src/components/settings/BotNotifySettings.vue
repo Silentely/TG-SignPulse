@@ -137,6 +137,31 @@ const onCheckbox = (key: keyof SettingsFormState, e: Event) => {
           </div>
         </div>
       </div>
+      <div class="p-3.5 bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] rounded-[var(--sp-radius-sm)] space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <label class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] block" for="bot-chatops-enabled">{{ t('settings.chatops') }}</label>
+            <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.chatopsDesc') }}</p>
+          </div>
+          <button
+            id="bot-chatops-enabled"
+            type="button"
+            class="ui-switch"
+            role="switch"
+            :aria-label="t('settings.chatops')"
+            :aria-checked="modelValue.chatopsEnabled"
+            :class="modelValue.chatopsEnabled ? 'ui-switch-on' : ''"
+            @click="update('chatopsEnabled', !modelValue.chatopsEnabled)"
+          >
+            <span class="ui-switch-knob" />
+          </button>
+        </div>
+        <div class="space-y-1" v-if="modelValue.chatopsEnabled">
+          <label class="text-[10px] text-[var(--sp-text-muted)]" for="bot-chatops-admin-ids">{{ t('settings.chatopsAdminIds') }}</label>
+          <input id="bot-chatops-admin-ids" :value="modelValue.chatopsAdminIds" @input="onStringInput('chatopsAdminIds', $event)" type="text" :placeholder="t('settings.chatopsAdminIdsPlaceholder')" class="ui-input" />
+          <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.chatopsAdminIdsHint') }}</p>
+        </div>
+      </div>
       <div class="pt-2 flex flex-col sm:flex-row gap-2">
         <button type="button" class="ui-btn-primary flex-1 py-2.5" :disabled="botLoading" @click="emit('save')">{{ botLoading ? t('common.saving') : t('settings.saveChanges') }}</button>
         <button type="button" class="ui-btn-secondary flex-1 py-2.5" :disabled="botTestLoading" @click="emit('test')">{{ botTestLoading ? t('settings.testing') : t('settings.testBot') }}</button>

@@ -1,10 +1,10 @@
 /**
  * Settings 表单状态与分段保存/脏状态检测辅助。
  *
- * 页面将全局设置拆分为：通用、Bot 通知、高级（自动备份/WebDAV）、AI（运行时参数）。
+ * 页面将全局设置拆分为：通用、TG API、AI 模型、任务执行策略（runtime）、Bot 通知、高级（自动备份/WebDAV）。
  * 此处集中定义表单类型、分段 payload 构造、字段归一化及比较基准快照。
  */
-export type SettingsSection = 'general' | 'tg' | 'ai' | 'bot' | 'advanced'
+export type SettingsSection = 'general' | 'tg' | 'ai' | 'runtime' | 'bot' | 'advanced'
 
 export type SettingsFormState = {
   checkInterval: string
@@ -13,6 +13,8 @@ export type SettingsFormState = {
   proxy: string
   /** 显式请求清空代理（输入框变空后保存时向后端下发 null） */
   proxyClearRequested?: boolean
+  /** 强制 Telegram 连接走代理 */
+  requireProxyForTelegram: boolean
   concurrency: number | ''
   deviceKeepaliveEnabled: boolean
   deviceKeepaliveIntervalDays: number | ''
@@ -26,6 +28,10 @@ export type SettingsFormState = {
   botToken: string
   botChatId: string
   botThreadId: string
+  /** ChatOps 指令开关 */
+  chatopsEnabled: boolean
+  /** ChatOps 管理员 user_id 白名单（逗号分隔） */
+  chatopsAdminIds: string
   timezone: string
   execTimeout: string | number
   accountCooldown: string | number
@@ -103,6 +109,7 @@ export function buildGeneralPayload(s: SettingsFormState): {
   device_keepalive_interval_days: number
   timezone: string
   execution_engine: string
+  require_proxy_for_telegram: boolean
 } {
   return {
     sign_interval: emptyToNull(s.checkInterval),
@@ -118,6 +125,7 @@ export function buildGeneralPayload(s: SettingsFormState): {
     device_keepalive_interval_days: clampNumber(s.deviceKeepaliveIntervalDays, 1, 170) ?? 30,
     timezone: s.timezone,
     execution_engine: s.executionEngine || 'v4',
+    require_proxy_for_telegram: !!s.requireProxyForTelegram,
   }
 }
 
@@ -134,10 +142,12 @@ export function buildBotPayload(s: SettingsFormState) {
     ...(s.botToken ? { telegram_bot_token: s.botToken } : {}),
     telegram_bot_chat_id: s.botChatId || null,
     telegram_bot_message_thread_id: emptyToNull(s.botThreadId),
+    telegram_bot_chatops_enabled: !!s.chatopsEnabled,
+    telegram_bot_admin_user_ids: s.chatopsAdminIds.trim() || null,
   }
 }
 
-/** AI 区块内的运行时参数（任务超时/冷却/视觉等），由「保存 AI 配置」一并提交 */
+/** 任务执行策略（任务超时/冷却/视觉等），由「保存执行策略」提交 */
 export function buildAiRuntimePayload(s: SettingsFormState) {
   return {
     sign_task_execution_timeout: clampNumber(s.execTimeout, 30, 3600),
@@ -192,6 +202,7 @@ export function snapSection(
         dataDir: s.dataDir,
         proxy: s.proxy,
         proxyClearRequested: !!s.proxyClearRequested,
+        requireProxyForTelegram: !!s.requireProxyForTelegram,
         concurrency: s.concurrency,
         deviceKeepaliveEnabled: s.deviceKeepaliveEnabled,
         deviceKeepaliveIntervalDays: s.deviceKeepaliveIntervalDays,
@@ -210,6 +221,8 @@ export function snapSection(
         botToken: s.botToken ? '***set***' : '',
         botChatId: s.botChatId,
         botThreadId: s.botThreadId,
+        chatopsEnabled: s.chatopsEnabled,
+        chatopsAdminIds: s.chatopsAdminIds,
       })
     case 'advanced':
       return JSON.stringify({
@@ -239,6 +252,9 @@ export function snapSection(
           model: p.model,
           api_key: p.api_key ? '***set***' : (p.api_key_masked || ''),
         })),
+      })
+    case 'runtime':
+      return JSON.stringify({
         execTimeout: s.execTimeout,
         accountCooldown: s.accountCooldown,
         flowRetry: s.flowRetry,
@@ -261,6 +277,7 @@ export function snapAllSections(
     general: snapSection('general', s, tg, ai),
     tg: snapSection('tg', s, tg, ai),
     ai: snapSection('ai', s, tg, ai),
+    runtime: snapSection('runtime', s, tg, ai),
     bot: snapSection('bot', s, tg, ai),
     advanced: snapSection('advanced', s, tg, ai),
   }
@@ -280,7 +297,7 @@ export function isAnySectionDirty(
   current: SectionSnapshots | null | undefined,
 ): boolean {
   if (!baseline || !current) return false
-  return (['general', 'tg', 'ai', 'bot', 'advanced'] as SettingsSection[]).some((k) =>
+  return (['general', 'tg', 'ai', 'runtime', 'bot', 'advanced'] as SettingsSection[]).some((k) =>
     isSectionDirty(k, baseline, current),
   )
 }
@@ -291,7 +308,7 @@ export function dirtySectionLabels(
   labels: Record<SettingsSection, string>,
 ): string[] {
   if (!baseline || !current) return []
-  return (['general', 'tg', 'ai', 'bot', 'advanced'] as SettingsSection[])
+  return (['general', 'tg', 'ai', 'runtime', 'bot', 'advanced'] as SettingsSection[])
     .filter((k) => isSectionDirty(k, baseline, current))
     .map((k) => labels[k])
 }
@@ -317,6 +334,8 @@ export function applyGlobalSettingsToForm(
     telegram_bot_token_set?: boolean
     telegram_bot_chat_id?: string | null
     telegram_bot_message_thread_id?: number | null
+    telegram_bot_chatops_enabled?: boolean
+    telegram_bot_admin_user_ids?: string | null
     timezone?: string
     sign_task_execution_timeout?: number | null
     sign_task_account_cooldown?: number | null
@@ -336,6 +355,7 @@ export function applyGlobalSettingsToForm(
     webdav_allow_private?: boolean
     backup_target?: string | null
     execution_engine?: string | null
+    require_proxy_for_telegram?: boolean
   },
 ): {
     botTokenSet: boolean
@@ -347,6 +367,7 @@ export function applyGlobalSettingsToForm(
   s.dataDir = res.data_dir || ''
   s.proxy = res.global_proxy || ''
   s.proxyClearRequested = false
+  s.requireProxyForTelegram = !!res.require_proxy_for_telegram
   s.concurrency = res.tg_global_concurrency ?? 1
   s.deviceKeepaliveEnabled = res.device_keepalive_enabled ?? true
   s.deviceKeepaliveIntervalDays = res.device_keepalive_interval_days ?? 30
@@ -361,6 +382,8 @@ export function applyGlobalSettingsToForm(
   s.botToken = ''
   s.botChatId = res.telegram_bot_chat_id || ''
   s.botThreadId = res.telegram_bot_message_thread_id ? String(res.telegram_bot_message_thread_id) : ''
+  s.chatopsEnabled = !!res.telegram_bot_chatops_enabled
+  s.chatopsAdminIds = res.telegram_bot_admin_user_ids || ''
   s.timezone = res.timezone || 'Asia/Hong_Kong'
   s.execTimeout = res.sign_task_execution_timeout ?? ''
   s.accountCooldown = res.sign_task_account_cooldown ?? ''

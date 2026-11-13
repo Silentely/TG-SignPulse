@@ -86,6 +86,24 @@ const onStringInput = (key: keyof SettingsFormState, e: Event) => {
         <label class="ui-label" for="settings-proxy">{{ t('settings.proxy') }}</label>
         <input id="settings-proxy" :value="modelValue.proxy" @input="onStringInput('proxy', $event)" type="text" :placeholder="proxySet ? t('settings.proxyKeepHint') : 'socks5://127.0.0.1:1080'" class="ui-input">
       </div>
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <label class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] block" for="settings-require-proxy-for-telegram">{{ t('settings.requireProxyForTelegram') }}</label>
+          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.requireProxyForTelegramHint') }}</p>
+        </div>
+        <button
+          id="settings-require-proxy-for-telegram"
+          type="button"
+          class="ui-switch"
+          role="switch"
+          :aria-label="t('settings.requireProxyForTelegram')"
+          :aria-checked="modelValue.requireProxyForTelegram"
+          :class="modelValue.requireProxyForTelegram ? 'ui-switch-on' : ''"
+          @click="update('requireProxyForTelegram', !modelValue.requireProxyForTelegram)"
+        >
+          <span class="ui-switch-knob" />
+        </button>
+      </div>
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-concurrency">{{ t('settings.concurrency') }}</label>
         <input id="settings-concurrency" :value="modelValue.concurrency" @input="onNumberInput('concurrency', $event)" type="number" min="1" max="10" :placeholder="t('settings.concurrencyPlaceholder')" class="ui-input">

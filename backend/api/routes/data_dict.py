@@ -50,6 +50,17 @@ class SampleEntryResponse(BaseModel):
     mode: str = "random"
 
 
+class UsageStat(BaseModel):
+    count: int
+    last_used: str = ""
+
+
+class UsageStatsResponse(BaseModel):
+    dicts: Dict[str, UsageStat]
+    total: int = 0
+    dict_count: int = 0
+
+
 class OkResponse(BaseModel):
     ok: bool = True
 
@@ -119,6 +130,21 @@ def create_data_dict_from_builtin(
         )
 
 
+@router.get("/stats", response_model=UsageStatsResponse)
+def get_data_dict_usage_stats(
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取各数据字典的累计使用次数与最近使用时间。"""
+    service = get_data_dict_service()
+    stats = service.get_usage_stats()
+    total = sum(int(rec.get("count", 0)) for rec in stats.values())
+    return {
+        "dicts": stats,
+        "total": total,
+        "dict_count": len(stats),
+    }
+
+
 @router.get("/{name}", response_model=DataDictDetail)
 def get_data_dict_detail(
     name: str,
@@ -163,7 +189,7 @@ def sample_data_dict_entry(
     """抽取单条词条样本预览。"""
     service = get_data_dict_service()
     try:
-        entry = service.get_entry(name, mode=mode)
+        entry = service.get_entry(name, mode=mode, record=False)
         return {"name": name, "entry": entry, "mode": mode}
     except ValueError as exc:
         code = str(exc)

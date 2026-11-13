@@ -63,6 +63,7 @@ describe('api barrel 完整性', () => {
     expect(typeof api.createDataDictFromBuiltin).toBe('function')
     expect(typeof api.saveDataDict).toBe('function')
     expect(typeof api.deleteDataDict).toBe('function')
+    expect(typeof api.getDataDictStats).toBe('function')
   })
 
   it('core 工具函数不通过 barrel 对外暴露', () => {

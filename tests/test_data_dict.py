@@ -346,3 +346,96 @@ def test_data_dict_null_byte_filtering_and_negative_cursor(tmp_path: Path):
     # 抽取时不崩溃且安全返回
     entry = service.get_entry("cleantest", mode="round_robin")
     assert entry in ("helloworld", "safe")
+
+
+def test_get_entry_records_usage_and_stats_api(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("greetings", ["你好", "早上好"])
+    service.save_dict("fruits", ["苹果", "香蕉"])
+
+    # random 与 round_robin 抽取都计入统计
+    service.get_entry("greetings", mode="random")
+    service.get_entry("greetings", mode="round_robin")
+    service.get_entry("greetings", mode="round_robin")
+    service.get_entry("fruits", mode="random")
+
+    stats = service.get_usage_stats()
+    assert stats["greetings"]["count"] == 3
+    assert stats["fruits"]["count"] == 1
+    assert stats["greetings"]["last_used"]
+    assert "quotes" not in stats
+
+
+def test_get_entry_record_false_skips_stats(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("fruits", ["苹果"])
+
+    service.get_entry("fruits", mode="random", record=False)
+    service.get_entry("fruits", mode="random", record=False)
+
+    stats = service.get_usage_stats()
+    assert stats == {}
+
+
+def test_usage_stats_persist_across_reload_and_delete(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("greetings", ["你好"])
+    service.get_entry("greetings", mode="random")
+    service.get_entry("greetings", mode="random")
+    # 读取统计会触发一次落盘
+    assert service.get_usage_stats()["greetings"]["count"] == 2
+
+    # 新实例从磁盘加载统计
+    service2 = DataDictService(base_dir=tmp_path)
+    assert service2.get_usage_stats()["greetings"]["count"] == 2
+
+    service2.delete_dict("greetings")
+    stats = service2.get_usage_stats()
+    assert "greetings" not in stats
+
+
+def test_list_and_stats_exclude_stats_file(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("greetings", ["你好"])
+    service.get_entry("greetings", mode="random")
+
+    names = [d["name"] for d in service.list_dicts()]
+    assert names == ["greetings"]
+
+
+def test_data_dict_stats_api_routes(
+    api_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = DataDictService(base_dir=tmp_path)
+    import backend.api.routes.data_dict as data_dict_routes
+
+    monkeypatch.setattr(data_dict_routes, "get_data_dict_service", lambda: service)
+
+    # 未登录 -> 401
+    assert api_client.get("/api/data-dict/stats").status_code == 401
+
+    token = _login(api_client)
+    headers = _auth(token)
+
+    # 无字典时返回空统计
+    resp = api_client.get("/api/data-dict/stats", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["dicts"] == {}
+    assert resp.json()["total"] == 0
+
+    # 正常取词后统计有值
+    service.save_dict("greetings", ["你好"])
+    service.get_entry("greetings", mode="random")
+    resp = api_client.get("/api/data-dict/stats", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["dicts"]["greetings"]["count"] == 1
+
+    # 采样接口不污染统计
+    api_client.get("/api/data-dict/greetings/sample?mode=random", headers=headers)
+    resp = api_client.get("/api/data-dict/stats", headers=headers)
+    assert resp.json()["dicts"]["greetings"]["count"] == 1
+
+    # /stats 不会与 /{name} 路由冲突
+    resp = api_client.get("/api/data-dict/nonexistent", headers=headers)
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "DATA_DICT_NOT_FOUND"

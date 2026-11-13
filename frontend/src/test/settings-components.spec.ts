@@ -4,6 +4,8 @@ import i18n from '../i18n'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import GeneralSettings from '../components/settings/GeneralSettings.vue'
 import DataManagementSettings from '../components/settings/DataManagementSettings.vue'
+import BotNotifySettings from '../components/settings/BotNotifySettings.vue'
+import TaskRuntimeSettings from '../components/settings/TaskRuntimeSettings.vue'
 import type { SettingsFormState } from '../lib/settings-form'
 
 const settingsState = (): SettingsFormState => ({
@@ -11,6 +13,7 @@ const settingsState = (): SettingsFormState => ({
   logDays: 7,
   dataDir: '',
   proxy: '',
+  requireProxyForTelegram: false,
   concurrency: 1,
   deviceKeepaliveEnabled: true,
   deviceKeepaliveIntervalDays: 30,
@@ -24,6 +27,8 @@ const settingsState = (): SettingsFormState => ({
   botToken: '',
   botChatId: '',
   botThreadId: '',
+  chatopsEnabled: false,
+  chatopsAdminIds: '',
   timezone: 'Asia/Hong_Kong',
   execTimeout: '',
   accountCooldown: '',
@@ -80,6 +85,66 @@ describe('设置页拆分组件契约', () => {
     const updates = wrapper.emitted('update:modelValue')
     expect(updates).toBeTruthy()
     expect((updates?.at(-1)?.[0] as SettingsFormState).logDays).toBe('')
+  })
+
+  it('GeneralSettings 提供 Telegram 强制代理开关并回传布尔值', async () => {
+    const wrapper = mount(GeneralSettings, {
+      props: {
+        modelValue: settingsState(),
+        timezoneOptions: [],
+        proxySet: false,
+      },
+      global: { plugins: [i18n] },
+    })
+
+    const toggle = wrapper.get('#settings-require-proxy-for-telegram')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    await toggle.trigger('click')
+
+    const updates = wrapper.emitted('update:modelValue')
+    expect(updates).toBeTruthy()
+    expect((updates?.at(-1)?.[0] as SettingsFormState).requireProxyForTelegram).toBe(true)
+  })
+
+  it('BotNotifySettings 提供 ChatOps 开关与管理员白名单', async () => {
+    const state = settingsState()
+    state.chatopsEnabled = true
+    const wrapper = mount(BotNotifySettings, {
+      props: {
+        modelValue: state,
+        reveal: { botToken: false },
+      },
+      global: { plugins: [i18n] },
+    })
+
+    expect(wrapper.find('#bot-chatops-admin-ids').exists()).toBe(true)
+    await wrapper.get('#bot-chatops-admin-ids').setValue('42,43')
+    const updates = wrapper.emitted('update:modelValue')
+    expect((updates?.at(-1)?.[0] as SettingsFormState).chatopsAdminIds).toBe('42,43')
+  })
+
+  it('TaskRuntimeSettings 渲染执行策略字段并转发保存事件', async () => {
+    const wrapper = mount(TaskRuntimeSettings, {
+      props: {
+        modelValue: settingsState(),
+      },
+      global: { plugins: [i18n] },
+    })
+
+    expect(wrapper.find('#ai-exectimeout').exists()).toBe(true)
+    expect(wrapper.find('#ai-accountcooldown').exists()).toBe(true)
+    expect(wrapper.find('#ai-flowretry').exists()).toBe(true)
+    expect(wrapper.find('#ai-historymaxage').exists()).toBe(true)
+    expect(wrapper.find('#ai-aivisiontimeout').exists()).toBe(true)
+    expect(wrapper.find('#ai-aivisionretry').exists()).toBe(true)
+    expect(wrapper.find('#ai-aivisionreasoning').exists()).toBe(true)
+
+    await wrapper.get('#ai-exectimeout').setValue('120')
+    const updates = wrapper.emitted('update:modelValue')
+    expect((updates?.at(-1)?.[0] as SettingsFormState).execTimeout).toBe(120)
+
+    await wrapper.get('button.ui-btn-primary').trigger('click')
+    expect(wrapper.emitted('save')).toBeTruthy()
   })
 
   it('DataManagementSettings WebDAV 区块可编辑并转发事件', async () => {

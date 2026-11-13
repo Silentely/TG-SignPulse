@@ -4,6 +4,7 @@ import logging
 import random
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -15,6 +16,8 @@ from backend.utils.atomic_io import read_json_safe, write_json_atomic
 logger = logging.getLogger("backend.data_dict")
 
 _NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_STATS_FILE = "_stats.json"
+_STATS_FLUSH_INTERVAL_SECONDS = 5.0
 _instance: Optional[DataDictService] = None
 _instance_lock = threading.Lock()
 
@@ -32,6 +35,10 @@ class DataDictService:
         self.dict_dir = self.base_dir / "data_dicts"
         self.dict_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._stats: Dict[str, Dict[str, Any]] = {}
+        self._stats_dirty = False
+        self._stats_last_flush = 0.0
+        self._load_stats()
 
     def _dict_file(self, name: str) -> Path:
         if not name or not _NAME_PATTERN.match(name):
@@ -43,7 +50,7 @@ class DataDictService:
         results: List[Dict[str, Any]] = []
         with self._lock:
             for path in sorted(self.dict_dir.glob("*.json")):
-                if not path.is_file():
+                if not path.is_file() or path.name == _STATS_FILE:
                     continue
                 data = read_json_safe(path)
                 if not isinstance(data, dict):
@@ -163,6 +170,8 @@ class DataDictService:
                 return False
             try:
                 file_path.unlink()
+                self._stats.pop(name, None)
+                self._stats_dirty = True
                 logger.info("Deleted data dict '%s'", name)
                 return True
             except OSError as exc:
@@ -170,12 +179,17 @@ class DataDictService:
                 return False
 
     def get_entry(
-        self, name: str, mode: Literal["random", "round_robin"] = "random"
+        self,
+        name: str,
+        mode: Literal["random", "round_robin"] = "random",
+        *,
+        record: bool = True,
     ) -> str:
         """抽取词条。
 
         - random: 随机返回一条
         - round_robin: 并发锁保护下递增游标并持久化保存
+        - record: 是否计入使用统计（采样预览等场景传 False）
         """
         file_path = self._dict_file(name)
         if not file_path.exists():
@@ -195,9 +209,79 @@ class DataDictService:
                 selected = entries[cursor]
                 data["cursor"] = (cursor + 1) % len(entries)
                 write_json_atomic(file_path, data)
-                return selected
             else:
-                return random.choice(entries)
+                selected = random.choice(entries)
+
+            if record:
+                self._record_usage(name)
+                self._maybe_flush_stats()
+            return selected
+
+    def _stats_file(self) -> Path:
+        return self.dict_dir / _STATS_FILE
+
+    def _load_stats(self) -> None:
+        """加载持久化的使用统计（异常时以空统计继续）。"""
+        try:
+            data = read_json_safe(self._stats_file())
+            if isinstance(data, dict):
+                for name, record in data.items():
+                    if (
+                        isinstance(name, str)
+                        and isinstance(record, dict)
+                        and isinstance(record.get("count"), int)
+                    ):
+                        self._stats[name] = {
+                            "count": max(0, int(record["count"])),
+                            "last_used": str(record.get("last_used") or ""),
+                        }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to load data dict stats: %s", exc)
+
+    def _record_usage(self, name: str) -> None:
+        """内存中递增某字典的使用次数，并记录最近使用时间。"""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        stat = self._stats.get(name)
+        if stat is None:
+            self._stats[name] = {"count": 1, "last_used": now_iso}
+        else:
+            stat["count"] += 1
+            stat["last_used"] = now_iso
+        self._stats_dirty = True
+
+    def _maybe_flush_stats(self) -> None:
+        """按节流间隔把内存统计写入磁盘，避免写放大。"""
+        now = time.monotonic()
+        if (
+            not self._stats_dirty
+            or now - self._stats_last_flush < _STATS_FLUSH_INTERVAL_SECONDS
+        ):
+            return
+        self._flush_stats(now)
+
+    def _flush_stats(self, now: Optional[float] = None) -> None:
+        if not self._stats_dirty:
+            return
+        if now is None:
+            now = time.monotonic()
+        try:
+            write_json_atomic(self._stats_file(), dict(self._stats))
+            self._stats_dirty = False
+            self._stats_last_flush = now
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to flush data dict stats: %s", exc)
+
+    def get_usage_stats(self) -> Dict[str, Dict[str, Any]]:
+        """返回各字典的使用统计（次数 + 最近使用时间）。"""
+        with self._lock:
+            self._flush_stats()
+            return {
+                name: {
+                    "count": int(rec.get("count", 0)),
+                    "last_used": rec.get("last_used", ""),
+                }
+                for name, rec in self._stats.items()
+            }
 
 
 def get_data_dict_service() -> DataDictService:

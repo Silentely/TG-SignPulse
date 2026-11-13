@@ -21,6 +21,7 @@ const baseSettings = (): SettingsFormState => ({
   logDays: 7,
   dataDir: '/data',
   proxy: '',
+  requireProxyForTelegram: false,
   concurrency: 2,
   deviceKeepaliveEnabled: true,
   deviceKeepaliveIntervalDays: 30,
@@ -34,6 +35,8 @@ const baseSettings = (): SettingsFormState => ({
   botToken: '',
   botChatId: '',
   botThreadId: '',
+  chatopsEnabled: false,
+  chatopsAdminIds: '',
   timezone: 'Asia/Hong_Kong',
   execTimeout: '',
   accountCooldown: '',
@@ -261,11 +264,12 @@ describe('settings-form', () => {
       advanced: 'A',
       tg: 'T',
       ai: 'I',
+      runtime: 'R',
     })
     expect(labels).toEqual(['B'])
   })
 
-  it('ai runtime fields dirty ai section; backup fields dirty advanced', () => {
+  it('runtime fields dirty the runtime section only; backup fields dirty advanced', () => {
     const s = baseSettings()
     const tg: TgFormState = { api_id: '', api_hash: '' }
     const ai: AiFormState = { base_url: '', model: '', api_key: '', fallback_providers: [] }
@@ -273,13 +277,14 @@ describe('settings-form', () => {
 
     const sRuntime = { ...s, execTimeout: 90 }
     const curRuntime = snapAllSections(sRuntime, tg, ai)
-    expect(curRuntime.ai).not.toBe(baseline.ai)
+    expect(curRuntime.runtime).not.toBe(baseline.runtime)
+    expect(curRuntime.ai).toBe(baseline.ai)
     expect(curRuntime.advanced).toBe(baseline.advanced)
 
     const sBackup = { ...s, autoBackupEnabled: true }
     const curBackup = snapAllSections(sBackup, tg, ai)
     expect(curBackup.advanced).not.toBe(baseline.advanced)
-    expect(curBackup.ai).toBe(baseline.ai)
+    expect(curBackup.runtime).toBe(baseline.runtime)
   })
 
   it('secret fields mask in snapshot (bot token / ai key)', () => {
@@ -300,6 +305,34 @@ describe('settings-form', () => {
     const p = buildBotPayload(s)
     expect(p.telegram_bot_message_thread_id).toBeNull()
   })
+
+  it('buildGeneralPayload includes require_proxy_for_telegram', () => {
+    const s = baseSettings()
+    expect(buildGeneralPayload(s).require_proxy_for_telegram).toBe(false)
+    s.requireProxyForTelegram = true
+    expect(buildGeneralPayload(s).require_proxy_for_telegram).toBe(true)
+  })
+
+  it('buildBotPayload includes chatops toggle and trimmed admin ids', () => {
+    const s = baseSettings()
+    s.chatopsEnabled = true
+    s.chatopsAdminIds = ' 123456, 7890 '
+    const p = buildBotPayload(s)
+    expect(p.telegram_bot_chatops_enabled).toBe(true)
+    expect(p.telegram_bot_admin_user_ids).toBe('123456, 7890')
+
+    s.chatopsAdminIds = '   '
+    expect(buildBotPayload(s).telegram_bot_admin_user_ids).toBeNull()
+  })
+
+  it('chatops changes dirty the bot section', () => {
+    const s = baseSettings()
+    const tg: TgFormState = { api_id: '', api_hash: '' }
+    const ai: AiFormState = { base_url: '', model: '', api_key: '', fallback_providers: [] }
+    const baseline = snapAllSections(s, tg, ai)
+    const cur = snapAllSections({ ...s, chatopsEnabled: true }, tg, ai)
+    expect(cur.bot).not.toBe(baseline.bot)
+  })
 })
 
 describe('applyGlobalSettingsToForm', () => {
@@ -312,6 +345,9 @@ describe('applyGlobalSettingsToForm', () => {
       webdav_password_set: true,
       telegram_bot_message_thread_id: 9,
       timezone: 'UTC',
+      require_proxy_for_telegram: true,
+      telegram_bot_chatops_enabled: true,
+      telegram_bot_admin_user_ids: '42,43',
     })
     expect(s.checkInterval).toBe('45')
     expect(s.logDays).toBe(14)
@@ -319,6 +355,9 @@ describe('applyGlobalSettingsToForm', () => {
     expect(s.webdavPassword).toBe('')
     expect(s.botThreadId).toBe('9')
     expect(s.timezone).toBe('UTC')
+    expect(s.requireProxyForTelegram).toBe(true)
+    expect(s.chatopsEnabled).toBe(true)
+    expect(s.chatopsAdminIds).toBe('42,43')
     expect(flags.botTokenSet).toBe(true)
     expect(flags.webdavPasswordSet).toBe(true)
   })

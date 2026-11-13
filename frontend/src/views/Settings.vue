@@ -5,6 +5,7 @@ import AiSettings from '../components/settings/AiSettings.vue'
 import JevSettings from '../components/settings/JevSettings.vue'
 import BotNotifySettings from '../components/settings/BotNotifySettings.vue'
 import DataManagementSettings from '../components/settings/DataManagementSettings.vue'
+import TaskRuntimeSettings from '../components/settings/TaskRuntimeSettings.vue'
 import DataDictSettings from '../components/settings/DataDictSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import PageRetry from '../components/PageRetry.vue'
@@ -20,6 +21,7 @@ const {
   loading,
   tgLoading,
   aiLoading,
+  aiRuntimeLoading,
   dataLoading,
   backupLoading,
   backupStatus,
@@ -56,6 +58,7 @@ const {
   saveTgConfig,
   resetTgConfig,
   saveAiConfig,
+  saveAiRuntime,
   testAi,
   handleExport,
   handleImportFile,
@@ -87,7 +90,7 @@ const {
       <button
         type="button"
         class="ui-btn-primary !px-3 !py-1.5 !text-xs shrink-0 cursor-pointer"
-        :disabled="saveAllLoading || loading || botLoading || advancedLoading || tgLoading || aiLoading"
+        :disabled="saveAllLoading || loading || botLoading || advancedLoading || tgLoading || aiLoading || aiRuntimeLoading"
         @click="saveAllSettings"
       >
         {{ saveAllLoading ? t('common.saving') : t('settings.saveAll') }}
@@ -153,11 +156,10 @@ const {
           />
         </div>
 
-        <!-- 右列配置卡片：AI 配置 + JEV 语义接口 + Bot 通知 + 素材数据字典 -->
+        <!-- 右列配置卡片：AI 配置 + JEV 语义接口 + Bot 通知 + 任务执行策略 -->
         <div class="flex flex-col gap-6">
           <AiSettings
             v-model:ai-model-value="aiConfig"
-            v-model:settings-model-value="settings"
             :reveal="{ aiKey: revealSecrets.aiKey }"
             :ai-loading="aiLoading"
             :key-decrypt-failed="aiKeyDecryptFailed"
@@ -176,9 +178,16 @@ const {
             @test="testBot"
             @toggle-reveal="toggleReveal"
           />
-          <DataDictSettings />
+          <TaskRuntimeSettings
+            v-model="settings"
+            :loading="aiRuntimeLoading"
+            @save="saveAiRuntime"
+          />
         </div>
       </div>
+
+      <!-- 素材数据字典（底部通栏，双栏展示使用概览与我的字典） -->
+      <DataDictSettings />
 
       <!-- 关于与系统信息卡片（底部通栏） -->
       <AboutSettings

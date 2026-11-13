@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { BookOpen, Plus, Trash2, Edit2, Play, Sparkles, X, RefreshCw, Layers, ChevronDown } from 'lucide-vue-next'
+import { BookOpen, Plus, Trash2, Edit2, Play, Sparkles, X, RefreshCw, Layers, ChevronDown, Gauge, BarChart3 } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useAuthStore } from '../../stores/auth'
@@ -13,8 +13,10 @@ import {
   sampleDataDictEntry,
   listBuiltinDataDicts,
   createDataDictFromBuiltin,
+  getDataDictStats,
   type DataDictMeta,
   type BuiltinDataDictMeta,
+  type DataDictStats,
 } from '../../lib/api/data-dict'
 
 const { t } = useI18n()
@@ -29,8 +31,31 @@ const builtinsExpanded = ref(true)
 const creatingBuiltin = ref('')
 const expandedBuiltin = ref('')
 
+/** 使用统计（接口失败时保持 null，UI 降级为「—」） */
+const stats = ref<DataDictStats | null>(null)
+const statsLoading = ref(false)
+
 const availableBuiltins = computed(() => builtins.value.filter((item) => !item.exists))
 const referencedBuiltinCount = computed(() => builtins.value.length - availableBuiltins.value.length)
+
+/** 累计词条总数（来自已加载字典列表） */
+const totalEntries = computed(() =>
+  (Array.isArray(dicts.value) ? dicts.value : []).reduce(
+    (sum, dict) => sum + (Number(dict.count) || 0),
+    0,
+  ),
+)
+/** 从未被抽取过的字典数量 */
+const unusedDictCount = computed(() => {
+  if (!stats.value) return 0
+  return (Array.isArray(dicts.value) ? dicts.value : []).filter(
+    (dict) => !stats.value?.dicts?.[dict.name]?.count,
+  ).length
+})
+const usageOf = (name: string): number | null => {
+  const value = stats.value?.dicts?.[name]?.count
+  return typeof value === 'number' ? value : null
+}
 
 const dictQuery = ref('')
 const filteredDicts = computed(() => {
@@ -73,6 +98,20 @@ const loadDicts = async () => {
   }
 }
 
+const loadStats = async () => {
+  const token = authStore.token
+  if (!token) return
+  statsLoading.value = true
+  try {
+    stats.value = await getDataDictStats(token)
+  } catch {
+    // 统计失败不阻塞字典管理，指标降级显示
+    stats.value = null
+  } finally {
+    statsLoading.value = false
+  }
+}
+
 const loadBuiltins = async () => {
   const token = authStore.token
   if (!token) return
@@ -95,7 +134,7 @@ const handleCreateFromBuiltin = async (name: string) => {
     await createDataDictFromBuiltin(token, name)
     success(t('settings.dataDictBuiltinCreateSuccess', { name }))
     if (expandedBuiltin.value === name) expandedBuiltin.value = ''
-    await Promise.all([loadDicts(), loadBuiltins()])
+    await Promise.all([loadDicts(), loadBuiltins(), loadStats()])
   } catch (err: unknown) {
     error(getLocalizedErrorMessage(err, t, t('common.loadFailed')))
   } finally {
@@ -177,7 +216,7 @@ const handleSave = async () => {
     })
     success(t('settings.dataDictSaveSuccess'))
     showModal.value = false
-    await Promise.all([loadDicts(), loadBuiltins()])
+    await Promise.all([loadDicts(), loadBuiltins(), loadStats()])
   } catch (err: unknown) {
     formError.value = getLocalizedErrorMessage(err, t, t('settings.saveFailed'))
   } finally {
@@ -196,7 +235,7 @@ const handleDelete = async (name: string) => {
   try {
     await deleteDataDict(token, name)
     success(t('settings.dataDictDeleteSuccess'))
-    await Promise.all([loadDicts(), loadBuiltins()])
+    await Promise.all([loadDicts(), loadBuiltins(), loadStats()])
   } catch (err: unknown) {
     error(getLocalizedErrorMessage(err, t, t('tasks.deleteFailed')))
   } finally {
@@ -230,6 +269,7 @@ const runSample = async () => {
 onMounted(() => {
   loadDicts()
   loadBuiltins()
+  loadStats()
 })
 </script>
 
@@ -258,6 +298,40 @@ onMounted(() => {
         <span>{{ t('settings.dataDictAdd') }}</span>
       </button>
     </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-5 lg:gap-6 items-start">
+      <!-- 左栏：使用概览 + 内置字典 -->
+      <div class="min-w-0 space-y-4">
+        <div class="grid grid-cols-3 gap-2">
+          <div class="p-2.5 rounded-[var(--sp-radius)] border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] min-w-0">
+            <div class="flex items-center gap-1 text-[10px] text-[var(--sp-text-muted)]">
+              <BarChart3 class="w-3 h-3 shrink-0" aria-hidden="true" />
+              <span class="truncate">{{ t('settings.dataDictStatsDicts') }}</span>
+            </div>
+            <div class="mt-1 text-base font-semibold text-[var(--sp-text)] tabular-nums">{{ dicts.length || 0 }}</div>
+          </div>
+          <div class="p-2.5 rounded-[var(--sp-radius)] border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] min-w-0">
+            <div class="flex items-center gap-1 text-[10px] text-[var(--sp-text-muted)]">
+              <Layers class="w-3 h-3 shrink-0" aria-hidden="true" />
+              <span class="truncate">{{ t('settings.dataDictStatsEntries') }}</span>
+            </div>
+            <div class="mt-1 text-base font-semibold text-[var(--sp-text)] tabular-nums">{{ totalEntries }}</div>
+          </div>
+          <div class="p-2.5 rounded-[var(--sp-radius)] border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] min-w-0">
+            <div class="flex items-center gap-1 text-[10px] text-[var(--sp-text-muted)]">
+              <Gauge class="w-3 h-3 shrink-0" aria-hidden="true" />
+              <span class="truncate">{{ t('settings.dataDictStatsDraws') }}</span>
+            </div>
+            <div class="mt-1 text-base font-semibold text-[var(--sp-text)] tabular-nums">
+              <span v-if="stats">{{ stats.total }}</span>
+              <span v-else-if="statsLoading" class="text-[var(--sp-text-muted)]">…</span>
+              <span v-else class="text-[var(--sp-text-muted)]" :title="t('settings.dataDictStatsLoadFailed')">—</span>
+            </div>
+          </div>
+        </div>
+        <p v-if="stats && unusedDictCount > 0" class="text-[10px] text-[var(--sp-text-muted)] -mt-1">
+          {{ t('settings.dataDictUsageNever') }}: {{ unusedDictCount }}
+        </p>
 
     <!-- Built-in presets -->
     <div class="mb-4 p-3.5 border border-dashed border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface)]/[0.03]">
@@ -345,6 +419,10 @@ onMounted(() => {
       </div>
     </div>
 
+      </div>
+
+      <!-- 右栏：我的字典 -->
+      <div class="min-w-0">
     <!-- Dicts list -->
     <div class="mt-1 mb-2 flex items-center justify-between gap-2">
       <h3 class="min-w-0 truncate text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
@@ -357,7 +435,7 @@ onMounted(() => {
         v-if="(dicts.length || 0) > 5"
         v-model="dictQuery"
         type="text"
-        class="ui-input !h-7 !px-2 !text-[11px] w-24 sm:w-36 shrink-0"
+        class="ui-input !h-7 !px-2 !text-[11px] !w-24 sm:!w-36 shrink-0"
         :placeholder="t('settings.dataDictSearchPlaceholder')"
         :aria-label="t('settings.dataDictSearchPlaceholder')"
       >
@@ -390,6 +468,19 @@ onMounted(() => {
             </span>
             <span class="px-2 py-0.5 text-[11px] rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300">
               {{ t('settings.dataDictCount', { count: dict.count }) }}
+            </span>
+            <span
+              v-if="(usageOf(dict.name) ?? 0) > 0"
+              class="px-2 py-0.5 text-[11px] rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300"
+              :title="t('settings.dataDictStatsDraws')"
+            >
+              {{ t('settings.dataDictUsage', { count: usageOf(dict.name) }) }}
+            </span>
+            <span
+              v-else-if="stats"
+              class="px-2 py-0.5 text-[11px] rounded-full bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)] border border-[var(--sp-border)]"
+            >
+              {{ t('settings.dataDictUsageNever') }}
             </span>
             <span v-if="dict.updated_at" class="text-[10px] text-[var(--sp-text-muted)]">
               {{ dict.updated_at.replace('T', ' ').slice(0, 19) }}
@@ -429,6 +520,9 @@ onMounted(() => {
             <Trash2 class="w-3.5 h-3.5" />
           </button>
         </div>
+      </div>
+    </div>
+
       </div>
     </div>
 

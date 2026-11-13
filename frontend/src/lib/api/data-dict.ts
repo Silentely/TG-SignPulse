@@ -38,6 +38,22 @@ export interface SampleEntryResponse {
   mode: "random" | "round_robin";
 }
 
+export interface DataDictUsage {
+  count: number;
+  last_used?: string;
+}
+
+export interface DataDictStats {
+  dicts: Record<string, DataDictUsage>;
+  total: number;
+  dict_count: number;
+}
+
+/** 获取各数据字典的使用统计 */
+export const getDataDictStats = (token: string) => {
+  return request<DataDictStats>("/data-dict/stats", {}, token);
+};
+
 /** 获取全部数据字典列表 */
 export const listDataDicts = (token: string) => {
   return request<DataDictMeta[]>("/data-dict", {}, token);

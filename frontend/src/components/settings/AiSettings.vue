@@ -1,17 +1,12 @@
 <script setup lang="ts">
 /**
- * AI 配置区块：provider / base_url / model / api_key，测试连接按钮。
- * 内嵌「高级执行 / AI 视觉」子区块（execTimeout / accountCooldown / flowRetry /
- * historyMaxAge / aiVisionTimeout / aiVisionRetry），与模型配置一并由「保存 AI 配置」提交。
+ * AI 配置区块：provider / base_url / model / api_key 与备用节点，测试连接按钮。
+ * 任务执行策略与 AI 视觉参数已迁至独立卡片 TaskRuntimeSettings。
  */
 import { Sparkles, Eye, EyeOff, Plus, X } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import SettingsFieldHint from './SettingsFieldHint.vue'
-import {
-  parseNumberInputValue,
-  type AiFormState,
-  type SettingsFormState,
-} from '../../lib/settings-form'
+import type { AiFormState } from '../../lib/settings-form'
 
 interface RevealSecrets {
   aiKey: boolean
@@ -20,11 +15,9 @@ interface RevealSecrets {
 const props = defineProps<{
   /** AI 配置（v-model） */
   aiModelValue: AiFormState
-  /** 全局表单状态（v-model，用于高级字段双向绑定） */
-  settingsModelValue: SettingsFormState
   /** 密钥显隐（仅 aiKey） */
   reveal: Pick<RevealSecrets, 'aiKey'>
-  /** AI 保存中（含高级运行时参数） */
+  /** AI 保存中 */
   aiLoading?: boolean
   /** 服务端 Key 解密失败（需重填 Key，仍可改 model/base_url） */
   keyDecryptFailed?: boolean
@@ -32,7 +25,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:aiModelValue', value: AiFormState): void
-  (e: 'update:settingsModelValue', value: SettingsFormState): void
   (e: 'save-ai'): void
   (e: 'test-ai'): void
   (e: 'toggle-reveal', key: 'aiKey'): void
@@ -42,10 +34,6 @@ const { t } = useI18n()
 
 const updateAi = <K extends keyof AiFormState>(key: K, value: AiFormState[K]) => {
   emit('update:aiModelValue', { ...props.aiModelValue, [key]: value })
-}
-
-const updateSettings = <K extends keyof SettingsFormState>(key: K, value: SettingsFormState[K]) => {
-  emit('update:settingsModelValue', { ...props.settingsModelValue, [key]: value } as SettingsFormState)
 }
 
 const onAiInput = (key: keyof AiFormState, e: Event) => {
@@ -96,15 +84,6 @@ const removeFallbackProvider = (index: number) => {
     'fallback_providers',
     fallbackProviders().filter((_, i) => i !== index),
   )
-}
-
-const onSettingsNumberInput = (key: keyof SettingsFormState, e: Event) => {
-  const v = (e.target as HTMLInputElement).value
-  updateSettings(key, parseNumberInputValue(v) as never)
-}
-
-const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
-  updateSettings(key, (e.target as HTMLSelectElement).value as never)
 }
 </script>
 
@@ -253,57 +232,6 @@ const onSettingsSelectChange = (key: keyof SettingsFormState, e: Event) => {
           <Plus class="w-3.5 h-3.5" />
           {{ t('settings.addFallbackProvider') }}
         </button>
-      </div>
-      <!-- 高级执行 / AI 视觉（从关于页移入） -->
-      <div class="pt-4 border-t border-[var(--sp-border)] space-y-3">
-        <div>
-          <h3 class="text-sm font-medium text-[var(--sp-text)] font-semibold">{{ t('settings.advanced') }}</h3>
-          <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.advancedDesc') }}</p>
-          <p class="text-[10px] text-[var(--sp-text-muted)]">{{ t('settings.emptyAdvancedHint') }}</p>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div class="space-y-1">
-            <label class="text-[10px] text-[var(--sp-text-muted)]" for="ai-exectimeout">{{ t('settings.execTimeout') }}</label>
-            <input id="ai-exectimeout" :value="settingsModelValue.execTimeout" @input="onSettingsNumberInput('execTimeout', $event)" type="number" min="30" max="3600" :placeholder="t('settings.execTimeoutPlaceholder')" class="ui-input" />
-            <SettingsFieldHint :text="t('settings.execTimeoutHint')" />
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-[var(--sp-text-muted)]" for="ai-accountcooldown">{{ t('settings.accountCooldown') }}</label>
-            <input id="ai-accountcooldown" :value="settingsModelValue.accountCooldown" @input="onSettingsNumberInput('accountCooldown', $event)" type="number" min="0" max="600" :placeholder="t('settings.accountCooldownPlaceholder')" class="ui-input" />
-            <SettingsFieldHint :text="t('settings.accountCooldownHint')" />
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-[var(--sp-text-muted)]" for="ai-flowretry">{{ t('settings.flowRetry') }}</label>
-            <input id="ai-flowretry" :value="settingsModelValue.flowRetry" @input="onSettingsNumberInput('flowRetry', $event)" type="number" min="1" max="10" :placeholder="t('settings.flowRetryPlaceholder')" class="ui-input" />
-            <SettingsFieldHint :text="t('settings.flowRetryHint')" />
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-[var(--sp-text-muted)]" for="ai-historymaxage">{{ t('settings.historyMaxAge') }}</label>
-            <input id="ai-historymaxage" :value="settingsModelValue.historyMaxAge" @input="onSettingsNumberInput('historyMaxAge', $event)" type="number" min="1" max="90" :placeholder="t('settings.historyMaxAgePlaceholder')" class="ui-input" />
-            <SettingsFieldHint :text="t('settings.historyMaxAgeHint')" />
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-[var(--sp-text-muted)]" for="ai-aivisiontimeout">{{ t('settings.aiVisionTimeout') }}</label>
-            <input id="ai-aivisiontimeout" :value="settingsModelValue.aiVisionTimeout" @input="onSettingsNumberInput('aiVisionTimeout', $event)" type="number" min="3" max="120" :placeholder="t('settings.aiVisionTimeoutPlaceholder')" class="ui-input" />
-            <SettingsFieldHint :text="t('settings.aiVisionTimeoutHint')" />
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-[var(--sp-text-muted)]" for="ai-aivisionretry">{{ t('settings.aiVisionRetry') }}</label>
-            <input id="ai-aivisionretry" :value="settingsModelValue.aiVisionRetry" @input="onSettingsNumberInput('aiVisionRetry', $event)" type="number" min="1" max="8" :placeholder="t('settings.aiVisionRetryPlaceholder')" class="ui-input" />
-            <SettingsFieldHint :text="t('settings.aiVisionRetryHint')" />
-          </div>
-          <div class="space-y-1 sm:col-span-2">
-            <label class="text-[10px] text-[var(--sp-text-muted)]" for="ai-aivisionreasoning">{{ t('settings.aiVisionReasoningEffort') }}</label>
-            <select id="ai-aivisionreasoning" class="ui-input" :value="settingsModelValue.aiVisionReasoningEffort" @change="onSettingsSelectChange('aiVisionReasoningEffort', $event)">
-              <option value="">{{ t('settings.aiVisionReasoningEffortDefault') }}</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="none">{{ t('settings.aiVisionReasoningEffortNone') }}</option>
-            </select>
-            <SettingsFieldHint :text="t('settings.aiVisionReasoningEffortHint')" />
-          </div>
-        </div>
       </div>
       <div class="pt-2">
         <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="aiLoading" @click="emit('save-ai')">{{ aiLoading ? t('common.saving') : t('settings.saveAiConfig') }}</button>

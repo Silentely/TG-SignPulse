@@ -115,6 +115,8 @@ export interface GlobalSettings {
   /** 服务端不回传代理明文（可能含内嵌凭据），仅回传是否已配置；null 可显式清除 */
   global_proxy?: string | null;
   global_proxy_set?: boolean;
+  /** 强制 Telegram 连接必须走代理（无代理时拒绝登录/运行） */
+  require_proxy_for_telegram?: boolean;
   tg_global_concurrency?: number | null;
   device_keepalive_enabled?: boolean;
   device_keepalive_interval_days?: number;
@@ -130,6 +132,10 @@ export interface GlobalSettings {
   telegram_bot_token_set?: boolean;
   telegram_bot_chat_id?: string | null;
   telegram_bot_message_thread_id?: number | null;
+  /** ChatOps 指令开关（默认关闭） */
+  telegram_bot_chatops_enabled?: boolean;
+  /** ChatOps 管理员 user_id 白名单（逗号分隔） */
+  telegram_bot_admin_user_ids?: string | null;
   timezone?: string;
   execution_engine?: string;
   sign_task_execution_timeout?: number | null;

@@ -14,6 +14,7 @@ vi.mock('../lib/api/data-dict', () => ({
   deleteDataDict: vi.fn(),
   sampleDataDictEntry: vi.fn(),
   createDataDictFromBuiltin: vi.fn(),
+  getDataDictStats: vi.fn(),
 }))
 
 const dicts = (count: number) =>
@@ -32,6 +33,11 @@ describe('DataDictSettings 我的字典列表', () => {
     vi.clearAllMocks()
     useAuthStore().setToken('tok')
     vi.mocked(dataDictApi.listBuiltinDataDicts).mockResolvedValue([])
+    vi.mocked(dataDictApi.getDataDictStats).mockResolvedValue({
+      dicts: {},
+      total: 0,
+      dict_count: 0,
+    })
   })
 
   it('字典较少时不显示搜索框', async () => {
@@ -68,5 +74,52 @@ describe('DataDictSettings 我的字典列表', () => {
     const list = wrapper.get('div.max-h-\\[min\\(60vh\\,420px\\)\\]')
     expect(list.classes()).toContain('overflow-y-auto')
     expect(list.findAll('span.font-mono.font-semibold').length).toBe(20)
+  })
+
+  it('渲染使用概览 KPI 与每个字典的使用次数角标', async () => {
+    vi.mocked(dataDictApi.listDataDicts).mockResolvedValue(dicts(3))
+    vi.mocked(dataDictApi.getDataDictStats).mockResolvedValue({
+      dicts: {
+        dict_1: { count: 12, last_used: '2026-11-13T10:00:00' },
+        dict_2: { count: 3, last_used: '2026-11-13T09:00:00' },
+      },
+      total: 15,
+      dict_count: 2,
+    })
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    // 三个 KPI：字典组数 3、词条总数 9、累计抽取 15
+    expect(wrapper.text()).toContain('字典组数')
+    expect(wrapper.text()).toContain('词条总数')
+    expect(wrapper.text()).toContain('累计抽取')
+    expect(wrapper.text()).toContain('15')
+
+    // 已使用字典显示「已用 N 次」，未使用字典显示「未使用」
+    expect(wrapper.text()).toContain('已用 12 次')
+    expect(wrapper.text()).toContain('已用 3 次')
+    expect(wrapper.text()).toContain('未使用')
+  })
+
+  it('统计接口失败时降级显示，不影响字典列表', async () => {
+    vi.mocked(dataDictApi.listDataDicts).mockResolvedValue(dicts(3))
+    vi.mocked(dataDictApi.getDataDictStats).mockRejectedValue(new Error('boom'))
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    // 累计抽取降级为「—」，列表仍完整渲染
+    expect(wrapper.text()).toContain('—')
+    expect(wrapper.findAll('span.font-mono.font-semibold').length).toBe(3)
+    // 无统计数据时不显示「未使用」角标
+    expect(wrapper.text()).not.toContain('未使用')
+  })
+
+  it('宽屏使用双栏布局容器', async () => {
+    vi.mocked(dataDictApi.listDataDicts).mockResolvedValue(dicts(3))
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    const grid = wrapper.find('.grid.lg\\:grid-cols-\\[minmax\\(0\\,2fr\\)_minmax\\(0\\,3fr\\)\\]')
+    expect(grid.exists()).toBe(true)
   })
 })
