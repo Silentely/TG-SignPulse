@@ -66,6 +66,7 @@ from tg_signer.log_utils import (
 from tg_signer.semantic.action_policy import (
     resolve_action_semantic_policy,
     semantic_decision_summary,
+    semantic_runtime_unavailable_reason,
 )
 from tg_signer.utils import (
     print_to_user,
@@ -165,7 +166,8 @@ class SignerActionsMixin:
             if service is None:
                 if getattr(self, "_jev_unavailable_logged", False) is not True:
                     self.log(
-                        "[JEV 按钮] 未调用：系统未启用 JEV、未配置密钥或服务未就绪，继续文字匹配"
+                        "[JEV 按钮] 未调用："
+                        f"{semantic_runtime_unavailable_reason(runtime)}；继续文字匹配"
                     )
                     self._jev_unavailable_logged = True
                 return None

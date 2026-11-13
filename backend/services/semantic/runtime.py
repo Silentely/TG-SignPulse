@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -238,17 +239,25 @@ class SemanticRuntime:
 
 
 _GLOBAL_RUNTIME: SemanticRuntime | None = None
+_RUNTIMES_BY_WORKDIR: dict[Path, SemanticRuntime] = {}
+_RUNTIME_REGISTRY_LOCK = threading.RLock()
 
 
 def get_semantic_runtime(workdir: Path | None = None) -> SemanticRuntime:
     global _GLOBAL_RUNTIME
-    if _GLOBAL_RUNTIME is None:
-        if workdir is None:
-            from backend.config import WORKDIR
+    if workdir is None:
+        from backend.core.config import get_settings
 
-            workdir = Path(WORKDIR)
-        _GLOBAL_RUNTIME = SemanticRuntime(workdir)
-    return _GLOBAL_RUNTIME
+        workdir = get_settings().resolve_workdir()
+    resolved_workdir = Path(workdir).expanduser().resolve()
+    with _RUNTIME_REGISTRY_LOCK:
+        runtime = _RUNTIMES_BY_WORKDIR.get(resolved_workdir)
+        if runtime is None:
+            runtime = SemanticRuntime(resolved_workdir)
+            _RUNTIMES_BY_WORKDIR[resolved_workdir] = runtime
+        # Keep the active runtime aligned with the same workdir used by config and task services.
+        _GLOBAL_RUNTIME = runtime
+        return runtime
 
 
 def get_active_semantic_runtime() -> SemanticRuntime | None:

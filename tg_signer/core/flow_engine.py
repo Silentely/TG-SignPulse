@@ -43,6 +43,7 @@ from tg_signer.semantic.action_policy import (
     DEFAULT_RESULT_GOAL,
     resolve_action_semantic_policy,
     semantic_decision_summary,
+    semantic_runtime_unavailable_reason,
 )
 
 logger = logging.getLogger("tg_signer.flow_engine")
@@ -1611,7 +1612,8 @@ class PulseFlowEngine:
                                 unavailable_key = f"jev_unavailable_logged:{node.id}"
                                 if not ctx.system.get(unavailable_key):
                                     _log_msg(
-                                        f"[JEV 回复] 未调用：步骤={node.id}，系统未启用 JEV、未配置密钥或服务未就绪"
+                                        f"[JEV 回复] 未调用：步骤={node.id}，"
+                                        f"{semantic_runtime_unavailable_reason(runtime)}"
                                     )
                                     ctx.system[unavailable_key] = True
                         except Exception as sem_err:

@@ -14,6 +14,27 @@ def resolve_action_semantic_policy(value: Any) -> dict[str, Any]:
     return policy
 
 
+def semantic_runtime_unavailable_reason(runtime: Any) -> str:
+    """Describe why JEV cannot run without exposing its key or other secrets."""
+    if runtime is None:
+        return "JEV runtime provider unavailable"
+    try:
+        config = runtime.config_store.load()
+    except Exception as exc:
+        return f"JEV config read failed ({type(exc).__name__})"
+    if not config.enabled:
+        return f"JEV disabled (config_dir={safe_text_preview(runtime.workdir, 120)})"
+    if not config.api_key:
+        return (
+            "API key missing or could not be decrypted "
+            f"(config_dir={safe_text_preview(runtime.workdir, 120)})"
+        )
+    return (
+        "JEV service unavailable despite enabled config and available key "
+        f"(config_dir={safe_text_preview(runtime.workdir, 120)})"
+    )
+
+
 def semantic_decision_summary(decision: Any) -> str:
     selected = decision.selected
     probabilities = decision.probabilities or {}
