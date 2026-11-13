@@ -32,6 +32,18 @@ const expandedBuiltin = ref('')
 const availableBuiltins = computed(() => builtins.value.filter((item) => !item.exists))
 const referencedBuiltinCount = computed(() => builtins.value.length - availableBuiltins.value.length)
 
+const dictQuery = ref('')
+const filteredDicts = computed(() => {
+  const list = Array.isArray(dicts.value) ? dicts.value : []
+  const query = dictQuery.value.trim().toLowerCase()
+  if (!query) return list
+  return list.filter(
+    (dict) =>
+      dict.name.toLowerCase().includes(query) ||
+      (dict.remark || '').toLowerCase().includes(query),
+  )
+})
+
 // Modal / Drawer state
 const showModal = ref(false)
 const isEditing = ref(false)
@@ -334,6 +346,23 @@ onMounted(() => {
     </div>
 
     <!-- Dicts list -->
+    <div class="mt-1 mb-2 flex items-center justify-between gap-2">
+      <h3 class="min-w-0 truncate text-xs font-medium text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)]">
+        {{ t('settings.dataDictListTitle') }}
+        <span class="ml-1 text-[10px] font-normal text-[var(--sp-text-muted)]">
+          {{ t('settings.dataDictListSummary', { count: dicts.length || 0 }) }}
+        </span>
+      </h3>
+      <input
+        v-if="(dicts.length || 0) > 5"
+        v-model="dictQuery"
+        type="text"
+        class="ui-input !h-7 !px-2 !text-[11px] w-24 sm:w-36 shrink-0"
+        :placeholder="t('settings.dataDictSearchPlaceholder')"
+        :aria-label="t('settings.dataDictSearchPlaceholder')"
+      >
+    </div>
+
     <div v-if="loading && dicts.length === 0" class="py-6 text-center text-xs text-[var(--sp-text-muted)]">
       <RefreshCw class="w-4 h-4 animate-spin mx-auto mb-2 opacity-60" />
       {{ t('common.loading') }}
@@ -344,9 +373,13 @@ onMounted(() => {
       {{ t('settings.dataDictEmpty') }}
     </div>
 
-    <div v-else class="space-y-3">
+    <div v-else-if="filteredDicts.length === 0" class="py-6 text-center text-xs text-[var(--sp-text-muted)] border border-dashed border-[var(--sp-border)] rounded-[var(--sp-radius-lg)]">
+      {{ t('settings.dataDictSearchEmpty') }}
+    </div>
+
+    <div v-else class="max-h-[min(60vh,420px)] overflow-y-auto pr-1 -mr-1 space-y-3">
       <div
-        v-for="dict in dicts"
+        v-for="dict in filteredDicts"
         :key="dict.name"
         class="p-3.5 border border-[var(--sp-border)] dark:border-[var(--sp-border)] rounded-[var(--sp-radius-lg)] bg-[var(--sp-surface-subtle)] dark:bg-[var(--sp-surface-muted)] hover:border-[var(--sp-border-strong)] dark:border-[var(--sp-border)] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
       >
