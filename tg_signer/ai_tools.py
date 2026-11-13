@@ -689,6 +689,58 @@ class AITools:
         "帽子": "hat",
         "眼镜": "glasses",
         "眼鏡": "glasses",
+        "马桶": "toilet",
+        "馬桶": "toilet",
+        "坐便器": "toilet",
+        "厕所": "toilet",
+        "廁所": "toilet",
+        "洗手池": "sink",
+        "水槽": "sink",
+        "浴缸": "bathtub",
+        "淋浴": "shower",
+        "香皂": "soap",
+        "肥皂": "soap",
+        "牙刷": "toothbrush",
+        "毛巾": "towel",
+        "台灯": "lamp",
+        "檯燈": "lamp",
+        "风扇": "fan",
+        "風扇": "fan",
+        "空调": "air conditioner",
+        "空調": "air conditioner",
+        "冰箱": "refrigerator",
+        "洗衣机": "washing machine",
+        "洗衣機": "washing machine",
+        "微波炉": "microwave",
+        "微波爐": "microwave",
+        "水壶": "kettle",
+        "水壺": "kettle",
+        "锅": "pot",
+        "鍋": "pot",
+        "碗": "bowl",
+        "勺子": "spoon",
+        "叉子": "fork",
+        "刀子": "knife",
+        "盘子": "plate",
+        "盤子": "plate",
+        "镜子": "mirror",
+        "鏡子": "mirror",
+        "时钟": "clock",
+        "時鐘": "clock",
+        "钥匙": "key",
+        "鑰匙": "key",
+        "钱包": "wallet",
+        "錢包": "wallet",
+        "背包": "bag",
+        "戒指": "ring",
+        "项链": "necklace",
+        "項鍊": "necklace",
+        "视频网站": "video website",
+        "視頻網站": "video website",
+        "视频平台": "video website",
+        "視頻平台": "video website",
+        "影视网站": "video website",
+        "影視網站": "video website",
     }
     _cloudflare_translation_cache: ClassVar[dict[str, str]] = {}
 
@@ -880,7 +932,7 @@ class AITools:
 
     async def _call_cloudflare_vision_with_retries(
         self,
-        image: bytes,
+        image: bytes | None,
         question: str,
         *,
         model: str,
@@ -961,16 +1013,28 @@ class AITools:
     async def _ensure_cloudflare_options_translated(
         self, options: list[tuple[int, str]]
     ) -> None:
-        """在生产链路中对未命中静态翻译字典的选项调用 Cloudflare 翻译服务并回填缓存。"""
+        """生产链路中并发回填未知中文选项的英文翻译。
+
+        静态字典与进程级缓存先命中；剩余项并发调用翻译服务，避免多个未知选项
+        串行等待，拖长 30 秒签到窗口内的首包延迟。
+        """
+        pending: list[str] = []
+        seen: set[str] = set()
         for _, option_text in options:
             source = str(option_text).strip()
-            if not source or not self._cloudflare_needs_translation(source):
+            if not source or source in seen:
+                continue
+            seen.add(source)
+            if not self._cloudflare_needs_translation(source):
                 continue
             if source in self._CLOUDFLARE_OPTION_TRANSLATIONS:
                 continue
             if source in type(self)._cloudflare_translation_cache:
                 continue
-            await self._cloudflare_translate_text(source)
+            pending.append(source)
+        if not pending:
+            return
+        await asyncio.gather(*(self._cloudflare_translate_text(s) for s in pending))
 
     @staticmethod
     def _normalize_option_text(text: Any) -> str:

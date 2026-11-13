@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -903,3 +904,58 @@ class TestCloudflareTextAndOptionResponses:
         options = [(1, "猫"), (2, "狗")]
         assert AITools._coerce_option_index('{"options":[2]}', options) == 2
         assert AITools._coerce_option_indexes('{"options":[2]}', options) == [2]
+
+
+class TestCloudflareOptionTranslation:
+    """静态翻译词表与并发回填，减少签到窗口内的翻译延迟。"""
+
+    def test_common_challenge_words_have_static_translations(self):
+        assert AITools._CLOUDFLARE_OPTION_TRANSLATIONS["马桶"] == "toilet"
+        assert AITools._CLOUDFLARE_OPTION_TRANSLATIONS["坐便器"] == "toilet"
+        assert AITools._CLOUDFLARE_OPTION_TRANSLATIONS["视频网站"] == "video website"
+        assert AITools._CLOUDFLARE_OPTION_TRANSLATIONS["视频平台"] == "video website"
+
+    @pytest.mark.asyncio
+    async def test_known_options_skip_remote_translation(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+        with patch.object(
+            tools, "_cloudflare_translate_text", new_callable=AsyncMock
+        ) as mock_translate:
+            await tools._ensure_cloudflare_options_translated(
+                [(1, "马桶"), (2, "视频网站"), (3, "熊猫")]
+            )
+        mock_translate.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unknown_options_are_translated_concurrently(self):
+        tools = AITools(
+            {
+                "api_key": "fake-key",
+                "base_url": "https://api.cloudflare.com/client/v4/accounts/acc12345/ai",
+            }
+        )
+        AITools._cloudflare_translation_cache.clear()
+        started: list[str] = []
+        release = asyncio.Event()
+
+        async def fake_translate(text: str) -> str:
+            started.append(text)
+            if len(started) == 2:
+                release.set()
+            # 串行实现会在第一个选项处等待超时
+            await asyncio.wait_for(release.wait(), timeout=1.0)
+            return f"en-{text}"
+
+        with patch.object(
+            tools, "_cloudflare_translate_text", side_effect=fake_translate
+        ):
+            await tools._ensure_cloudflare_options_translated(
+                [(1, "未知选项甲"), (2, "未知选项乙")]
+            )
+
+        assert set(started) == {"未知选项甲", "未知选项乙"}
