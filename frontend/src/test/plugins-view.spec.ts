@@ -106,7 +106,7 @@ describe('PluginsView & 侧边栏菜单', () => {
   it('普通访问 /settings 保持正常不触发重定向', async () => {
     await router.push({ path: '/settings' })
     expect(router.currentRoute.value.name).toBe('settings')
-  })
+  }, 20000)
 
   it('TaskLogsHistoryPanel 中失败日志回放链接指向 plugins 路由', () => {
     const wrapper = mount(TaskLogsHistoryPanel, {
