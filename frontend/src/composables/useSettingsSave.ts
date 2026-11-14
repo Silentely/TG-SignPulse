@@ -277,7 +277,6 @@ export function useSettingsSave(options: {
     const token = getAuthToken()
     aiLoading.value = true
     try {
-      await saveGlobalSettings(token, options.buildAiRuntimePayload())
       const hasAiInput = !!(
         options.aiConfig.value.provider === 'cloudflare'
           ? (options.aiConfig.value.cloudflare_account_id || options.aiConfig.value.api_key || options.aiConfig.value.model)
@@ -330,11 +329,9 @@ export function useSettingsSave(options: {
         options.aiConfig.value.api_key = ''
       } catch (e: unknown) {
         if (hasAiInput) throw e
-        devLog.error('saveAi model skipped (runtime-only or no key yet)', e)
+        devLog.error('saveAi model skipped (no key yet)', e)
       }
       options.markSectionClean('ai')
-      // 该保存路径仍带上运行时字段（兼容旧路径），一并标记为已保存
-      options.markSectionClean('runtime')
       notifySuccess(t('settings.aiConfigSaved'))
     } catch (e: unknown) {
       notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))

@@ -152,6 +152,7 @@ describe('useSettingsSave', () => {
     expect(markSectionClean).toHaveBeenCalledWith('general')
     expect(markSectionClean).toHaveBeenCalledWith('tg')
     expect(markSectionClean).toHaveBeenCalledWith('ai')
+    expect(markSectionClean).toHaveBeenCalledWith('runtime')
     expect(toastSpy.success).toHaveBeenCalled()
   })
 
@@ -239,7 +240,7 @@ describe('useSettingsSave', () => {
     expect(String(toastSpy.success.mock.calls[0][0])).toContain('2')
   })
 
-  it('saveAiConfig writes runtime then model', async () => {
+  it('saveAiConfig writes only AI config and leaves runtime section untouched', async () => {
     api.saveGlobalSettings.mockResolvedValue({})
     api.saveAIConfig.mockResolvedValue({})
     const ai = ref({ base_url: 'u', model: 'm', api_key: 'secret', fallback_providers: [] })
@@ -260,11 +261,12 @@ describe('useSettingsSave', () => {
       loadBackupStatus: vi.fn(async () => {}),
     })
     await save.saveAiConfig()
-    expect(api.saveGlobalSettings).toHaveBeenCalledWith('tok', { rt: 1 })
+    expect(api.saveGlobalSettings).not.toHaveBeenCalled()
     expect(api.saveAIConfig).toHaveBeenCalled()
     expect(ai.value.api_key).toBe('')
     expect(aiKeyDecryptFailed.value).toBe(false)
     expect(markSectionClean).toHaveBeenCalledWith('ai')
+    expect(markSectionClean).not.toHaveBeenCalledWith('runtime')
   })
 
   it('saveAiConfig forwards fallback providers when AI config was loaded', async () => {
@@ -336,5 +338,25 @@ describe('useSettingsSave', () => {
     expect(ai.value.cloudflare_account_id_masked).toBe('0123************************cdef')
     expect(ai.value.api_key).toBe('')
     expect(ai.value.api_key_masked).toBe('cf-n****oken')
+  })
+
+  it('saveAiRuntime success submits runtime payload and marks runtime clean', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    const { save, markSectionClean } = setup()
+    await save.saveAiRuntime()
+    expect(api.saveGlobalSettings).toHaveBeenCalledWith('tok', { ai_rt: 1 })
+    expect(markSectionClean).toHaveBeenCalledWith('runtime')
+    expect(toastSpy.success).toHaveBeenCalled()
+    expect(toastSpy.error).not.toHaveBeenCalled()
+  })
+
+  it('saveAiRuntime failure reports error and does not mark runtime clean', async () => {
+    api.saveGlobalSettings.mockRejectedValue(new Error('boom'))
+    const { save, markSectionClean } = setup()
+    await save.saveAiRuntime()
+    expect(api.saveGlobalSettings).toHaveBeenCalledWith('tok', { ai_rt: 1 })
+    expect(markSectionClean).not.toHaveBeenCalledWith('runtime')
+    expect(toastSpy.error).toHaveBeenCalled()
+    expect(toastSpy.success).not.toHaveBeenCalled()
   })
 })

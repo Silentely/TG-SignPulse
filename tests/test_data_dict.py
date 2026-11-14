@@ -78,6 +78,17 @@ def test_data_dict_rejects_invalid_name(tmp_path: Path):
             service.save_dict(name, ["val"])
 
 
+def test_data_dict_rejects_reserved_underscore_names(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    # `_stats` 会拼出 data_dicts/_stats.json，与使用统计 blob 撞同一路径
+    for name in ("_stats", "_hidden", "_"):
+        with pytest.raises(ValueError, match="RESERVED_DICT_NAME"):
+            service.save_dict(name, ["val"])
+
+    # 保留名不得写入任何文件，统计文件也不应被创建
+    assert list((tmp_path / "data_dicts").glob("*.json")) == []
+
+
 def test_data_dict_rejects_empty_entries(tmp_path: Path):
     service = DataDictService(base_dir=tmp_path)
     with pytest.raises(ValueError, match="DATA_DICT_EMPTY"):
@@ -151,6 +162,15 @@ def test_data_dict_api_routes(
         json={"name": "invalid name!", "entries": ["a", "b"]},
     )
     assert resp.status_code == 400
+
+    # Reserved underscore name -> 400 with explicit code
+    resp = api_client.post(
+        "/api/data-dict",
+        headers=headers,
+        json={"name": "_stats", "entries": ["a"]},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "RESERVED_DICT_NAME"
 
     # Create with empty entries -> 400
     resp = api_client.post(

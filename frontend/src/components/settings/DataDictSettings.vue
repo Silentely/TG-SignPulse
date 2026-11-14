@@ -195,6 +195,10 @@ const handleSave = async () => {
     formError.value = t('settings.dataDictNamePlaceholder')
     return
   }
+  if (trimmedName.startsWith('_')) {
+    formError.value = t('apiErrors.RESERVED_DICT_NAME')
+    return
+  }
 
   const lines = formEntries.value
     .split('\n')

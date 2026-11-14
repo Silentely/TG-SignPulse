@@ -64,6 +64,7 @@
     "ACCOUNT_DELETE_FAILED": "删除账号失败，请稍后重试",
     "ACCOUNT_UPDATE_FAILED": "更新账号信息失败，请稍后重试",
     "DATA_DICT_EXISTS": "已存在同名数据字典，请先删除再引用",
+    "RESERVED_DICT_NAME": "该名称已被系统保留（下划线开头），请换一个名字",
     "BUILTIN_DICT_NOT_FOUND": "内置字典不存在或已下线"
   },
   "dashboard": {
@@ -798,8 +799,6 @@
     "signInterval": "签到间隔（秒）",
     "signIntervalPlaceholder": "留空=随机 1-120 秒",
     "signIntervalHint": "多账号串行签到时的间隔；留空使用随机间隔",
-    "advanced": "高级执行 / AI",
-    "advancedDesc": "覆盖环境变量中的任务超时、冷却与 AI 视觉参数（与下方「保存 AI 配置」一并提交）",
     "execTimeout": "任务执行超时（秒）",
     "execTimeoutPlaceholder": "留空=300 秒",
     "accountCooldown": "账号冷却（秒）",
@@ -833,7 +832,6 @@
     "autoBackupKeep": "保留份数",
     "importPreviewTitle": "导入预览",
     "importConflicts": "冲突项",
-    "emptyAdvancedHint": "留空则使用环境变量或内置默认",
     "showSecret": "显示",
     "hideSecret": "隐藏",
     "unsavedTitle": "有未保存的更改",

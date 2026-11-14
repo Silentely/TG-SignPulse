@@ -43,6 +43,9 @@ class DataDictService:
     def _dict_file(self, name: str) -> Path:
         if not name or not _NAME_PATTERN.match(name):
             raise ValueError("INVALID_DICT_NAME")
+        if name.startswith("_"):
+            # 下划线开头为保留名（如统计 blob `_stats.json`），避免与系统文件撞路径
+            raise ValueError("RESERVED_DICT_NAME")
         return self.dict_dir / f"{name}.json"
 
     def list_dicts(self) -> List[Dict[str, Any]]:
