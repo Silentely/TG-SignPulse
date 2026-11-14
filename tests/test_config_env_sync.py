@@ -95,6 +95,63 @@ class TestApplyGlobalSettingsToEnv:
         monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
         assert service.get_global_settings()["allow_community_plugins"] is False
 
+    def test_priority_file_over_env_over_default_with_source(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """优先级：设置文件显式键 > 环境变量 > 默认 false；source 标识来源。"""
+        monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+        service = ConfigService()
+        gs = service.get_global_settings()
+        assert gs["allow_community_plugins"] is False
+        assert gs["allow_community_plugins_source"] == "default"
+
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        service = ConfigService()
+        gs = service.get_global_settings()
+        assert gs["allow_community_plugins"] is True
+        assert gs["allow_community_plugins_source"] == "env"
+
+        # 文件显式键优先于 env，且标记为 file
+        service.save_global_settings({"allow_community_plugins": False})
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        gs = ConfigService().get_global_settings()
+        assert gs["allow_community_plugins"] is False
+        assert gs["allow_community_plugins_source"] == "file"
+
+    def test_unrelated_save_does_not_persist_env_gate_value(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """保存无关字段时，不应把 env 推导的开关值固化进设置文件。"""
+        import json
+
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        service = ConfigService()
+        # 文件迄今没有该键：仅保存时间区，不应写入 allow_community_plugins
+        service.save_global_settings({"timezone": "Asia/Tokyo"})
+        content = json.loads(
+            Path(service._get_global_settings_file()).read_text(encoding="utf-8")
+        )
+        assert "allow_community_plugins" not in content
+
+        # 随后 env 变化应重新生效（环境变量仍是 < 文件）
+        monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY")
+        assert service.get_global_settings()["allow_community_plugins"] is False
+
+    def test_explicit_gate_save_persists_when_no_key_prev(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """用户显式保存开关值时，即使文件此前无该键也应落盘。"""
+        import json
+
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        service = ConfigService()
+        service.save_global_settings({"allow_community_plugins": False})
+        content = json.loads(
+            Path(service._get_global_settings_file()).read_text(encoding="utf-8")
+        )
+        assert content["allow_community_plugins"] is False
+        assert service.get_global_settings()["allow_community_plugins_source"] == "file"
+
     def test_save_syncs_env_immediately(self, isolated_env: Path, monkeypatch):
         import os
 

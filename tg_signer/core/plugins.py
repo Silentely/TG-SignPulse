@@ -1123,7 +1123,15 @@ class PluginRegistry:
 
     @classmethod
     def is_enabled(cls, name: str) -> bool:
-        return name not in cls._disabled_plugins
+        if name in cls._disabled_plugins:
+            return False
+        if cls.allow_community_plugins():
+            return True
+        # 开关关闭时，即使注册表里仍有历史残留，社区来源插件也视为停用
+        meta = cls._plugins.get(name)
+        return not (
+            meta and cls.is_community_plugin_source(getattr(meta, "source_path", None))
+        )
 
     @classmethod
     def register(
@@ -1770,6 +1778,28 @@ class PluginRegistry:
             return (Path(directory) / MARKET_PLUGIN_MARKER).is_file()
         except OSError:
             return False
+
+    @classmethod
+    def is_community_plugin_source(
+        cls, source_path: Optional[Union[str, Path]]
+    ) -> bool:
+        """判断插件来源是否属于仓库社区目录或市场安装副本。"""
+        if not source_path:
+            return False
+        try:
+            path = Path(source_path).resolve()
+        except OSError:
+            return False
+        for directory in cls.get_community_directories():
+            try:
+                path.relative_to(directory.resolve())
+                return True
+            except (OSError, ValueError):
+                continue
+        for candidate in (path, path.parent):
+            if cls.is_market_plugin_dir(candidate):
+                return True
+        return False
 
     @classmethod
     def get_community_directories(cls) -> list[Path]:

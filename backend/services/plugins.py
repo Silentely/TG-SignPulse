@@ -442,6 +442,11 @@ def _reload_plugins_preserving_state() -> None:
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
 
+def reload_plugins_registry() -> None:
+    """重建插件注册表并保留持久化停用状态，供设置变更等外部入口调用。"""
+    _reload_plugins_preserving_state()
+
+
 def _enforce_plugin_security_check(
     source_code: str, file_label: str = "插件"
 ) -> Dict[str, Any]:
@@ -1102,9 +1107,8 @@ def _save_all_plugin_configs(configs: Dict[str, Dict[str, Any]]) -> None:
     from backend.services.config import get_config_service
 
     cfg_svc = get_config_service()
-    settings = cfg_svc.get_global_settings() or {}
-    settings["plugin_configs"] = configs
-    cfg_svc.save_global_settings(settings)
+    # 只写插件配置字段，避免把社区插件开关等整体设置回写落盘
+    cfg_svc.save_global_settings({"plugin_configs": configs})
 
 
 def _get_default_params_from_schema(
@@ -1367,10 +1371,13 @@ class PluginService:
                     status_code=400, detail=f"自定义源地址不安全: {exc}"
                 )
 
-        current_settings = dict(config_service.get_global_settings() or {})
-        current_settings["marketplace_source"] = source_type
-        current_settings["marketplace_custom_url"] = custom_url
-        config_service.save_global_settings(current_settings)
+        # 只写入市场源字段，避免把当前整体设置（含社区插件开关推导值）回写落盘
+        config_service.save_global_settings(
+            {
+                "marketplace_source": source_type,
+                "marketplace_custom_url": custom_url,
+            }
+        )
         _market_cache = None
         _market_cache_time = 0.0
 
@@ -1534,8 +1541,8 @@ class PluginService:
                 disabled_list.remove(name)
 
         if cfg_svc is not None:
-            settings["disabled_plugins"] = disabled_list
-            cfg_svc.save_global_settings(settings)
+            # 只写停用列表，避免把整体设置（含社区插件开关推导值）回写
+            cfg_svc.save_global_settings({"disabled_plugins": disabled_list})
 
         PluginRegistry.set_disabled(name, disabled=new_disabled)
 
@@ -2159,15 +2166,19 @@ class PluginService:
             disabled = list(settings.get("disabled_plugins", []))
             if name in disabled:
                 disabled.remove(name)
-                settings["disabled_plugins"] = disabled
                 dirty = True
             configs = dict(settings.get("plugin_configs", {}))
             if name in configs:
                 configs.pop(name, None)
-                settings["plugin_configs"] = configs
                 dirty = True
             if dirty:
-                cfg_service.save_global_settings(settings)
+                # 只写清理后的字段，避免把整体设置（含社区插件开关推导值）回写
+                cfg_service.save_global_settings(
+                    {
+                        "disabled_plugins": disabled,
+                        "plugin_configs": configs,
+                    }
+                )
         except Exception as exc:
             logger.warning("清理插件全局配置失败: %s", exc)
 
@@ -2795,8 +2806,8 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
                 PluginRegistry.set_disabled(p.name, disabled=True)
 
         if cfg_svc is not None:
-            settings["disabled_plugins"] = list(disabled_set)
-            cfg_svc.save_global_settings(settings)
+            # 只写停用列表，避免把整体设置（含社区插件开关推导值）回写
+            cfg_svc.save_global_settings({"disabled_plugins": list(disabled_set)})
 
         return {
             "success": True,

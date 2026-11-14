@@ -204,6 +204,50 @@ def test_market_install_blocked_when_community_gate_off(api_client, monkeypatch)
     assert resp.status_code == 409
 
 
+def test_gate_save_unloads_and_restores_without_manual_reload(api_client, monkeypatch):
+    """保存开关即停用/恢复：无需额外调用 /plugins/reload。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+    assert PluginRegistry.get("dice_roller") is not None
+    assert PluginRegistry.is_enabled("dice_roller") is True
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+
+    # 通过设置接口关闭开关：立即卸载注册表，无需手动重载
+    resp = api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    assert resp.status_code == 200
+    assert PluginRegistry.get("dice_roller") is None
+
+    resp = api_client.get("/api/plugins/market", headers=headers)
+    item = next(p for p in resp.json()["plugins"] if p["id"] == "dice_roller")
+    assert item["installed"] is True
+    assert item["loaded"] is False
+    # 插件文件仍在本地，未因关闭开关被删除
+    from backend.services.plugins import _get_custom_plugins_dir
+
+    assert (_get_custom_plugins_dir() / "dice_roller").is_dir()
+
+    # 重新开启：自动恢复加载与执行
+    resp = api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": True},
+    )
+    assert resp.status_code == 200
+    assert PluginRegistry.get("dice_roller") is not None
+    assert PluginRegistry.is_enabled("dice_roller") is True
+
+
 def test_market_installed_plugin_unloads_when_gate_off(api_client, monkeypatch):
     """市场安装标记让插件在关闭开关后不再加载，重新开启后恢复。"""
     from backend.services.plugins import _get_custom_plugins_dir

@@ -1523,12 +1523,22 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       total_errors: 0,
       load_errors: [],
     })
-    vi.spyOn(settingsApi, 'getGlobalSettings').mockResolvedValue({
-      allow_community_plugins: false,
-    })
+    // 模拟服务端记忆：保存后回读返回新值，与真实接口行为一致
+    let gateValue = false
+    const gateReadMock = vi
+      .spyOn(settingsApi, 'getGlobalSettings')
+      .mockImplementation(async () => ({
+        allow_community_plugins: gateValue,
+        allow_community_plugins_source: gateValue ? 'file' : 'default',
+      }))
     const saveSpy = vi
       .spyOn(settingsApi, 'saveGlobalSettings')
-      .mockResolvedValue({ success: true, message: 'ok' })
+      .mockImplementation(async (_token, payload) => {
+        if (typeof payload.allow_community_plugins === 'boolean') {
+          gateValue = payload.allow_community_plugins
+        }
+        return { success: true, message: 'ok' }
+      })
     const reloadSpy = vi
       .spyOn(pluginsApi, 'reloadPlugins')
       .mockResolvedValue({ count: 0, plugins: [] })
@@ -1543,6 +1553,11 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       return el
     })
 
+    // 来源展示：默认关闭时应显示「默认」来源文案
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('来源：默认关闭')
+    })
+
     await toggle.trigger('click')
 
     await vi.waitFor(() => {
@@ -1551,6 +1566,27 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       })
       expect(reloadSpy).toHaveBeenCalled()
       expect(toggle.attributes('aria-checked')).toBe('true')
+    })
+    // 保存后来源切换为设置文件
+    expect(gateReadMock).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('来源：设置文件')
+  })
+
+  it('社区插件开关读取失败时提示，不臆断开关值', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([])
+    vi.spyOn(pluginsApi, 'getPluginDiagnostics').mockResolvedValue({
+      total_loaded: 0,
+      total_errors: 0,
+      load_errors: [],
+    })
+    vi.spyOn(settingsApi, 'getGlobalSettings').mockRejectedValue(new Error('boom'))
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('读取社区插件开关失败，当前状态未知')
     })
   })
 })

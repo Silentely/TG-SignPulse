@@ -21,6 +21,7 @@ from tg_signer.core.plugin_ipc import (
 from tg_signer.core.plugins import (
     PluginConnectionResetError,
     PluginContext,
+    PluginError,
     PluginFloodWaitError,
     PluginMessageNotFoundError,
     PluginNotSupportedError,
@@ -379,6 +380,11 @@ class PluginProcessHost:
 
     async def _execute_inner(self, start_time: float) -> Any:
         meta = PluginRegistry.get(self.plugin_name)
+        # 登录/调度入口之外的最后一道门禁：插件已被卸载或停用时不启动子进程
+        if meta is None:
+            raise PluginError(f"Plugin '{self.plugin_name}' is not loaded")
+        if not PluginRegistry.is_enabled(self.plugin_name):
+            raise PluginError(f"Plugin '{self.plugin_name}' is disabled")
         self.ctx.params = resolve_plugin_params(meta, getattr(self.ctx, "params", {}))
         self.ctx.context_version = getattr(meta, "context_version", 1)
         source_path = meta.source_path if meta else None

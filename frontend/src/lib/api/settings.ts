@@ -110,6 +110,8 @@ export const testAIConnection = (token: string) =>
 
 export interface GlobalSettings {
   allow_community_plugins?: boolean;
+  /** 开关取值来源：file=设置文件，env=环境变量，default=默认关闭 */
+  allow_community_plugins_source?: 'file' | 'env' | 'default';
   sign_interval?: number | null;  // null 表示随机 1-120 秒
   log_retention_days?: number;    // 日志保留天数，默认 7
   data_dir?: string | null;

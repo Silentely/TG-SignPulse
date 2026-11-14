@@ -129,6 +129,10 @@ const deletingPluginName = ref<string | null>(null)
 // 社区插件加载开关（全局设置 allow_community_plugins，默认关闭）
 const communityPluginsEnabled = ref(false)
 const communityPluginsSaving = ref(false)
+// 开关取值来源（file/env/default），仅用于界面说明，不参与保存
+const communityPluginsSource = ref<'file' | 'env' | 'default' | null>(null)
+// 读取开关失败时给出明确提示，避免把「读取失败」误认为「已关闭」
+const communityPluginsReadError = ref('')
 
 // 源码查看弹窗状态
 const isSourceModalOpen = ref(false)
@@ -835,17 +839,29 @@ const handleReload = async () => {
   }
 }
 
-/** 读取社区插件加载开关状态；失败保持默认关闭，不阻塞插件列表。 */
+/** 读取社区插件加载开关状态；失败给出错误提示，不静默保持默认关闭。 */
 const loadCommunityPluginGate = async () => {
   try {
     const res = await withToken((token) => getGlobalSettings(token))
+    communityPluginsReadError.value = ''
     if (res) {
       communityPluginsEnabled.value = !!res.allow_community_plugins
+      communityPluginsSource.value = res.allow_community_plugins_source ?? null
     }
   } catch {
-    // 读取失败保持默认关闭
+    communityPluginsReadError.value = t('settings.communityPluginsReadFailed')
+    // 读取失败不臆断开关值，仅清空来源说明
+    communityPluginsSource.value = null
   }
 }
+
+/** 开关来源文案：设置文件 / 环境变量 / 默认。 */
+const communityPluginsSourceLabel = computed(() => {
+  if (communityPluginsSource.value === 'file') return t('settings.communityPluginsSourceFile')
+  if (communityPluginsSource.value === 'env') return t('settings.communityPluginsSourceEnv')
+  if (communityPluginsSource.value === 'default') return t('settings.communityPluginsSourceDefault')
+  return ''
+})
 
 /** 切换社区插件加载开关，保存后重新扫描插件目录使其立即生效。 */
 const toggleCommunityPlugins = async () => {
@@ -858,6 +874,8 @@ const toggleCommunityPlugins = async () => {
     )
     if (!saved) return
     communityPluginsEnabled.value = next
+    // 以服务端保存后的值为准回读一次，避免乐观更新与实际 gate 状态分歧
+    await loadCommunityPluginGate()
     const res = await withToken((token) => reloadPlugins(token))
     if (res) {
       plugins.value = res.plugins
@@ -1864,6 +1882,12 @@ onBeforeUnmount(() => {
           {{ t('settings.communityPluginsTitle') }}
         </div>
         <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.communityPluginsDesc') }}</p>
+        <p v-if="communityPluginsReadError" class="text-[10px] text-rose-600 dark:text-rose-400 mt-1">
+          {{ communityPluginsReadError }}
+        </p>
+        <p v-else-if="communityPluginsSource" class="text-[10px] text-[var(--sp-text-muted)] mt-1">
+          {{ t('settings.communityPluginsSourceLabel', { source: communityPluginsSourceLabel }) }}
+        </p>
       </div>
       <button
         type="button"
@@ -2744,6 +2768,16 @@ onBeforeUnmount(() => {
             <!-- 描述 -->
             <p class="text-xs text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] line-clamp-2 min-h-[2.5rem]">
               {{ p.description || t('settings.pluginsNoDesc') }}
+            </p>
+
+            <!-- 已安装但未加载：社区开关关闭导致的停用状态 -->
+            <p
+              v-if="p.installed && !p.loaded"
+              class="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1"
+              :title="t('settings.marketStatusDisabledHint')"
+            >
+              <AlertTriangle class="w-3 h-3 shrink-0" />
+              {{ t('settings.marketStatusDisabled') }}
             </p>
 
             <!-- 模式与标签 -->

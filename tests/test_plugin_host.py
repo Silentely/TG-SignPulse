@@ -291,3 +291,39 @@ def test_kill_process_tree_posix_same_pgid_fallback():
     ):
         kill_process_tree(mock_proc)
         mock_proc.kill.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_unloaded_plugin_before_spawn():
+    """运行时门禁：插件未加载时直接报错，不再启动子进程。"""
+    from tg_signer.core.plugins import PluginError
+
+    host = PluginProcessHost(plugin_name="not_registered_plugin", ctx=MagicMock())
+    with patch("asyncio.create_subprocess_exec") as spawn_mock:
+        with pytest.raises(PluginError, match="is not loaded"):
+            await host.execute()
+        spawn_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_disabled_plugin_before_spawn():
+    """运行时门禁：插件被停用后不启动子进程。"""
+    from tg_signer.core.plugins import PluginError
+
+    name = "test_plugin_disabled_gate"
+    PluginRegistry._plugins.pop(name, None)
+
+    @PluginRegistry.register(name=name, mode="active", context_version=2)
+    def disabled_handler(ctx: PluginContext):
+        return True
+
+    PluginRegistry.set_disabled(name, disabled=True)
+    try:
+        host = PluginProcessHost(plugin_name=name, ctx=MagicMock())
+        with patch("asyncio.create_subprocess_exec") as spawn_mock:
+            with pytest.raises(PluginError, match="is disabled"):
+                await host.execute()
+            spawn_mock.assert_not_called()
+    finally:
+        PluginRegistry.set_disabled(name, disabled=False)
+        PluginRegistry._plugins.pop(name, None)

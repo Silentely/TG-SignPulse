@@ -29,7 +29,7 @@ from tg_signer.core.plugin_runtime import (
     PluginRuntime,
     get_plugin_runtime,
 )
-from tg_signer.core.plugins import PluginContext
+from tg_signer.core.plugins import PluginContext, PluginMeta, PluginRegistry
 from tg_signer.core.signer_runner import SignerRunnerMixin
 from tg_signer.core.workflow_engine import (
     WorkflowContext,
@@ -275,8 +275,30 @@ async def test_cross_chat_side_effect_started_isolation():
 # ==============================================================================
 
 
+@pytest.fixture
+def stub_plugin_meta():
+    """注册最小插件元数据：进程清理用例需要先通过执行前的加载/启用门禁。"""
+    meta = PluginMeta(
+        name="test_plugin",
+        handler=lambda ctx: None,
+        mode="active",
+        description="",
+        version="1.0.0",
+        updated_at="2026-11-14",
+        author="test",
+        source_path="",
+        params_schema=[],
+        permissions=[],
+    )
+    PluginRegistry._plugins["test_plugin"] = meta
+    try:
+        yield meta
+    finally:
+        PluginRegistry._plugins.pop("test_plugin", None)
+
+
 @pytest.mark.asyncio
-async def test_worker_init_drain_broken_pipe_cleans_up():
+async def test_worker_init_drain_broken_pipe_cleans_up(stub_plugin_meta):
     """验证 worker 进程在 init_payload 写入与 drain 发生 BrokenPipeError 时，仍能被 finally 正确 kill 并注销"""
     mock_ctx = MagicMock()
     mock_ctx.chat_id = 123
@@ -316,7 +338,7 @@ async def test_worker_init_drain_broken_pipe_cleans_up():
 
 
 @pytest.mark.asyncio
-async def test_worker_init_drain_timeout_cleans_up():
+async def test_worker_init_drain_timeout_cleans_up(stub_plugin_meta):
     """验证 worker 进程在 init_payload 写入后 drain 挂起时，受配置超时约束自动抛出 TimeoutError，kill 进程并注销"""
     mock_ctx = MagicMock()
     mock_ctx.chat_id = 123

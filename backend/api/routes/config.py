@@ -527,6 +527,8 @@ class GlobalSettingsRequest(BaseModel):
 
 class GlobalSettingsResponse(BaseModel):
     allow_community_plugins: bool = False
+    # 开关取值来源：file=设置文件显式键，env=环境变量，default=默认关闭
+    allow_community_plugins_source: Literal["file", "env", "default"] = "default"
     sign_interval: Optional[int] = None
     log_retention_days: int = 7
     data_dir: Optional[str] = None

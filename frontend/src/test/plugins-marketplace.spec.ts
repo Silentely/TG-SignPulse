@@ -105,6 +105,50 @@ describe('PluginsSettings.vue 插件市场功能', () => {
     })
   })
 
+  it('已安装但未加载的市场插件标注为社区开关关闭导致停用', async () => {
+    const mockPlugins: pluginsApi.MarketPluginItem[] = [
+      {
+        id: 'dice_roller',
+        name: '骰子',
+        version: '1.0.0',
+        mode: 'reactive',
+        category: 'fun',
+        description: '掷骰子',
+        download_url: 'https://...',
+        installed: true,
+        installed_is_builtin: false,
+        loaded: false,
+        status: 'installed',
+      },
+    ]
+
+    vi.spyOn(pluginsApi, 'getMarketCatalog').mockResolvedValue({
+      total: 1,
+      source_type: 'github',
+      source_url: 'https://...',
+      plugins: mockPlugins,
+      cached: false,
+    })
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://...',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    expect(marketTab).toBeDefined()
+    await marketTab!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('骰子')
+      expect(wrapper.text()).toContain('已停用（社区开关关闭）')
+    })
+  })
+
   it('支持一键安装插件并在安装后刷新列表', async () => {
     const mockPlugins: pluginsApi.MarketPluginItem[] = [
       {

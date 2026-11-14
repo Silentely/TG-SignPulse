@@ -67,10 +67,19 @@ GLOBAL_SETTINGS_ENV_SYNC_STR = {
 _REASONING_EFFORT_VALUES = frozenset({"low", "medium", "high", "none"})
 
 
-def _env_allow_community_plugins() -> bool:
-    """首次启动时继承环境变量的显式授权（设置文件保存后以文件值为准）。"""
-    raw = os.getenv("PLUGINS_ALLOW_COMMUNITY", "false").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+def _env_allow_community_plugins() -> Optional[bool]:
+    """读取环境变量的显式授权；未设置返回 None，用于区分「未配置」与「显式关闭」。"""
+    raw = os.getenv("PLUGINS_ALLOW_COMMUNITY")
+    if raw is None:
+        return None
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _coerce_community_gate(value: Any) -> bool:
+    """兼容历史配置中可能出现的字符串布尔值。"""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
@@ -1618,20 +1627,32 @@ class GlobalSettingsMixin:
             "webdav_allow_private": False,
             "require_proxy_for_telegram": False,
             "backup_target": "auto",
-            "allow_community_plugins": _env_allow_community_plugins(),
+            "allow_community_plugins": False,
         }
 
-        settings = self._read_json_file(config_file)
-        if settings is None or not isinstance(settings, dict):
-            settings = dict(default_settings)
-        else:
-            # 合并默认设置
-            for key, value in default_settings.items():
-                if key not in settings:
-                    settings[key] = value
+        file_settings = self._read_json_file(config_file)
+        if not isinstance(file_settings, dict):
+            file_settings = {}
+        settings = dict(default_settings)
+        settings.update(file_settings)
         # 彻底移除遗留废弃的 s3_* 历史字段
         for s3_k in [k for k in list(settings.keys()) if k.startswith("s3_")]:
             settings.pop(s3_k, None)
+        # 社区插件开关优先级：设置文件显式键 > 环境变量 > 默认 false。
+        # source 仅用于观测，不落盘（save_global_settings 会剔除）。
+        if "allow_community_plugins" in file_settings:
+            settings["allow_community_plugins"] = _coerce_community_gate(
+                file_settings["allow_community_plugins"]
+            )
+            settings["allow_community_plugins_source"] = "file"
+        else:
+            env_gate = _env_allow_community_plugins()
+            if env_gate is None:
+                settings["allow_community_plugins"] = False
+                settings["allow_community_plugins_source"] = "default"
+            else:
+                settings["allow_community_plugins"] = env_gate
+                settings["allow_community_plugins_source"] = "env"
         # 时区：文件值优先，否则回退环境/核心配置（静默时段等依赖）
         if not settings.get("timezone"):
             try:
@@ -1666,7 +1687,14 @@ class GlobalSettingsMixin:
         settings = normalize_global_settings(settings)
         config_file = self._get_global_settings_file()
         merged = dict(self.get_global_settings())
+        # source 是只读观测字段，不写盘
+        gate_source = merged.pop("allow_community_plugins_source", None)
+        posted_gate = "allow_community_plugins" in settings
         merged.update(settings)
+        # 文件从未显式保存该键时，不把 env/默认推导值固化进设置文件，
+        # 保证「文件 > 环境变量 > 默认」的优先级不会因保存其他字段而被隐式改写。
+        if not posted_gate and gate_source != "file":
+            merged.pop("allow_community_plugins", None)
         # 彻底清除历史 s3_* 字段，确保不会写回磁盘
         for k in [k for k in list(merged.keys()) if k.startswith("s3_")]:
             merged.pop(k, None)
@@ -1718,6 +1746,16 @@ class GlobalSettingsMixin:
 
         # 同步高级参数到环境变量，供 tg_signer 等仍读 env 的路径使用
         apply_global_settings_to_env(merged)
+
+        # 社区插件开关被显式写入时立即重建注册表，让停用/恢复当场生效；
+        # 其余调用方只写各自字段，不会误触发重载。
+        if posted_gate:
+            try:
+                from backend.services.plugins import reload_plugins_registry
+
+                reload_plugins_registry()
+            except Exception as exc:
+                _logger.warning("社区插件开关变更后重载插件失败: %s", exc)
 
         return True
 

@@ -235,12 +235,14 @@ async def test_real_subprocess_rpc_read_chat_history_success():
 
 
 @pytest.mark.asyncio
-async def test_real_subprocess_community_plugin_dice_roller():
+async def test_real_subprocess_community_plugin_dice_roller(monkeypatch):
     """Test real community plugin (dice_roller) executes in subprocess with IPC reply."""
     community_dir = Path(__file__).resolve().parent.parent / "community_plugins"
     if not community_dir.is_dir():
         pytest.skip("community_plugins directory not found")
 
+    # 执行前门禁按当前开关判定社区插件是否可用，这里显式开启以聚焦 IPC 行为
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
     PluginRegistry.load_plugins_from_dir(community_dir)
     assert PluginRegistry.get("dice_roller") is not None
 
