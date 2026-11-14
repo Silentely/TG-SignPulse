@@ -248,6 +248,67 @@ def test_gate_save_unloads_and_restores_without_manual_reload(api_client, monkey
     assert PluginRegistry.is_enabled("dice_roller") is True
 
 
+def test_market_item_exposes_runtime_loaded(api_client, monkeypatch):
+    """市场条目区分「仓库目录加载」与「运行时已注册」，供前端准确标注停用。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+
+    resp = api_client.get("/api/plugins/market", headers=headers)
+    item = next(p for p in resp.json()["plugins"] if p["id"] == "dice_roller")
+    # 本地市场副本已安装且已注册：loaded=false（非仓库目录加载）但运行态为 true
+    assert item["installed"] is True
+    assert item["loaded"] is False
+    assert item["runtime_loaded"] is True
+
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    resp = api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    assert resp.status_code == 200
+    resp = api_client.get("/api/plugins/market", headers=headers)
+    item = next(p for p in resp.json()["plugins"] if p["id"] == "dice_roller")
+    assert item["runtime_loaded"] is False
+
+
+def test_gate_reload_preserves_plugin_metrics(api_client, monkeypatch):
+    """重载注册表只刷新元数据，仍加载的插件保留运行指标与调用历史。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+
+    PluginRegistry.record_execution("dice_roller", 12.5, success=True)
+    before = PluginRegistry.get_metrics("dice_roller")
+    assert before is not None and before.run_count == 1
+
+    # 再次保存同一开关值也会重载；指标与历史应保持不变
+    resp = api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": True},
+    )
+    assert resp.status_code == 200
+    after = PluginRegistry.get_metrics("dice_roller")
+    assert after is not None
+    assert after.run_count == 1
+    assert after.success_count == 1
+    assert len(PluginRegistry.get_execution_history("dice_roller")) == 1
+
+
 def test_market_installed_plugin_unloads_when_gate_off(api_client, monkeypatch):
     """市场安装标记让插件在关闭开关后不再加载，重新开启后恢复。"""
     from backend.services.plugins import _get_custom_plugins_dir

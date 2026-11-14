@@ -1588,5 +1588,8 @@ describe('PluginsSettings.vue 插件管理组件', () => {
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('读取社区插件开关失败，当前状态未知')
     })
+    // 状态未知时开关不可操作，避免基于默认值反推出错误的保存值
+    const toggle = wrapper.get('[role="switch"][aria-label="允许加载社区插件"]')
+    expect(toggle.attributes('disabled')).toBeDefined()
   })
 })

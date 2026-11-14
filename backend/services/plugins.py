@@ -410,6 +410,8 @@ class MarketPluginItem(BaseModel):
     installed_is_builtin: bool = False
     # 插件当前是否已从仓库社区目录加载（未复制到本地安装目录）
     loaded: bool = False
+    # 插件当前是否已在运行时注册表中（区分「已安装但未加载」与仓库目录加载）
+    runtime_loaded: bool = False
     status: Literal["not_installed", "loaded", "installed", "upgradable"] = (
         "not_installed"
     )
@@ -437,7 +439,10 @@ class MarketCatalogResponse(BaseModel):
 def _reload_plugins_preserving_state() -> None:
     """重新静态扫描解析插件目录元数据并完整保留持久化的禁用状态（零执行）。"""
     disabled_set = _get_disabled_plugins()
+    # 重载只刷新注册表；仍存在的插件保留运行指标与调用历史
+    stats = PluginRegistry.snapshot_runtime_stats()
     PluginRegistry.reload_all_plugins()
+    PluginRegistry.restore_runtime_stats(stats)
     for name in PluginRegistry.list_plugins():
         PluginRegistry.set_disabled(name, disabled=name in disabled_set)
 
@@ -1227,6 +1232,18 @@ class PluginService:
     # 3
     async def reload_plugins(self) -> ReloadPluginsResponse:
         """重新扫描并加载所有配置的插件目录。"""
+        # 手动重载前按磁盘上的设置重新发布运行开关，
+        # 让「编辑设置文件后点重载」也能与面板显示保持一致
+        try:
+            from backend.services.config import get_config_service
+            from backend.services.config_mixins import apply_global_settings_to_env
+
+            cfg_service = get_config_service()
+            # 读盘取最新值，避免缓存让「刚编辑过设置文件再点重载」不生效
+            cfg_service.invalidate_global_settings_cache()
+            apply_global_settings_to_env(cfg_service.get_global_settings())
+        except Exception as exc:
+            logger.debug("重载前同步全局设置失败: %s", exc)
         _reload_plugins_preserving_state()
         plugins = PluginRegistry.list_plugins()
         disabled_set = _get_disabled_plugins()
@@ -1316,6 +1333,7 @@ class PluginService:
                     installed_version=installed_version,
                     installed_is_builtin=installed_is_builtin,
                     loaded=loaded_from_community,
+                    runtime_loaded=loaded_meta is not None,
                     status=status_val,
                 )
             )

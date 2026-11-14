@@ -105,7 +105,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
     })
   })
 
-  it('已安装但未加载的市场插件标注为社区开关关闭导致停用', async () => {
+  it('仅当社区开关关闭时标注已安装未加载的市场插件为停用', async () => {
     const mockPlugins: pluginsApi.MarketPluginItem[] = [
       {
         id: 'dice_roller',
@@ -118,6 +118,57 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         installed: true,
         installed_is_builtin: false,
         loaded: false,
+        runtime_loaded: false,
+        status: 'installed',
+      },
+    ]
+
+    vi.spyOn(pluginsApi, 'getMarketCatalog').mockResolvedValue({
+      total: 1,
+      source_type: 'github',
+      source_url: 'https://...',
+      plugins: mockPlugins,
+      cached: false,
+    })
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://...',
+    })
+    // 开关关闭：已安装但未加载，标注停用原因
+    vi.mocked(settingsApi.getGlobalSettings).mockResolvedValue({
+      allow_community_plugins: false,
+      allow_community_plugins_source: 'file',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    expect(marketTab).toBeDefined()
+    await marketTab!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('骰子')
+      expect(wrapper.text()).toContain('已停用（社区开关关闭）')
+    })
+  })
+
+  it('社区开关开启且插件已注册时不显示停用标注', async () => {
+    const mockPlugins: pluginsApi.MarketPluginItem[] = [
+      {
+        id: 'dice_roller',
+        name: '骰子',
+        version: '1.0.0',
+        mode: 'reactive',
+        category: 'fun',
+        description: '掷骰子',
+        download_url: 'https://...',
+        installed: true,
+        installed_is_builtin: false,
+        loaded: false,
+        runtime_loaded: true,
         status: 'installed',
       },
     ]
@@ -145,8 +196,8 @@ describe('PluginsSettings.vue 插件市场功能', () => {
 
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('骰子')
-      expect(wrapper.text()).toContain('已停用（社区开关关闭）')
     })
+    expect(wrapper.text()).not.toContain('已停用（社区开关关闭）')
   })
 
   it('支持一键安装插件并在安装后刷新列表', async () => {

@@ -106,7 +106,11 @@ def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
         if val is None or str(val).strip() == "":
             continue
         if gkey == "allow_community_plugins":
-            os.environ[ekey] = "true" if bool(val) else "false"
+            # 关闭态等同未设置：不回灌 false，避免把默认值伪装成「环境变量来源」
+            if bool(val):
+                os.environ[ekey] = "true"
+            else:
+                os.environ.pop(ekey, None)
             continue
         try:
             os.environ[ekey] = str(int(val))
@@ -838,6 +842,11 @@ class ConfigExportMixin:
                     all_configs["_meta"]["ai_api_key_masked"] = True
 
         global_settings = dict(self.get_global_settings())
+        # 来源是派生观测值；开关只在文件显式配置时导出，
+        # 避免导入时把环境变量/默认推导值固化成文件值。
+        gate_source = global_settings.pop("allow_community_plugins_source", None)
+        if gate_source != "file":
+            global_settings.pop("allow_community_plugins", None)
         if global_settings.get("webdav_password"):
             global_settings["webdav_password"] = self.AI_KEY_MASK
             all_configs["_meta"]["webdav_password_masked"] = True
@@ -1567,6 +1576,10 @@ class GlobalSettingsMixin:
             self._gs_cache = cache
         return cache
 
+    def invalidate_global_settings_cache(self) -> None:
+        """丢弃全局设置读取缓存，供需要读取磁盘最新值的调用方使用。"""
+        self._global_settings_cache().delete(str(self._get_global_settings_file()))
+
     def _get_global_settings_file(self) -> Path:
         """获取全局设置文件路径"""
         return self.workdir / ".global_settings.json"
@@ -1685,7 +1698,11 @@ class GlobalSettingsMixin:
             是否成功保存
         """
         settings = normalize_global_settings(settings)
+        # 来源字段是只读观测值，任何调用方（含配置导入）都不得把它写回磁盘
+        settings.pop("allow_community_plugins_source", None)
         config_file = self._get_global_settings_file()
+        # 保存前丢弃读取缓存，避免用外部编辑前的旧快照覆盖刚写入的文件
+        self.invalidate_global_settings_cache()
         merged = dict(self.get_global_settings())
         # source 是只读观测字段，不写盘
         gate_source = merged.pop("allow_community_plugins_source", None)

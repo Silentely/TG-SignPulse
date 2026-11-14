@@ -177,6 +177,8 @@ export interface MarketPluginItem {
   installed_version?: string | null
   installed_is_builtin: boolean
   loaded: boolean
+  /** 插件当前是否已在运行时注册表中 */
+  runtime_loaded?: boolean
   status: "not_installed" | "loaded" | "installed" | "upgradable"
 }
 

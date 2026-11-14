@@ -152,6 +152,80 @@ class TestApplyGlobalSettingsToEnv:
         assert content["allow_community_plugins"] is False
         assert service.get_global_settings()["allow_community_plugins_source"] == "file"
 
+    def test_source_field_never_persists_even_on_full_save(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """模拟配置导入：整份设置（含来源字段）回写时，只读来源不得落盘。"""
+        import json
+
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        service = ConfigService()
+        full = dict(service.get_global_settings())
+        assert full["allow_community_plugins_source"] == "env"
+        service.save_global_settings(full)
+        content = json.loads(
+            Path(service._get_global_settings_file()).read_text(encoding="utf-8")
+        )
+        assert "allow_community_plugins_source" not in content
+
+    def test_default_source_survives_startup_env_backfill(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """启动回灌不应把默认关闭伪装成「环境变量来源」。"""
+        import os
+
+        monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+        service = ConfigService()
+        assert (
+            service.get_global_settings()["allow_community_plugins_source"] == "default"
+        )
+        apply_global_settings_to_env(service.get_global_settings())
+        assert "PLUGINS_ALLOW_COMMUNITY" not in os.environ
+        service.invalidate_global_settings_cache()
+        assert (
+            service.get_global_settings()["allow_community_plugins_source"] == "default"
+        )
+
+    def test_export_omits_derived_gate_and_source(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """导出只携带文件显式配置的开关，避免导入时固化 env/默认推导值。"""
+        import json
+
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        service = ConfigService()
+        exported = json.loads(service.export_all_configs())
+        global_settings = exported["settings"]["global"]
+        assert "allow_community_plugins_source" not in global_settings
+        assert "allow_community_plugins" not in global_settings
+
+        # 面板显式保存后（来源 file）才随导出迁移
+        service.save_global_settings({"allow_community_plugins": False})
+        exported = json.loads(service.export_all_configs())
+        global_settings = exported["settings"]["global"]
+        assert global_settings["allow_community_plugins"] is False
+        assert "allow_community_plugins_source" not in global_settings
+
+    def test_save_keeps_external_gate_edit_despite_stale_cache(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """先读并缓存，再外部写入显式关闭键；保存无关字段不得删掉该键。"""
+        import json
+
+        monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+        service = ConfigService()
+        service.get_global_settings()  # 先用默认值填充缓存
+        settings_file = Path(service._get_global_settings_file())
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file.write_text(
+            json.dumps({"allow_community_plugins": False}), encoding="utf-8"
+        )
+
+        service.save_global_settings({"log_retention_days": 15})
+        content = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert content["allow_community_plugins"] is False
+        assert content["log_retention_days"] == 15
+
     def test_save_syncs_env_immediately(self, isolated_env: Path, monkeypatch):
         import os
 

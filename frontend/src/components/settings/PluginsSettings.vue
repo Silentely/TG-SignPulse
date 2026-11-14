@@ -865,7 +865,7 @@ const communityPluginsSourceLabel = computed(() => {
 
 /** 切换社区插件加载开关，保存后重新扫描插件目录使其立即生效。 */
 const toggleCommunityPlugins = async () => {
-  if (communityPluginsSaving.value) return
+  if (communityPluginsSaving.value || communityPluginsReadError.value) return
   const next = !communityPluginsEnabled.value
   communityPluginsSaving.value = true
   try {
@@ -874,6 +874,15 @@ const toggleCommunityPlugins = async () => {
     )
     if (!saved) return
     communityPluginsEnabled.value = next
+  } catch (err: unknown) {
+    const msg = getLocalizedErrorMessage(err, t)
+    toast.error(`${t('settings.communityPluginsSaveFailed')}: ${msg}`)
+    communityPluginsSaving.value = false
+    return
+  }
+
+  // 保存已成功；后续列表刷新失败单独提示，避免误报为保存失败
+  try {
     // 以服务端保存后的值为准回读一次，避免乐观更新与实际 gate 状态分歧
     await loadCommunityPluginGate()
     const res = await withToken((token) => reloadPlugins(token))
@@ -901,7 +910,7 @@ const toggleCommunityPlugins = async () => {
     )
   } catch (err: unknown) {
     const msg = getLocalizedErrorMessage(err, t)
-    toast.error(`${t('settings.communityPluginsSaveFailed')}: ${msg}`)
+    toast.error(`${t('settings.pluginsReloadFailed')}: ${msg}`)
   } finally {
     communityPluginsSaving.value = false
   }
@@ -1896,7 +1905,7 @@ onBeforeUnmount(() => {
         :aria-label="t('settings.communityPluginsTitle')"
         :aria-checked="communityPluginsEnabled"
         :class="communityPluginsEnabled ? 'ui-switch-on' : ''"
-        :disabled="communityPluginsSaving"
+        :disabled="communityPluginsSaving || !!communityPluginsReadError"
         @click="toggleCommunityPlugins"
       >
         <span class="ui-switch-knob" />
@@ -2770,9 +2779,9 @@ onBeforeUnmount(() => {
               {{ p.description || t('settings.pluginsNoDesc') }}
             </p>
 
-            <!-- 已安装但未加载：社区开关关闭导致的停用状态 -->
+            <!-- 已安装但未加载，且开关处于关闭状态：说明停用来自社区开关 -->
             <p
-              v-if="p.installed && !p.loaded"
+              v-if="p.installed && !p.runtime_loaded && !communityPluginsEnabled && communityPluginsSource"
               class="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1"
               :title="t('settings.marketStatusDisabledHint')"
             >

@@ -1238,6 +1238,26 @@ class PluginRegistry:
                 sys.modules.pop(module_name, None)
 
     @classmethod
+    def snapshot_runtime_stats(cls) -> tuple[dict, dict]:
+        """快照运行指标与调用历史，供注册表重载时保留。"""
+        history = {
+            name: deque(records, maxlen=30)
+            for name, records in cls._execution_history.items()
+        }
+        return dict(cls._metrics), history
+
+    @classmethod
+    def restore_runtime_stats(cls, snapshot: tuple[dict, dict]) -> None:
+        """恢复快照中仍处于加载状态的插件统计；重载期间新产生的记录优先。"""
+        metrics, history = snapshot
+        for name, item in metrics.items():
+            if name in cls._plugins:
+                cls._metrics.setdefault(name, item)
+        for name, records in history.items():
+            if name in cls._plugins:
+                cls._execution_history.setdefault(name, records)
+
+    @classmethod
     def load_plugins_from_dir(
         cls, directory: Union[str, Path], *, skip_market_installed: bool = False
     ) -> int:
