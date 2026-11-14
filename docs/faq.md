@@ -79,11 +79,12 @@ Docker 部署时先检查是否挂载了 `/data`；挂载目录权限错误会�
 
 ## 当前默认 AI 模型是什么
 
-默认模型是：
+默认模型取决于所选 AI 提供商：
 
-```text
-gpt-5-nano
-```
+- OpenAI 兼容端点：`gpt-5-nano`
+- Cloudflare Workers AI：`@cf/meta/llama-3.2-11b-vision-instruct`
+
+在设置里指定了别的模型时，系统优先使用你填写的模型。
 
 ## 现在能不能自定义 AI 提示词
 

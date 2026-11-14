@@ -23,7 +23,7 @@ TG-SignPulse 当前支持以下登录流程：
 
 ## 会话导入
 
-在面板点击 **添加账号** → **导入会话**（对应接口 `POST /api/accounts/import-session`）支持三种载荷，格式自动识别：
+在面板点击 **添加账号** → **导入会话**（对应接口 `POST /api/accounts/import-session`）支持四种载荷，格式自动识别：
 
 | 载荷 | 说明 |
 |---|---|

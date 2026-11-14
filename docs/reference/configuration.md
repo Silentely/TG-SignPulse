@@ -287,10 +287,12 @@ environment:
 | `sign_task_account_cooldown` | 账号冷却（秒） |
 | `sign_task_flow_retry_attempts` | 流程重试次数 |
 | `sign_task_history_max_age_days` | 历史保留天数 |
-| `ai_vision_timeout` / `ai_vision_retry_attempts` | AI 视觉超时与重试 |
+| `ai_vision_timeout` / `ai_vision_retry_attempts` / `ai_vision_reasoning_effort` | AI 视觉超时、重试次数与思考度（可选 `low` / `medium` / `high` / `none`） |
 | `telegram_bot_task_success_enabled` | 任务成功通知 |
 | `telegram_bot_quiet_hours_*` | 静默时段 |
+| `telegram_bot_chatops_enabled` / `telegram_bot_admin_user_ids` | Bot 远程指令（ChatOps）开关与管理员 user_id 白名单（逗号分隔）；白名单留空时不校验发送者身份 |
 | `auto_backup_enabled` / `interval_hours` / `keep` | 自动备份（开启状态、执行间隔小时数与保留快照份数） |
 | `backup_target` | 备份目标策略，可选 `auto`（智能选择：已配置 WebDAV 时上传远端，未配置时提供本地归档下载）、`webdav`（仅 WebDAV 备份）。默认 `auto` |
 | `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「数据管理」；用法见 [备份与恢复](/guide/backup-webdav)） |
 | `require_proxy_for_telegram` | 强制 Telegram 连接使用代理；开启后无有效代理的连接一律阻断（`PROXY_REQUIRED_BLOCKED`），含登录、状态检测、设备/会话操作、签到执行与关键词监听 |
+| `allow_community_plugins` | 允许加载 `community_plugins/` 社区插件目录，默认关闭；同步为环境变量 `PLUGINS_ALLOW_COMMUNITY=true`。社区插件属于管理员信任代码，不构成操作系统安全沙箱 |
