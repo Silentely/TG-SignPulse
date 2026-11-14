@@ -17,6 +17,7 @@ logger = logging.getLogger("backend.data_dict")
 
 _NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 _STATS_FILE = "_stats.json"
+_STATS_NAME = "_stats"
 _STATS_FLUSH_INTERVAL_SECONDS = 5.0
 _instance: Optional[DataDictService] = None
 _instance_lock = threading.Lock()
@@ -41,12 +42,20 @@ class DataDictService:
         self._load_stats()
 
     def _dict_file(self, name: str) -> Path:
+        """按名称定位字典文件。写路径严、读删路径宽。"""
         if not name or not _NAME_PATTERN.match(name):
             raise ValueError("INVALID_DICT_NAME")
-        if name.startswith("_"):
-            # 下划线开头为保留名（如统计 blob `_stats.json`），避免与系统文件撞路径
-            raise ValueError("RESERVED_DICT_NAME")
         return self.dict_dir / f"{name}.json"
+
+    def _assert_writable_name(self, name: str) -> None:
+        """写入路径：下划线开头为保留名，禁止新建/覆盖。"""
+        if name.startswith("_"):
+            raise ValueError("RESERVED_DICT_NAME")
+
+    def _assert_not_stats(self, name: str) -> None:
+        """读取/删除路径：仅保护统计文件，历史 `_xxx` 字典仍可操作。"""
+        if name == _STATS_NAME:
+            raise ValueError("RESERVED_DICT_NAME")
 
     def list_dicts(self) -> List[Dict[str, Any]]:
         """列出所有字典元信息（名称、条目数、备注、更新时间）。"""
@@ -91,6 +100,7 @@ class DataDictService:
         preset = BUILTIN_DATA_DICT_MAP.get(name)
         if preset is None:
             raise ValueError("BUILTIN_DICT_NOT_FOUND")
+        self._assert_writable_name(name)
 
         file_path = self._dict_file(name)
         with self._lock:
@@ -102,6 +112,7 @@ class DataDictService:
 
     def get_dict(self, name: str) -> Dict[str, Any]:
         """获取指定字典详情及所有条目。"""
+        self._assert_not_stats(name)
         file_path = self._dict_file(name)
         if not file_path.exists():
             raise ValueError("DATA_DICT_NOT_FOUND")
@@ -130,6 +141,7 @@ class DataDictService:
         - 过滤空白行，若无有效条目抛出 DATA_DICT_EMPTY。
         - 原子写入保存，保留有效游标。
         """
+        self._assert_writable_name(name)
         file_path = self._dict_file(name)
 
         if not isinstance(entries, (list, tuple)):
@@ -167,6 +179,7 @@ class DataDictService:
 
     def delete_dict(self, name: str) -> bool:
         """删除指定字典。若不存在返回 False。"""
+        self._assert_not_stats(name)
         file_path = self._dict_file(name)
         with self._lock:
             if not file_path.exists():
@@ -194,6 +207,7 @@ class DataDictService:
         - round_robin: 并发锁保护下递增游标并持久化保存
         - record: 是否计入使用统计（采样预览等场景传 False）
         """
+        self._assert_not_stats(name)
         file_path = self._dict_file(name)
         if not file_path.exists():
             raise ValueError("DATA_DICT_NOT_FOUND")

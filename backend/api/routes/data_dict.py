@@ -174,7 +174,19 @@ def delete_data_dict(
 ) -> Dict[str, bool]:
     """删除指定数据字典。"""
     service = get_data_dict_service()
-    service.delete_dict(name)
+    try:
+        service.delete_dict(name)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "DATA_DICT_NOT_FOUND":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="DATA_DICT_NOT_FOUND",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=code,
+        )
     return {"ok": True}
 
 

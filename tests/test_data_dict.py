@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,41 @@ def test_data_dict_rejects_reserved_underscore_names(tmp_path: Path):
 
     # 保留名不得写入任何文件，统计文件也不应被创建
     assert list((tmp_path / "data_dicts").glob("*.json")) == []
+
+
+def test_stats_file_is_not_readable_or_deletable(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("greetings", ["你好"])
+    service.get_entry("greetings", mode="random")
+    stats_file = tmp_path / "data_dicts" / "_stats.json"
+    assert stats_file.exists()
+
+    # 统计文件不能被当作普通字典读取、抽样或删除
+    for call in (
+        lambda: service.get_dict("_stats"),
+        lambda: service.get_entry("_stats", mode="random"),
+        lambda: service.delete_dict("_stats"),
+    ):
+        with pytest.raises(ValueError, match="RESERVED_DICT_NAME"):
+            call()
+    assert stats_file.exists()
+
+
+def test_legacy_underscore_dict_remains_readable_and_deletable(tmp_path: Path):
+    service = DataDictService(base_dir=tmp_path)
+    legacy = tmp_path / "data_dicts" / "_legacy.json"
+    legacy.write_text(
+        json.dumps({"entries": ["旧词条"], "cursor": 0, "remark": "历史"}),
+        encoding="utf-8",
+    )
+
+    # 历史下划线字典仍可读、可抽样、可删除（写入仍被拒绝）
+    assert service.get_dict("_legacy")["entries"] == ["旧词条"]
+    assert service.get_entry("_legacy", mode="random") == "旧词条"
+    with pytest.raises(ValueError, match="RESERVED_DICT_NAME"):
+        service.save_dict("_legacy", ["新词条"])
+    assert service.delete_dict("_legacy") is True
+    assert not legacy.exists()
 
 
 def test_data_dict_rejects_empty_entries(tmp_path: Path):
@@ -459,3 +495,52 @@ def test_data_dict_stats_api_routes(
     resp = api_client.get("/api/data-dict/nonexistent", headers=headers)
     assert resp.status_code == 404
     assert resp.json()["detail"] == "DATA_DICT_NOT_FOUND"
+
+
+def test_stats_file_is_protected_by_api(
+    api_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = DataDictService(base_dir=tmp_path)
+    service.save_dict("greetings", ["你好"])
+    service.get_entry("greetings", mode="random")
+    import backend.api.routes.data_dict as data_dict_routes
+
+    monkeypatch.setattr(data_dict_routes, "get_data_dict_service", lambda: service)
+    headers = _auth(_login(api_client))
+    stats_file = tmp_path / "data_dicts" / "_stats.json"
+    assert stats_file.exists()
+
+    # 统计文件不是字典：读取与删除都必须返回 4xx，且文件不被删除
+    resp = api_client.get("/api/data-dict/_stats", headers=headers)
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "RESERVED_DICT_NAME"
+
+    resp = api_client.delete("/api/data-dict/_stats", headers=headers)
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "RESERVED_DICT_NAME"
+    assert stats_file.exists()
+
+
+def test_legacy_underscore_dict_api_delete(
+    api_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = DataDictService(base_dir=tmp_path)
+    legacy = tmp_path / "data_dicts" / "_legacy.json"
+    legacy.write_text(
+        json.dumps({"entries": ["旧词条"], "cursor": 0, "remark": ""}),
+        encoding="utf-8",
+    )
+    import backend.api.routes.data_dict as data_dict_routes
+
+    monkeypatch.setattr(data_dict_routes, "get_data_dict_service", lambda: service)
+    headers = _auth(_login(api_client))
+
+    # 历史下划线字典仍可读、可通过接口删除（不是删不掉的黑洞）
+    resp = api_client.get("/api/data-dict/_legacy", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["entries"] == ["旧词条"]
+
+    resp = api_client.delete("/api/data-dict/_legacy", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert not legacy.exists()
