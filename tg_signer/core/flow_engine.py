@@ -213,6 +213,42 @@ class PulseFlowEngine:
         last_non_retryable: bool = False
         last_semantic_disposition: Optional[str] = None
 
+        def _record_node_duration(
+            node: BaseFlowNode, outcome: StepOutcome, started_at: float
+        ) -> None:
+            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            outcome.duration_ms = duration_ms
+            status_labels = {
+                NodeStatus.SUCCESS: "成功",
+                NodeStatus.TERMINAL_EARLY: "提前终止",
+                NodeStatus.SKIPPED: "跳过",
+                NodeStatus.FAILED: "失败",
+                NodeStatus.TIMEOUT: "超时",
+            }
+            msg = (
+                f"步骤 [{node.id}] 本步骤耗时：{duration_ms / 1000:.2f} 秒"
+                f"（{status_labels.get(outcome.status, outcome.status.value)}）"
+            )
+            log_fn = ctx.system.get("log")
+            if callable(log_fn):
+                try:
+                    log_fn(
+                        msg,
+                        level="WARNING"
+                        if outcome.status in {NodeStatus.FAILED, NodeStatus.TIMEOUT}
+                        else "INFO",
+                    )
+                    return
+                except TypeError:
+                    try:
+                        log_fn(msg)
+                        return
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            logger.info(msg)
+
         try:
             while current_id and current_id not in {
                 TERMINAL_COMPLETE_ID,
@@ -235,6 +271,7 @@ class PulseFlowEngine:
 
                 total_steps += 1
                 executed_path.append(node.id)
+                node_started_at = time.perf_counter()
 
                 # 循环防死锁检测
                 visit_count = node_visit_counts.get(node.id, 0) + 1
@@ -298,6 +335,7 @@ class PulseFlowEngine:
                             logger.warning(
                                 f"on_step_finish 钩子执行异常 ({node.id}): {hook_err}"
                             )
+                    _record_node_duration(node, outcome, node_started_at)
                     current_id = self._normalize_target(
                         node.next_node_id or TERMINAL_COMPLETE_ID
                     )
@@ -420,6 +458,7 @@ class PulseFlowEngine:
                 if outcome is None:
                     outcome = StepOutcome(node_id=node.id, status=NodeStatus.FAILED)
 
+                _record_node_duration(node, outcome, node_started_at)
                 ctx.record_step_outcome(outcome)
 
                 # 检查受控终止 (SemanticReviewRequired / SemanticStopRequested / non_retryable)
