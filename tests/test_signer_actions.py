@@ -28,7 +28,7 @@ class DummySigner(SignerActionsMixin):
     def _message_matches_chat_thread(self, message, chat):
         return True
 
-    def _message_is_actionable_target(self, message):
+    def _message_is_actionable_target(self, message, action=None):
         return True
 
     def _log_received_target_message(self, message):

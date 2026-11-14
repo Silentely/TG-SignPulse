@@ -1269,6 +1269,57 @@ class MidFlowTerminalSuccessTest(unittest.IsolatedAsyncioTestCase):
         channel = SimpleNamespace(text="请完成验证", caption=None, from_user=None)
         self.assertTrue(signer._message_is_actionable_target(channel))
 
+    async def test_actionable_success_panel_allows_only_matching_navigation_button(
+        self,
+    ):
+        from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+        from tg_signer.config import ClickKeyboardByTextAction
+        from tg_signer.core import UserSigner
+
+        signer = object.__new__(UserSigner)
+        success_panel = SimpleNamespace(
+            text=None,
+            caption="🎉 签到成功，获得了 1 积分",
+            from_user=SimpleNamespace(is_bot=True),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("返回主菜单", callback_data="home")]]
+            ),
+        )
+
+        self.assertTrue(
+            signer._message_is_actionable_target(
+                success_panel,
+                ClickKeyboardByTextAction(text="返回主菜单"),
+            )
+        )
+        self.assertFalse(
+            signer._message_is_actionable_target(
+                success_panel,
+                ClickKeyboardByTextAction(text="签到"),
+            )
+        )
+        self.assertFalse(signer._message_is_actionable_target(success_panel))
+
+        signer.context = SimpleNamespace(last_callback_answer=None)
+        signer.log = lambda *args, **kwargs: None
+        signer._click_inline_button = AsyncMock(return_value=True)
+        clicked, matched = await signer._click_keyboard_by_text_result(
+            ClickKeyboardByTextAction(text="返回主菜单"), success_panel
+        )
+        self.assertEqual((clicked, matched), (True, True))
+        signer._click_inline_button.assert_awaited_once_with(
+            success_panel, success_panel.reply_markup.inline_keyboard[0][0]
+        )
+
+        signer._click_inline_button.reset_mock()
+        clicked, matched = await signer._click_keyboard_by_text_result(
+            ClickKeyboardByTextAction(text="签到", semantic_button={"mode": "off"}),
+            success_panel,
+        )
+        self.assertEqual((clicked, matched), (False, False))
+        signer._click_inline_button.assert_not_awaited()
+
     def test_post_send_terminal_timeout_env(self):
         from tg_signer.core import UserSigner
 

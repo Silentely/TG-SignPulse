@@ -594,17 +594,28 @@ class SignerMatchersMixin:
         )
         return self._text_has_terminal_success_text(text)
 
-    def _message_is_actionable_target(self, message: Optional[Message]) -> bool:
+    def _message_is_actionable_target(
+        self,
+        message: Optional[Message],
+        action: Optional[ActionT] = None,
+    ) -> bool:
         """当前步骤是否应处理该消息。
 
-        跳过已终态成功文案（避免对历史「签到成功」再点按钮/识图），
-        以及群聊中非 bot 用户消息（避免误点他人气泡）。
+        跳过已终态成功文案（避免重复点击签到），但允许点击该成功消息上
+        与当前导航动作匹配的按钮；同时跳过群聊中非 bot 用户消息。
         from_user 为空（频道帖等）仍允许处理。
         """
         if message is None:
             return False
         if self._message_has_terminal_success_text(message):
-            return False
+            if not isinstance(action, ClickKeyboardByTextAction):
+                return False
+            target = clean_text_for_match(action.text)
+            if not target or not any(
+                label and button_text_matches(target, clean_text_for_match(label))
+                for _, _, label in collect_clickable_buttons(message)
+            ):
+                return False
         from_user = getattr(message, "from_user", None)
         if from_user is not None and not getattr(from_user, "is_bot", False):
             return False

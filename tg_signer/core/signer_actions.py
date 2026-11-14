@@ -1420,7 +1420,7 @@ class SignerActionsMixin:
                             continue
                         if not self._message_matches_chat_thread(message, chat):
                             continue
-                        if not self._message_is_actionable_target(message):
+                        if not self._message_is_actionable_target(message, action):
                             continue
                         self._log_received_target_message(message)
                         self.context.waiting_message = message
@@ -1520,7 +1520,9 @@ class SignerActionsMixin:
                                     continue
                                 if not self._message_matches_chat_thread(message, chat):
                                     continue
-                                if not self._message_is_actionable_target(message):
+                                if not self._message_is_actionable_target(
+                                    message, action
+                                ):
                                     continue
                                 self._log_received_target_message(message)
 
@@ -1637,7 +1639,7 @@ class SignerActionsMixin:
                         continue
                     if not self._message_matches_chat_thread(message, chat):
                         continue
-                    if not self._message_is_actionable_target(message):
+                    if not self._message_is_actionable_target(message, action):
                         continue
                     self.context.waiting_message = message
                     self._log_received_target_message(message)
@@ -1692,7 +1694,7 @@ class SignerActionsMixin:
                     ):
                         if not self._message_matches_chat_thread(message, chat):
                             continue
-                        if not self._message_is_actionable_target(message):
+                        if not self._message_is_actionable_target(message, action):
                             continue
                         self._log_received_target_message(message)
                         if isinstance(action, ClickKeyboardByTextAction):
