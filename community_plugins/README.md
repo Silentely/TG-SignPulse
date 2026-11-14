@@ -25,14 +25,14 @@
 
 ## 社区插件信任模型
 
-`community_plugins/` 下的插件默认不会在应用启动时加载。管理员必须在全局设置中显式打开
-`allow_community_plugins`（环境变量名为 `PLUGINS_ALLOW_COMMUNITY=true`），然后重启或重新加载插件。
+`community_plugins/` 下的插件默认不会在应用启动时加载。管理员必须在「扩展插件」页面显式打开
+「允许加载社区插件」开关（对应全局设置 `allow_community_plugins`，环境变量名为 `PLUGINS_ALLOW_COMMUNITY=true`），然后重启或重新加载插件。
 启用时，启动日志会显示醒目警告：社区插件属于管理员信任代码，**可读写宿主文件与网络，请自行确认来源**。
 
 启用步骤：
 
-1. 打开全局设置，将“允许社区插件”设置为开启；或设置 `PLUGINS_ALLOW_COMMUNITY=true`。
-2. 重启应用，确认启动日志中的社区插件信任警告。
+1. 打开「扩展插件」页面，将「允许加载社区插件」开关打开；或设置 `PLUGINS_ALLOW_COMMUNITY=true`。开关切换后会自动重新加载插件。
+2. 确认启动日志或插件页中的社区插件信任警告。
 3. 在插件列表中确认目标插件已加载，再把它添加到任务中。
 
 例如 `community_plugins/mini_app_claim` 属于社区插件，必须完成上述显式启用步骤后才能使用。

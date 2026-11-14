@@ -107,6 +107,7 @@ import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
 import { useConfirm } from '../../composables/useConfirm'
 import { withToken } from '../../lib/api/core'
+import { getGlobalSettings, saveGlobalSettings } from '../../lib/api/settings'
 import { computeLineDiff, type DiffLine } from '../../lib/diff'
 import { copyToClipboard } from '../../lib/clipboard'
 import { storageGet, storageSet } from '../../lib/safe-storage'
@@ -124,6 +125,10 @@ const loading = ref(false)
 const reloadLoading = ref(false)
 const togglingPluginName = ref<string | null>(null)
 const deletingPluginName = ref<string | null>(null)
+
+// 社区插件加载开关（全局设置 allow_community_plugins，默认关闭）
+const communityPluginsEnabled = ref(false)
+const communityPluginsSaving = ref(false)
 
 // 源码查看弹窗状态
 const isSourceModalOpen = ref(false)
@@ -823,6 +828,56 @@ const handleReload = async () => {
     toast.error(`${t('settings.pluginsReloadFailed')}: ${msg}`)
   } finally {
     reloadLoading.value = false
+  }
+}
+
+/** 读取社区插件加载开关状态；失败保持默认关闭，不阻塞插件列表。 */
+const loadCommunityPluginGate = async () => {
+  try {
+    const res = await withToken((token) => getGlobalSettings(token))
+    if (res) {
+      communityPluginsEnabled.value = !!res.allow_community_plugins
+    }
+  } catch {
+    // 读取失败保持默认关闭
+  }
+}
+
+/** 切换社区插件加载开关，保存后重新扫描插件目录使其立即生效。 */
+const toggleCommunityPlugins = async () => {
+  if (communityPluginsSaving.value) return
+  const next = !communityPluginsEnabled.value
+  communityPluginsSaving.value = true
+  try {
+    const saved = await withToken((token) =>
+      saveGlobalSettings(token, { allow_community_plugins: next }),
+    )
+    if (!saved) return
+    communityPluginsEnabled.value = next
+    const res = await withToken((token) => reloadPlugins(token))
+    if (res) {
+      plugins.value = res.plugins
+      try {
+        const diag = await withToken((token) => getPluginDiagnostics(token))
+        if (diag) {
+          loadErrors.value = diag.load_errors || []
+        }
+      } catch {
+        // 诊断非核心阻断
+      }
+    }
+    toast.success(
+      t(
+        next
+          ? 'settings.communityPluginsEnabled'
+          : 'settings.communityPluginsDisabled',
+      ),
+    )
+  } catch (err: unknown) {
+    const msg = getLocalizedErrorMessage(err, t)
+    toast.error(`${t('settings.communityPluginsSaveFailed')}: ${msg}`)
+  } finally {
+    communityPluginsSaving.value = false
   }
 }
 
@@ -1696,6 +1751,7 @@ const filteredMarketPlugins = computed(() => {
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
   void loadPluginList()
+  void loadCommunityPluginGate()
 })
 
 onBeforeUnmount(() => {
@@ -1778,6 +1834,29 @@ onBeforeUnmount(() => {
           {{ reloadLoading ? t('settings.pluginsReloading') : t('settings.pluginsReload') }}
         </button>
       </div>
+    </div>
+
+    <!-- 社区插件加载开关：默认关闭，切换后自动重新加载插件 -->
+    <div class="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-[var(--sp-radius-sm)] border border-amber-500/30 bg-amber-500/5">
+      <div class="min-w-0">
+        <div class="flex items-center gap-1.5 text-xs font-medium text-[var(--sp-text)]">
+          <ShieldCheck class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+          {{ t('settings.communityPluginsTitle') }}
+        </div>
+        <p class="text-[10px] text-[var(--sp-text-muted)] mt-1">{{ t('settings.communityPluginsDesc') }}</p>
+      </div>
+      <button
+        type="button"
+        class="ui-switch shrink-0"
+        role="switch"
+        :aria-label="t('settings.communityPluginsTitle')"
+        :aria-checked="communityPluginsEnabled"
+        :class="communityPluginsEnabled ? 'ui-switch-on' : ''"
+        :disabled="communityPluginsSaving"
+        @click="toggleCommunityPlugins"
+      >
+        <span class="ui-switch-knob" />
+      </button>
     </div>
 
     <!-- 顶部主标签页切换：已安装插件 / 插件市场 -->

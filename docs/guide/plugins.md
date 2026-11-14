@@ -30,7 +30,7 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
 
 为了处理自定义插件可能包含同步死循环（例如 `while True: pass`、C 扩展锁死）、恶意阻塞或资源泄露导致宿主服务卡死的问题，TG-SignPulse 采用**独立子进程 Worker + 双向 JSON-RPC 管道代理 + 跨平台进程树硬终止（Process Group SIGKILL）**。这提供崩溃和超时控制，但不构成操作系统安全沙箱。
 
-重要边界：Context v2 grants 只约束经过宿主 RPC 的操作，不约束子进程自身的文件系统与网络能力。社区插件因此一律视为管理员信任代码；默认不加载，必须显式开启全局设置 `allow_community_plugins`（或环境变量 `PLUGINS_ALLOW_COMMUNITY=true`）。
+重要边界：Context v2 grants 只约束经过宿主 RPC 的操作，不约束子进程自身的文件系统与网络能力。社区插件因此一律视为管理员信任代码；默认不加载，必须在「扩展插件」页面开启「允许加载社区插件」开关（对应全局设置 `allow_community_plugins`，或环境变量 `PLUGINS_ALLOW_COMMUNITY=true`）。
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐

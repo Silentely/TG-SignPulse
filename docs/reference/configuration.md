@@ -295,4 +295,4 @@ environment:
 | `backup_target` | 备份目标策略，可选 `auto`（智能选择：已配置 WebDAV 时上传远端，未配置时提供本地归档下载）、`webdav`（仅 WebDAV 备份）。默认 `auto` |
 | `webdav_url` / `webdav_username` / `webdav_password` / `webdav_remote_dir` | 完整备份 WebDAV 目标（面板「数据管理」；用法见 [备份与恢复](/guide/backup-webdav)） |
 | `require_proxy_for_telegram` | 强制 Telegram 连接使用代理；开启后无有效代理的连接一律阻断（`PROXY_REQUIRED_BLOCKED`），含登录、状态检测、设备/会话操作、签到执行与关键词监听 |
-| `allow_community_plugins` | 允许加载 `community_plugins/` 社区插件目录，默认关闭；同步为环境变量 `PLUGINS_ALLOW_COMMUNITY=true`。社区插件属于管理员信任代码，不构成操作系统安全沙箱 |
+| `allow_community_plugins` | 允许加载 `community_plugins/` 社区插件目录，默认关闭，可在「扩展插件」页面用「允许加载社区插件」开关修改；同步为环境变量 `PLUGINS_ALLOW_COMMUNITY=true`。社区插件属于管理员信任代码，不构成操作系统安全沙箱 |

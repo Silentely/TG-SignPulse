@@ -109,6 +109,7 @@ export const testAIConnection = (token: string) =>
 // ─── 全局设置 ───
 
 export interface GlobalSettings {
+  allow_community_plugins?: boolean;
   sign_interval?: number | null;  // null 表示随机 1-120 秒
   log_retention_days?: number;    // 日志保留天数，默认 7
   data_dir?: string | null;

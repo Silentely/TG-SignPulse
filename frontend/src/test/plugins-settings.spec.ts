@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import i18n from '../i18n'
 import PluginsSettings from '../components/settings/PluginsSettings.vue'
 import * as pluginsApi from '../lib/api/plugins'
+import * as settingsApi from '../lib/api/settings'
 
 vi.mock('../lib/api/core', () => ({
   withToken: vi.fn((cb) => cb('mock-token')),
@@ -1512,6 +1513,44 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(document.body.textContent).toContain('权限越界告警')
       expect(document.body.textContent).toContain('network')
       expect(document.body.textContent).toContain('检测到调用高危系统命令 os.system')
+    })
+  })
+
+  it('读取并切换允许加载社区插件开关，保存后自动重载插件', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([])
+    vi.spyOn(pluginsApi, 'getPluginDiagnostics').mockResolvedValue({
+      total_loaded: 0,
+      total_errors: 0,
+      load_errors: [],
+    })
+    vi.spyOn(settingsApi, 'getGlobalSettings').mockResolvedValue({
+      allow_community_plugins: false,
+    })
+    const saveSpy = vi
+      .spyOn(settingsApi, 'saveGlobalSettings')
+      .mockResolvedValue({ success: true, message: 'ok' })
+    const reloadSpy = vi
+      .spyOn(pluginsApi, 'reloadPlugins')
+      .mockResolvedValue({ count: 0, plugins: [] })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const toggle = await vi.waitFor(() => {
+      const el = wrapper.get('[role="switch"][aria-label="允许加载社区插件"]')
+      expect(el.attributes('aria-checked')).toBe('false')
+      return el
+    })
+
+    await toggle.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith('mock-token', {
+        allow_community_plugins: true,
+      })
+      expect(reloadSpy).toHaveBeenCalled()
+      expect(toggle.attributes('aria-checked')).toBe('true')
     })
   })
 })
