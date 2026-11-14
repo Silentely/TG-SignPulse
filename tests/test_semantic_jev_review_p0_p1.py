@@ -186,9 +186,15 @@ def test_p0_4_ssrf_and_credential_whitelisting():
     assert valid is True
     assert err == ""
 
-    # 3. 自定义公网 host，禁止使用已存密钥（防止攻击者修改 base_url 窃取已有凭据）
+    # 3. 自定义公网 host，默认与视觉 base_url 保持一致放开；若开启 enforce_whitelist 则进行白名单强拦截
     valid, err = validate_ssrf_and_host(
         "https://custom-gateway.io/v1", is_saved_key=True
+    )
+    assert valid is True
+    assert err == ""
+
+    valid, err = validate_ssrf_and_host(
+        "https://custom-gateway.io/v1", is_saved_key=True, enforce_whitelist=True
     )
     assert valid is False
     assert "UNTRUSTED_HOST" in err

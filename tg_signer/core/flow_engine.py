@@ -216,8 +216,11 @@ class PulseFlowEngine:
         def _record_node_duration(
             node: BaseFlowNode, outcome: StepOutcome, started_at: float
         ) -> None:
-            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
-            outcome.duration_ms = duration_ms
+            if getattr(outcome, "duration_ms", 0.0) <= 0.0:
+                duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+                outcome.duration_ms = duration_ms
+            else:
+                duration_ms = outcome.duration_ms
             status_labels = {
                 NodeStatus.SUCCESS: "成功",
                 NodeStatus.TERMINAL_EARLY: "提前终止",
@@ -1145,8 +1148,10 @@ class PulseFlowEngine:
         )
         min_msg_id = node.metadata.get("min_message_id")
         if min_msg_id is None:
-            min_msg_id = ctx.system.get("last_sent_message_id") or ctx.system.get(
-                "last_message_id"
+            min_msg_id = (
+                ctx.system.get("last_handled_message_id")
+                or ctx.system.get("last_sent_message_id")
+                or ctx.system.get("last_message_id")
             )
         since_ts = (
             node.metadata.get("since_timestamp")
@@ -1307,7 +1312,7 @@ class PulseFlowEngine:
                     continue
 
                 # 6. 水位线校验：严格忽略旧消息
-                # P0 优先级：优先使用 min_message_id；如果 message_id 无法使用，再使用 since_timestamp
+                # 消息 ID 水位线检查
                 if (
                     min_msg_id is not None
                     and getattr(event, "message_id", None) is not None
@@ -1318,8 +1323,14 @@ class PulseFlowEngine:
                     except (ValueError, TypeError):
                         if event.message_id <= min_msg_id:
                             continue
-                elif since_ts is not None:
-                    if event.occurred_at < since_ts:
+
+                # 时间戳协同校验：对于 NEW_MESSAGE，发生时间不得早于动作开始时间（留 0.2s 容差），避免误将前置提示当作当前动作回复
+                if (
+                    since_ts is not None
+                    and getattr(event, "occurred_at", None) is not None
+                    and getattr(event, "event_type", "").upper() == "NEW_MESSAGE"
+                ):
+                    if event.occurred_at < (since_ts - 0.2):
                         continue
 
                 text = event.text or ""

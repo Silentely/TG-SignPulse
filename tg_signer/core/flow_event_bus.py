@@ -161,6 +161,13 @@ class TelegramEventBus:
                 matches_watermark = False
                 if min_message_id is not None:
                     matches_watermark = ev.message_id > min_message_id
+                    if (
+                        matches_watermark
+                        and since_timestamp is not None
+                        and getattr(ev, "event_type", "").upper() == "NEW_MESSAGE"
+                        and ev.occurred_at < (since_timestamp - 0.2)
+                    ):
+                        matches_watermark = False
                 elif since_timestamp is not None:
                     matches_watermark = ev.occurred_at >= since_timestamp
                 else:

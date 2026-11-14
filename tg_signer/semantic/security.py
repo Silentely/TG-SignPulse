@@ -39,6 +39,7 @@ def validate_ssrf_and_host(
     *,
     is_saved_key: bool = False,
     custom_allowed_hosts: set[str] | None = None,
+    enforce_whitelist: bool = False,
 ) -> tuple[bool, str]:
     """校验目标 URL 是否存在 SSRF 风险，以及是否允许发送已保存密钥。
 
@@ -47,7 +48,8 @@ def validate_ssrf_and_host(
     2. 禁止向内网/保留 IP（127.0.0.1, 10.x, 172.16.x, 192.168.x, 169.254.x, ::1 等）发送请求；
     3. 禁止向云厂商元数据主机（如 169.254.169.254, metadata.google.internal, instance-data）发送请求；
     4. 禁止向 localhost 及 *.localhost 发送请求；
-    5. 若使用已保存的 key（is_saved_key=True），目标 host 必须属于白名单，禁止将已存 key 送往任意自定义或未知主机。
+    5. 凭据外送面管控：默认与视觉 Base URL 策略对齐，允许合法公网主机；仅在显式声明 enforce_whitelist 或
+       配置 JEV_ENFORCE_HOST_WHITELIST 时，才强制执行域名白名单约束。
     """
     if not url or not isinstance(url, str):
         return False, "SSRF_BLOCKED: Empty or invalid URL"
@@ -89,8 +91,14 @@ def validate_ssrf_and_host(
             f"SSRF_BLOCKED: Target IP address '{hostname}' is in a private or restricted network range",
         )
 
-    # 凭据外送面管控：已保存的 key 只允许送往白名单 host
-    if is_saved_key:
+    # 凭据外送面管控：默认放开合法公网域名（与视觉 Base URL 一致）；
+    # 仅在显式声明 enforce_whitelist 或配置 JEV_ENFORCE_HOST_WHITELIST 时强制限定白名单
+    env_enforce = os.getenv("JEV_ENFORCE_HOST_WHITELIST", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if is_saved_key and (enforce_whitelist or env_enforce):
         whitelist = set(OFFICIAL_WHITELIST_HOSTS)
         if custom_allowed_hosts:
             whitelist.update(h.lower() for h in custom_allowed_hosts)
@@ -100,7 +108,7 @@ def validate_ssrf_and_host(
                 h.strip().lower() for h in env_allowed.split(",") if h.strip()
             )
 
-        if hostname not in whitelist:
+        if "*" not in whitelist and hostname not in whitelist:
             return (
                 False,
                 f"UNTRUSTED_HOST: Saved API key cannot be forwarded to non-whitelisted host '{hostname}'. "
@@ -207,7 +215,7 @@ def truncate_state_if_needed(
 
 
 def sanitize_request(request: DecisionRequest) -> DecisionRequest:
-    """对 DecisionRequest 进行超长截断与安全性标注。
+    """对 DecisionRequest 进行超长截断与安全性标记。
 
     若超长则截断并标注 truncated=True。
     """

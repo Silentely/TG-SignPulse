@@ -1442,6 +1442,8 @@ class SignerActionsMixin:
                             log_not_found=False,
                         )
                         if ok:
+                            if getattr(message, "id", None) is not None:
+                                self.context.last_handled_message_id = message.id
                             if next_action is not None:
                                 follow_timeout = min(6.0, timeout)
                                 await self._handle_post_click_followup(
@@ -1545,6 +1547,10 @@ class SignerActionsMixin:
                                     log_not_found=False,
                                 )
                                 if ok:
+                                    if getattr(message, "id", None) is not None:
+                                        self.context.last_handled_message_id = (
+                                            message.id
+                                        )
                                     if next_action is not None:
                                         follow_timeout = min(6.0, timeout)
                                         await self._handle_post_click_followup(
@@ -1665,6 +1671,8 @@ class SignerActionsMixin:
                             action, chat, message, eff_timeout, is_history=False
                         )
                     if ok:
+                        if getattr(message, "id", None) is not None:
+                            self.context.last_handled_message_id = message.id
                         # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
                         messages_dict[message.id] = None
                         return None
@@ -1723,6 +1731,8 @@ class SignerActionsMixin:
                             getattr(self.context, "stop_after_current_action", False)
                             is True
                         ):
+                            if ok and getattr(message, "id", None) is not None:
+                                self.context.last_handled_message_id = message.id
                             return None
                 except Exception as e:
                     if getattr(e, "non_retryable", False):

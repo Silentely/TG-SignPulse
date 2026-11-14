@@ -110,6 +110,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
       {
         id: 'dice_roller',
         name: '骰子',
+        author: 'official',
         version: '1.0.0',
         mode: 'reactive',
         category: 'fun',
@@ -160,6 +161,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
       {
         id: 'dice_roller',
         name: '骰子',
+        author: 'official',
         version: '1.0.0',
         mode: 'reactive',
         category: 'fun',

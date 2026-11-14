@@ -414,6 +414,15 @@ class TelegramNodeExecutor:
                 if msg_id:
                     context.system["last_sent_message_id"] = msg_id
                     context.system["last_message_id"] = msg_id
+                handled_id = getattr(runner_context, "last_handled_message_id", None)
+                if handled_id:
+                    context.system["last_handled_message_id"] = handled_id
+                    curr_last = context.system.get("last_message_id")
+                    try:
+                        if curr_last is None or int(handled_id) > int(curr_last):
+                            context.system["last_message_id"] = handled_id
+                    except (ValueError, TypeError):
+                        context.system["last_message_id"] = handled_id
                 import time as _t
 
                 context.system["last_action_finished_at"] = _t.time()

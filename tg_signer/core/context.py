@@ -62,6 +62,7 @@ class UserSignerWorkerContext(BaseModel):
     topic_last_output: dict = Field(default_factory=dict)
     topic_last_received_text: dict = Field(default_factory=dict)
     waiting_message: Optional[Message] = None  # 正在处理的消息
+    last_handled_message_id: Optional[int] = None  # 最近交互动作所处理的目标消息 ID
     stop_after_current_action: bool = False
     stop_reason: Optional[str] = None
     last_callback_answer: Optional[str] = None
