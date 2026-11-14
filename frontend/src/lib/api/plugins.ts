@@ -176,7 +176,8 @@ export interface MarketPluginItem {
   installed: boolean
   installed_version?: string | null
   installed_is_builtin: boolean
-  status: "not_installed" | "installed" | "upgradable"
+  loaded: boolean
+  status: "not_installed" | "loaded" | "installed" | "upgradable"
 }
 
 export interface MarketSourceConfig {

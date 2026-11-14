@@ -12,6 +12,12 @@ from tg_signer.core.plugins import PluginRegistry
 pytest_plugins = ("tests.test_api",)
 
 
+@pytest.fixture
+def market_gate_on(monkeypatch):
+    """市场安装/更新与社区插件加载共用开关，这些用例需要显式开启。"""
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+
+
 @pytest.mark.asyncio
 async def test_market_catalog_does_not_count_repository_community_source_as_installed(
     monkeypatch, tmp_path
@@ -67,7 +73,8 @@ async def test_market_catalog_does_not_count_repository_community_source_as_inst
     response = await PluginService().list_market_catalog(refresh=True)
     item = response.plugins[0]
     assert item.installed is False
-    assert item.status == "not_installed"
+    assert item.loaded is True
+    assert item.status == "loaded"
 
 
 def test_market_endpoints_require_auth(api_client):
@@ -139,15 +146,16 @@ def test_market_readme_endpoint(api_client):
     assert "必应每日一图" in data["readme"]
 
 
-def test_market_install_update_and_uninstall(api_client):
+def test_market_install_update_and_uninstall(api_client, monkeypatch):
     """Test full plugin lifecycle: install, update, check status, uninstall."""
     token = _login(api_client)
     headers = _auth(token)
 
-    # Ensure local source
+    # Ensure local source（该接口会整包保存全局设置，需在开启开关前调用）
     api_client.put(
         "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
     )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
 
     # 1. Install dice_roller
     resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
@@ -169,7 +177,8 @@ def test_market_install_update_and_uninstall(api_client):
     assert resp.status_code == 200
     assert resp.json()["name"] == "dice_roller"
 
-    # 4. Uninstall plugin
+    # 4. Uninstall plugin（关闭开关后再卸载，避免仓库副本重新加载）
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "false")
     resp = api_client.delete(
         "/api/plugins/market/dice_roller/uninstall", headers=headers
     )
@@ -178,7 +187,60 @@ def test_market_install_update_and_uninstall(api_client):
     assert PluginRegistry.get("dice_roller") is None
 
 
-def test_market_install_nonexistent_returns_404(api_client):
+def test_market_install_blocked_when_community_gate_off(api_client, monkeypatch):
+    """关闭社区插件开关时，市场安装与更新必须被拒绝。"""
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 409
+    assert "允许加载社区插件" in resp.text
+
+    resp = api_client.post("/api/plugins/market/dice_roller/update", headers=headers)
+    assert resp.status_code == 409
+
+
+def test_market_installed_plugin_unloads_when_gate_off(api_client, monkeypatch):
+    """市场安装标记让插件在关闭开关后不再加载，重新开启后恢复。"""
+    from backend.services.plugins import _get_custom_plugins_dir
+    from tg_signer.core.plugins import MARKET_PLUGIN_MARKER
+
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+
+    plugin_dir = _get_custom_plugins_dir() / "dice_roller"
+    assert (plugin_dir / MARKET_PLUGIN_MARKER).is_file()
+
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "false")
+    PluginRegistry.reload_all_plugins()
+    assert PluginRegistry.get("dice_roller") is None
+
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    PluginRegistry.reload_all_plugins()
+    assert PluginRegistry.get("dice_roller") is not None
+
+    # 关闭开关时市场仍应识别本地已安装副本（只是未加载）
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "false")
+    PluginRegistry.reload_all_plugins()
+    resp = api_client.get("/api/plugins/market", headers=headers)
+    assert resp.status_code == 200
+    item = next(p for p in resp.json()["plugins"] if p["id"] == "dice_roller")
+    assert item["installed"] is True
+    assert item["loaded"] is False
+
+
+def test_market_install_nonexistent_returns_404(api_client, market_gate_on):
     """Attempting to install a nonexistent plugin returns 404."""
     token = _login(api_client)
     headers = _auth(token)
@@ -231,7 +293,9 @@ def test_uninstall_market_plugin_invalid_id_blocked(api_client):
         assert resp.status_code in (400, 404, 405)
 
 
-def test_install_market_plugin_zip_slip_blocked(api_client, monkeypatch):
+def test_install_market_plugin_zip_slip_blocked(
+    api_client, monkeypatch, market_gate_on
+):
     """Plugins containing path-traversing entries (Zip Slip) must be rejected with 400."""
     token = _login(api_client)
     headers = _auth(token)
@@ -281,7 +345,9 @@ def test_install_market_plugin_zip_slip_blocked(api_client, monkeypatch):
     assert "Zip Slip" in resp.json()["detail"]
 
 
-def test_install_market_plugin_subprocess_forbidden(api_client, monkeypatch):
+def test_install_market_plugin_subprocess_forbidden(
+    api_client, monkeypatch, market_gate_on
+):
     """Plugins containing subprocess execution must be rejected during AST security audit."""
     token = _login(api_client)
     headers = _auth(token)
@@ -397,7 +463,7 @@ class TestPlugin(BasePlugin):
 '''
 
 
-def test_market_install_rejects_missing_sha256(api_client, monkeypatch):
+def test_market_install_rejects_missing_sha256(api_client, monkeypatch, market_gate_on):
     """目录项缺 sha256 时失败关闭：不跳过完整性校验。"""
     token = _login(api_client)
     headers = _auth(token)
@@ -409,7 +475,9 @@ def test_market_install_rejects_missing_sha256(api_client, monkeypatch):
     assert "sha256" in resp.json()["detail"]
 
 
-def test_market_install_rejects_empty_sha256_placeholder(api_client, monkeypatch):
+def test_market_install_rejects_empty_sha256_placeholder(
+    api_client, monkeypatch, market_gate_on
+):
     """本地目录 setdefault("sha256", "") 产生的空串同样必须拒绝。"""
     token = _login(api_client)
     headers = _auth(token)
@@ -423,7 +491,9 @@ def test_market_install_rejects_empty_sha256_placeholder(api_client, monkeypatch
     assert "sha256" in resp.json()["detail"]
 
 
-def test_market_install_rejects_sha256_mismatch(api_client, monkeypatch):
+def test_market_install_rejects_sha256_mismatch(
+    api_client, monkeypatch, market_gate_on
+):
     """摘要不匹配必须拒绝。"""
     token = _login(api_client)
     headers = _auth(token)
@@ -437,7 +507,9 @@ def test_market_install_rejects_sha256_mismatch(api_client, monkeypatch):
     assert "SHA-256 不匹配" in resp.json()["detail"]
 
 
-def test_market_install_rejects_non_whitelisted_member_suffix(api_client, monkeypatch):
+def test_market_install_rejects_non_whitelisted_member_suffix(
+    api_client, monkeypatch, market_gate_on
+):
     """非 .py 成员必须落在数据文件白名单内，.pyc/.so 等一律拒绝。"""
     token = _login(api_client)
     headers = _auth(token)
@@ -456,7 +528,7 @@ def test_market_install_rejects_non_whitelisted_member_suffix(api_client, monkey
     assert "不允许的文件类型" in resp.json()["detail"]
 
 
-def test_market_install_rejects_star_import(api_client, monkeypatch):
+def test_market_install_rejects_star_import(api_client, monkeypatch, market_gate_on):
     """from shutil import * 使命名空间不可追踪，必须失败关闭。"""
     token = _login(api_client)
     headers = _auth(token)

@@ -301,6 +301,58 @@ def test_plugin_loading_matrix_keeps_custom_plugins_and_gates_community(
     }
 
 
+def test_custom_plugin_shadows_same_name_community_plugin(monkeypatch, tmp_path):
+    """同名插件优先使用本地/市场安装副本，仓库社区副本不得反向覆盖。"""
+    builtin_dir = tmp_path / "builtin"
+    custom_dir = tmp_path / "custom"
+    community_dir = tmp_path / "community"
+    for directory in (builtin_dir, custom_dir, community_dir):
+        directory.mkdir()
+
+    def write_plugin(root: Path, version: str) -> Path:
+        plugin_dir = root / "shadow_plugin"
+        plugin_dir.mkdir()
+        path = plugin_dir / "main.py"
+        path.write_text(
+            "from tg_signer.core.plugins import PluginRegistry\n"
+            f'@PluginRegistry.register(name="shadow_plugin", mode="active", '
+            f'context_version=2, plugin_api="2.0", version="{version}")\n'
+            "async def handle(ctx):\n    return True\n",
+            encoding="utf-8",
+        )
+        return path
+
+    write_plugin(community_dir, "1.0.0")
+    custom_path = write_plugin(custom_dir, "2.0.0")
+
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_builtin_directories",
+        classmethod(lambda cls: [builtin_dir]),
+    )
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_search_directories",
+        classmethod(lambda cls: [builtin_dir, custom_dir]),
+    )
+    monkeypatch.setattr(
+        PluginRegistry,
+        "get_community_directories",
+        classmethod(lambda cls: [community_dir]),
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+
+    PluginRegistry.clear()
+    try:
+        assert PluginRegistry.load_all_configured_plugins() == 1
+        meta = PluginRegistry.get("shadow_plugin")
+        assert meta is not None
+        assert meta.version == "2.0.0"
+        assert Path(meta.source_path).resolve() == custom_path.resolve()
+    finally:
+        PluginRegistry.clear()
+
+
 def test_negative_context_version_fails_schema(schema_manifest: dict):
     """Verify a plugin manifest with context_version=1 fails jsonschema validation."""
     invalid_manifest = {

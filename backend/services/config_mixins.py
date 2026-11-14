@@ -67,6 +67,12 @@ GLOBAL_SETTINGS_ENV_SYNC_STR = {
 _REASONING_EFFORT_VALUES = frozenset({"low", "medium", "high", "none"})
 
 
+def _env_allow_community_plugins() -> bool:
+    """首次启动时继承环境变量的显式授权（设置文件保存后以文件值为准）。"""
+    raw = os.getenv("PLUGINS_ALLOW_COMMUNITY", "false").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def apply_global_settings_to_env(merged: Dict[str, Any]) -> None:
     """将面板全局设置回灌到环境变量，供 tg_signer 等仍读 env 的路径使用。
 
@@ -1612,7 +1618,7 @@ class GlobalSettingsMixin:
             "webdav_allow_private": False,
             "require_proxy_for_telegram": False,
             "backup_target": "auto",
-            "allow_community_plugins": False,
+            "allow_community_plugins": _env_allow_community_plugins(),
         }
 
         settings = self._read_json_file(config_file)

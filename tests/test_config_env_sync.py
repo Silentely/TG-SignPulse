@@ -78,6 +78,23 @@ class TestApplyGlobalSettingsToEnv:
         apply_global_settings_to_env(service.get_global_settings())
         assert os.environ["AI_VISION_TIMEOUT"] == "30"
 
+    def test_community_gate_inherits_env_before_first_save(
+        self, isolated_env: Path, monkeypatch
+    ):
+        """设置文件尚无该键时继承环境变量；首次保存后以文件为准。"""
+        import os
+
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        service = ConfigService()
+
+        assert service.get_global_settings()["allow_community_plugins"] is True
+        apply_global_settings_to_env(service.get_global_settings())
+        assert os.environ["PLUGINS_ALLOW_COMMUNITY"] == "true"
+
+        service.save_global_settings({"allow_community_plugins": False})
+        monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+        assert service.get_global_settings()["allow_community_plugins"] is False
+
     def test_save_syncs_env_immediately(self, isolated_env: Path, monkeypatch):
         import os
 

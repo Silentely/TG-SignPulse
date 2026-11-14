@@ -37,6 +37,10 @@ from tg_signer.core.plugin_storage import PluginStore
 
 _logger = logging.getLogger("tg_signer.plugins")
 
+# 市场安装标记文件：存在时表示该插件由插件市场安装，受社区插件开关约束。
+# 标记写入插件目录内，重启与热重载后仍能识别来源。
+MARKET_PLUGIN_MARKER = ".market_plugin.json"
+
 
 class PluginError(Exception):
     """插件系统基础异常。"""
@@ -1226,7 +1230,9 @@ class PluginRegistry:
                 sys.modules.pop(module_name, None)
 
     @classmethod
-    def load_plugins_from_dir(cls, directory: Union[str, Path]) -> int:
+    def load_plugins_from_dir(
+        cls, directory: Union[str, Path], *, skip_market_installed: bool = False
+    ) -> int:
         dir_path = Path(directory).resolve()
         if not dir_path.is_dir():
             _logger.debug("插件目录不存在: %s", dir_path)
@@ -1240,6 +1246,9 @@ class PluginRegistry:
                 if p.name.startswith((".", "_")):
                     continue
                 if p.is_dir():
+                    if skip_market_installed and cls.is_market_plugin_dir(p):
+                        _logger.debug("社区插件未启用，跳过市场安装插件: %s", p)
+                        continue
                     if (p / "main.py").is_file():
                         candidate_files.append(p / "main.py")
                     elif (p / "__init__.py").is_file():
@@ -1755,6 +1764,14 @@ class PluginRegistry:
         return raw in {"1", "true", "yes", "on"}
 
     @classmethod
+    def is_market_plugin_dir(cls, directory: Union[str, Path]) -> bool:
+        """Return whether a plugin directory was installed from the marketplace."""
+        try:
+            return (Path(directory) / MARKET_PLUGIN_MARKER).is_file()
+        except OSError:
+            return False
+
+    @classmethod
     def get_community_directories(cls) -> list[Path]:
         """Return configured community-plugin directories, if present."""
         candidates = []
@@ -1782,23 +1799,26 @@ class PluginRegistry:
             for directory in cls.get_search_directories()
             if directory not in builtin_directories
         ]
-        if cls.allow_community_plugins():
+        allow_community = cls.allow_community_plugins()
+        if allow_community:
             _logger.warning(
                 "已启用社区插件：该插件可读写宿主文件与网络，请自行确认来源；"
                 "v2 grants 只约束宿主 RPC，不构成操作系统沙箱"
             )
+            # 社区目录先加载，自定义目录后加载：同名插件由本地安装/手写副本覆盖，
+            # 避免市场安装的版本被仓库副本反向覆盖。
             directories = (
                 builtin_directories
-                + configured_directories
                 + cls.get_community_directories()
+                + configured_directories
             )
         else:
-            # User custom plugins keep their historical behavior. Only the
-            # repository/community catalog requires explicit administrator opt-in.
+            # 手写自定义插件保持原有行为；仓库社区目录与市场安装的插件
+            # 都需要管理员显式开启「允许加载社区插件」。
             directories = builtin_directories + configured_directories
         for d in directories:
             if d.is_dir():
-                cls.load_plugins_from_dir(d)
+                cls.load_plugins_from_dir(d, skip_market_installed=not allow_community)
         return len(cls._plugins)
 
     @classmethod

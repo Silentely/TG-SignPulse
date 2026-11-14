@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import i18n from '../i18n'
 import PluginsSettings from '../components/settings/PluginsSettings.vue'
 import * as pluginsApi from '../lib/api/plugins'
+import * as settingsApi from '../lib/api/settings'
 import { useConfirm } from '../composables/useConfirm'
 
 vi.mock('../lib/api/core', () => ({
@@ -23,6 +24,9 @@ vi.mock('vue-router', () => ({
 describe('PluginsSettings.vue 插件市场功能', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(settingsApi, 'getGlobalSettings').mockResolvedValue({
+      allow_community_plugins: true,
+    } as settingsApi.GlobalSettings)
     vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValue([])
     vi.spyOn(pluginsApi, 'getPluginDiagnostics').mockResolvedValue({
       total_loaded: 0,
@@ -45,6 +49,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         tags: ['bing', 'daily'],
         installed: false,
         installed_is_builtin: false,
+        loaded: false,
         status: 'not_installed',
       },
       {
@@ -60,6 +65,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         installed: true,
         installed_version: '1.0.0',
         installed_is_builtin: false,
+        loaded: false,
         status: 'upgradable',
       },
     ]
@@ -112,6 +118,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         download_url: 'https://...',
         installed: false,
         installed_is_builtin: false,
+        loaded: false,
         status: 'not_installed',
       },
     ]
@@ -207,6 +214,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         installed: true,
         installed_version: '1.0.0',
         installed_is_builtin: false,
+        loaded: false,
         status: 'upgradable',
       },
     ]
@@ -262,6 +270,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         readme: '# 掷骰子说明文档\n\n使用方法：发送 /roll 即可掷骰子。',
         installed: false,
         installed_is_builtin: false,
+        loaded: false,
         status: 'not_installed',
       },
     ]
@@ -313,6 +322,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         installed: true,
         installed_version: '1.0.0',
         installed_is_builtin: false,
+        loaded: false,
         status: 'upgradable',
       },
     ]
@@ -386,5 +396,113 @@ describe('PluginsSettings.vue 插件市场功能', () => {
     await switchBtn!.trigger('click')
 
     expect(updateSourceSpy).toHaveBeenCalledWith('jsdelivr', undefined, 'mock-token')
+  })
+
+  it('仓库社区目录已加载的插件同样提供安装入口', async () => {
+    const mockPlugins: pluginsApi.MarketPluginItem[] = [
+      {
+        id: 'typing_simulator',
+        name: '模拟打字输入状态',
+        version: '1.0.0',
+        mode: 'reactive',
+        category: 'message',
+        description: '模拟真人打字节奏',
+        author: 'TG-SignPulse Team',
+        download_url: 'https://...',
+        installed: false,
+        installed_is_builtin: false,
+        loaded: true,
+        status: 'loaded',
+      },
+    ]
+
+    vi.spyOn(pluginsApi, 'getMarketCatalog').mockResolvedValue({
+      total: 1,
+      source_type: 'github',
+      source_url: 'https://...',
+      plugins: mockPlugins,
+      cached: false,
+    })
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://...',
+    })
+    const installSpy = vi.spyOn(pluginsApi, 'installMarketPlugin').mockResolvedValueOnce({
+      name: 'typing_simulator',
+      mode: 'reactive',
+      description: '模拟真人打字节奏',
+    })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    await marketTab!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('已加载（仓库目录）')
+    })
+
+    const installBtn = wrapper.findAll('button').find((btn) => btn.text().trim() === '安装')
+    expect(installBtn).toBeDefined()
+    await installBtn!.trigger('click')
+
+    expect(installSpy).toHaveBeenCalledWith('typing_simulator', 'mock-token')
+  })
+
+  it('切换社区插件开关后刷新市场状态，避免与已安装列表矛盾', async () => {
+    const mockPlugins: pluginsApi.MarketPluginItem[] = [
+      {
+        id: 'dice_roller',
+        name: '掷骰子与抽签',
+        version: '1.0.0',
+        mode: 'reactive',
+        category: 'entertainment',
+        description: '掷骰子插件',
+        author: 'TG-SignPulse Team',
+        download_url: 'https://...',
+        installed: false,
+        installed_is_builtin: false,
+        loaded: true,
+        status: 'loaded',
+      },
+    ]
+
+    const getCatalogSpy = vi.spyOn(pluginsApi, 'getMarketCatalog').mockResolvedValue({
+      total: 1,
+      source_type: 'github',
+      source_url: 'https://...',
+      plugins: mockPlugins,
+      cached: false,
+    })
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://...',
+    })
+    const saveSpy = vi
+      .spyOn(settingsApi, 'saveGlobalSettings')
+      .mockResolvedValue({ success: true, message: 'ok' })
+    vi.spyOn(pluginsApi, 'reloadPlugins').mockResolvedValue({ count: 0, plugins: [] })
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    await marketTab!.trigger('click')
+    await vi.waitFor(() => {
+      expect(getCatalogSpy).toHaveBeenCalledTimes(1)
+    })
+
+    const gate = wrapper.get('[role="switch"][aria-label="允许加载社区插件"]')
+    await gate.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith('mock-token', { allow_community_plugins: false })
+      expect(getCatalogSpy).toHaveBeenCalledTimes(2)
+    })
   })
 })

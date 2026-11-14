@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from backend.utils.atomic_io import write_text_atomic
 from tg_signer.core.plugins import (
+    MARKET_PLUGIN_MARKER,
     PluginContext,
     PluginMeta,
     PluginRegistry,
@@ -407,7 +408,11 @@ class MarketPluginItem(BaseModel):
     installed: bool = False
     installed_version: Optional[str] = None
     installed_is_builtin: bool = False
-    status: Literal["not_installed", "installed", "upgradable"] = "not_installed"
+    # 插件当前是否已从仓库社区目录加载（未复制到本地安装目录）
+    loaded: bool = False
+    status: Literal["not_installed", "loaded", "installed", "upgradable"] = (
+        "not_installed"
+    )
 
 
 class MarketSourceConfig(BaseModel):
@@ -688,6 +693,13 @@ async def _do_install_market_plugin(
     if not PLUGIN_ID_REGEX.match(plugin_id):
         raise HTTPException(status_code=400, detail="无效的插件标识符")
 
+    # 市场插件属于社区代码，安装/更新与加载共用同一个显式信任开关
+    if not PluginRegistry.allow_community_plugins():
+        raise HTTPException(
+            status_code=409,
+            detail="社区插件加载已关闭，请先在「扩展插件」页开启「允许加载社区插件」",
+        )
+
     _fetch_fn = _get_fetch_market_catalog()
     catalog_data, source_type, _, _ = await _fetch_fn(refresh=False)
     matched_item = next(
@@ -915,6 +927,19 @@ async def _do_install_market_plugin(
 
         try:
             shutil.copytree(temp_dir, target_plugin_dir)
+            # 写入市场来源标记：关闭「允许加载社区插件」后该目录不再被加载，
+            # 重启或热重载后仍能识别来源。
+            write_text_atomic(
+                target_plugin_dir / MARKET_PLUGIN_MARKER,
+                json.dumps(
+                    {
+                        "plugin_id": plugin_id,
+                        "source": "marketplace",
+                        "installed_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
         except Exception as exc:
             if backup_dir and backup_dir.exists():
                 backup_dir.rename(target_plugin_dir)
@@ -1227,11 +1252,14 @@ class PluginService:
             if not pid:
                 continue
 
-            installed_meta = installed_plugins.get(pid)
-            if installed_meta and _is_community_plugin_source(
-                getattr(installed_meta, "source_path", None)
-            ):
-                installed_meta = None
+            loaded_meta = installed_plugins.get(pid)
+            loaded_from_community = bool(
+                loaded_meta
+                and _is_community_plugin_source(
+                    getattr(loaded_meta, "source_path", None)
+                )
+            )
+            installed_meta = None if loaded_from_community else loaded_meta
             installed_meta = installed_meta or static_plugins.get(pid)
             is_installed = installed_meta is not None
             installed_version = installed_meta.version if installed_meta else None
@@ -1242,9 +1270,9 @@ class PluginService:
                 else False
             )
 
-            status_val: Literal["not_installed", "installed", "upgradable"] = (
-                "not_installed"
-            )
+            status_val: Literal[
+                "not_installed", "loaded", "installed", "upgradable"
+            ] = "not_installed"
             if is_installed:
                 if installed_version:
                     market_semver = _parse_semver(str(item.get("version", "0.0.0")))
@@ -1255,6 +1283,9 @@ class PluginService:
                         status_val = "installed"
                 else:
                     status_val = "installed"
+            elif loaded_from_community:
+                # 仓库社区目录里的插件已加载可用，但未复制到本地安装目录
+                status_val = "loaded"
 
             plugin_items.append(
                 MarketPluginItem(
@@ -1280,6 +1311,7 @@ class PluginService:
                     installed=is_installed,
                     installed_version=installed_version,
                     installed_is_builtin=installed_is_builtin,
+                    loaded=loaded_from_community,
                     status=status_val,
                 )
             )
@@ -1429,6 +1461,15 @@ class PluginService:
             target_file.unlink(missing_ok=True)
             deleted = True
 
+        if (
+            not deleted
+            and meta
+            and _is_community_plugin_source(getattr(meta, "source_path", None))
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="该插件来自仓库社区目录，未复制到本地，无需卸载",
+            )
         if not deleted and not meta:
             raise HTTPException(
                 status_code=404, detail=f"未找到插件 '{plugin_id}'，无法卸载"

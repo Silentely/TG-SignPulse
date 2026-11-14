@@ -822,6 +822,10 @@ const handleReload = async () => {
     } catch {
       // 诊断非核心阻断
     }
+    // 重载会改变市场插件的加载状态，已打开过市场时同步刷新，避免两个标签页互相矛盾
+    if (marketCatalog.value.length > 0) {
+      await fetchMarketCatalog()
+    }
     toast.success(t('settings.pluginsReloadSuccess', { count: res.count }))
   } catch (err: unknown) {
     const msg = getLocalizedErrorMessage(err, t)
@@ -865,6 +869,10 @@ const toggleCommunityPlugins = async () => {
       } catch {
         // 诊断非核心阻断
       }
+    }
+    // 开关决定仓库社区插件与市场安装插件是否加载，已打开过市场时同步刷新状态
+    if (marketCatalog.value.length > 0) {
+      await fetchMarketCatalog()
     }
     toast.success(
       t(
@@ -1513,7 +1521,7 @@ const marketCustomUrl = ref('')
 const isSavingSource = ref(false)
 const marketSearchQuery = ref('')
 const marketSelectedCategory = ref('all')
-const marketSelectedStatus = ref<'all' | 'not_installed' | 'installed' | 'upgradable'>('all')
+const marketSelectedStatus = ref<'all' | 'not_installed' | 'loaded' | 'installed' | 'upgradable'>('all')
 const marketSortBy = ref<'default' | 'updated' | 'name' | 'status'>('default')
 const installingPluginId = ref<string | null>(null)
 const uninstallingPluginId = ref<string | null>(null)
@@ -1563,6 +1571,10 @@ const upgradableMarketPlugins = computed(() => {
 })
 
 async function handleBatchUpdateAll() {
+  if (!communityPluginsEnabled.value) {
+    toast.error(t('settings.marketCommunityGateOffHint'))
+    return
+  }
   const targets = upgradableMarketPlugins.value
   if (targets.length === 0 || isUpdatingAll.value) return
 
@@ -1635,6 +1647,10 @@ async function handleSourceChange() {
 }
 
 async function handleInstallMarketPlugin(item: MarketPluginItem) {
+  if (!communityPluginsEnabled.value) {
+    toast.error(t('settings.marketCommunityGateOffHint'))
+    return
+  }
   installingPluginId.value = item.id
   try {
     await withToken(async (token) => {
@@ -1650,6 +1666,10 @@ async function handleInstallMarketPlugin(item: MarketPluginItem) {
 }
 
 async function handleUpdateMarketPlugin(item: MarketPluginItem) {
+  if (!communityPluginsEnabled.value) {
+    toast.error(t('settings.marketCommunityGateOffHint'))
+    return
+  }
   installingPluginId.value = item.id
   try {
     await withToken(async (token) => {
@@ -1742,7 +1762,7 @@ const filteredMarketPlugins = computed(() => {
   } else if (marketSortBy.value === 'name') {
     return [...list].sort((a, b) => a.name.localeCompare(b.name))
   } else if (marketSortBy.value === 'status') {
-    const statusOrder: Record<string, number> = { upgradable: 0, not_installed: 1, installed: 2 }
+    const statusOrder: Record<string, number> = { upgradable: 0, not_installed: 1, loaded: 2, installed: 3 }
     return [...list].sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3))
   }
   return list
@@ -2492,6 +2512,7 @@ onBeforeUnmount(() => {
             type="button"
             class="ui-btn-primary !px-2.5 !py-1 !text-xs !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1.5 shadow-xs"
             :disabled="isUpdatingAll || marketLoading"
+            :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
             @click="handleBatchUpdateAll"
           >
             <RefreshCw v-if="isUpdatingAll" class="w-3.5 h-3.5 animate-spin" />
@@ -2558,6 +2579,7 @@ onBeforeUnmount(() => {
               v-for="st in [
                 { key: 'all', label: t('settings.marketStatusAll') },
                 { key: 'not_installed', label: t('settings.marketStatusNotInstalled') },
+                { key: 'loaded', label: t('settings.marketStatusLoaded') },
                 { key: 'installed', label: t('settings.marketStatusInstalled') },
                 { key: 'upgradable', label: upgradableMarketPlugins.length ? `${t('settings.marketStatusUpgradable')} (${upgradableMarketPlugins.length})` : t('settings.marketStatusUpgradable') },
               ]"
@@ -2704,6 +2726,14 @@ onBeforeUnmount(() => {
                 {{ t('settings.marketStatusInstalled') }}
               </span>
               <span
+                v-else-if="p.status === 'loaded'"
+                class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 flex items-center gap-1"
+                :title="t('settings.marketStatusLoadedHint')"
+              >
+                <Puzzle class="w-3 h-3" />
+                {{ t('settings.marketStatusLoaded') }}
+              </span>
+              <span
                 v-else
                 class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[var(--sp-surface-muted)] text-[var(--sp-text-muted)] dark:bg-[var(--sp-surface-muted)] dark:text-[var(--sp-text-secondary)]"
               >
@@ -2743,12 +2773,13 @@ onBeforeUnmount(() => {
             </button>
 
             <div class="flex items-center gap-1.5">
-              <!-- 未安装：安装按钮 -->
+              <!-- 未安装 / 仅从仓库加载：安装到本地目录 -->
               <button
-                v-if="p.status === 'not_installed'"
+                v-if="p.status === 'not_installed' || p.status === 'loaded'"
                 type="button"
                 class="ui-btn-primary !px-2.5 !py-1 !text-xs inline-flex items-center gap-1"
                 :disabled="installingPluginId === p.id"
+                :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
                 @click="handleInstallMarketPlugin(p)"
               >
                 <RefreshCw v-if="installingPluginId === p.id" class="w-3 h-3 animate-spin" />
@@ -2762,6 +2793,7 @@ onBeforeUnmount(() => {
                 type="button"
                 class="ui-btn-primary !px-2.5 !py-1 !text-xs !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1"
                 :disabled="installingPluginId === p.id || isUpdatingAll"
+                :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
                 @click="handleUpdateMarketPlugin(p)"
               >
                 <RefreshCw v-if="installingPluginId === p.id" class="w-3 h-3 animate-spin" />
