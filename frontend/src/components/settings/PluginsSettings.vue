@@ -2196,7 +2196,7 @@ onBeforeUnmount(() => {
           : 'border-dashed border-[var(--sp-border-strong)] dark:border-[var(--sp-border)] bg-[var(--sp-surface-muted)] bg-[var(--sp-surface)]/[0.01] opacity-75'"
       >
         <div class="min-w-0 flex-1 space-y-1.5">
-          <!-- 第一排：统一固定显示「插件名称 + 官方内置/自定义 + 版本号 + 停用状态」 -->
+          <!-- 第一排：统一固定显示「插件名称 + 来源（官方内置/社区目录/自定义）+ 版本号 + 停用状态」 -->
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-mono font-semibold text-[var(--sp-text)] dark:text-[var(--sp-text)] text-xs">
               {{ plugin.name }}
@@ -2205,9 +2205,11 @@ onBeforeUnmount(() => {
               class="px-1.5 py-0.5 rounded text-[10px] font-mono border"
               :class="plugin.builtin
                 ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/50'
-                : 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/50'"
+                : plugin.community
+                  ? 'bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/50'
+                  : 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/50'"
             >
-              {{ plugin.builtin ? t('settings.pluginsBuiltin') : t('settings.pluginsCustom') }}
+              {{ plugin.builtin ? t('settings.pluginsBuiltin') : (plugin.community ? t('settings.pluginsCommunityDir') : t('settings.pluginsCustom')) }}
             </span>
             <span
               v-if="plugin.version"
@@ -2822,12 +2824,16 @@ onBeforeUnmount(() => {
                 type="button"
                 class="ui-btn-primary !px-2.5 !py-1 !text-xs inline-flex items-center gap-1"
                 :disabled="installingPluginId === p.id"
-                :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
+                :title="communityPluginsEnabled
+                  ? (p.status === 'loaded' ? t('settings.marketInstallLocalHint') : '')
+                  : t('settings.marketCommunityGateOffHint')"
                 @click="handleInstallMarketPlugin(p)"
               >
                 <RefreshCw v-if="installingPluginId === p.id" class="w-3 h-3 animate-spin" />
                 <Download v-else class="w-3 h-3" />
-                {{ installingPluginId === p.id ? t('settings.marketInstalling') : t('settings.marketInstall') }}
+                {{ installingPluginId === p.id
+                  ? t('settings.marketInstalling')
+                  : (p.status === 'loaded' ? t('settings.marketInstallLocal') : t('settings.marketInstall')) }}
               </button>
 
               <!-- 可更新：更新按钮 -->

@@ -542,7 +542,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
       expect(wrapper.text()).toContain('已加载（仓库目录）')
     })
 
-    const installBtn = wrapper.findAll('button').find((btn) => btn.text().trim() === '安装')
+    const installBtn = wrapper.findAll('button').find((btn) => btn.text().trim() === '安装到本地')
     expect(installBtn).toBeDefined()
     await installBtn!.trigger('click')
 

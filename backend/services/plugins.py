@@ -139,6 +139,8 @@ class PluginInfo(BaseModel):
     params_schema: List[Dict[str, Any]] = Field(default_factory=list)
     enabled: bool = True
     builtin: bool = False
+    # 运行时从仓库社区目录加载（未复制到本地安装目录）
+    community: bool = False
     permissions: List[str] = Field(default_factory=list)
     doc: Optional[str] = None
     category: Optional[str] = None
@@ -200,6 +202,7 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
         params_schema=p.params_schema or [],
         enabled=p.name not in disabled_set,
         builtin=getattr(p, "builtin", False),
+        community=_is_community_plugin_source(getattr(p, "source_path", None)),
         permissions=getattr(p, "permissions", []),
         doc=getattr(p, "doc", None),
         category=getattr(p, "category", None),

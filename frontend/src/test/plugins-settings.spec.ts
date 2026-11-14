@@ -50,6 +50,16 @@ describe('PluginsSettings.vue 插件管理组件', () => {
         enabled: false,
         builtin: false,
       },
+      {
+        name: 'dice_roller',
+        mode: 'reactive',
+        description: '仓库社区目录加载的插件',
+        version: '1.0.0',
+        source_path: '/app/community_plugins/dice_roller/main.py',
+        enabled: true,
+        builtin: false,
+        community: true,
+      },
     ])
 
     const wrapper = mount(PluginsSettings, {
@@ -61,9 +71,12 @@ describe('PluginsSettings.vue 插件管理组件', () => {
       expect(wrapper.text()).toContain('disabled_helper')
     })
 
-    // 检查软开关、内置/自定义标签与版本徽章
+    // 检查软开关、来源标签与版本徽章
     expect(wrapper.text()).toContain('已启用')
     expect(wrapper.text()).toContain('已停用')
+    expect(wrapper.text()).toContain('官方内置')
+    expect(wrapper.text()).toContain('自定义')
+    expect(wrapper.text()).toContain('社区目录')
     expect(wrapper.text()).toContain('v1.2.0')
     expect(wrapper.text()).toContain('TG-SignPulse Team')
     expect(wrapper.text()).toContain('2026-09-11')

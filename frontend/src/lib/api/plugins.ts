@@ -39,6 +39,8 @@ export interface PluginInfo {
   params_schema?: PluginParamSchema[]
   enabled?: boolean
   builtin?: boolean
+  /** 运行时从仓库社区目录加载，未复制到本地安装目录 */
+  community?: boolean
   permissions?: string[]
   doc?: string | null
   category?: string | null

@@ -62,6 +62,46 @@ def test_list_plugins_requires_auth(api_client):
     assert resp.status_code == 401
 
 
+def test_list_plugins_marks_repository_community_source(
+    api_client, tmp_path, monkeypatch
+):
+    """仓库社区目录加载的插件在列表中标记 community，便于与本地安装区分。"""
+    token = _login(api_client)
+    headers = _auth(token)
+    community_dir = tmp_path / "community_plugins"
+    plugin_file = community_dir / "community_probe" / "main.py"
+    plugin_file.parent.mkdir(parents=True)
+    plugin_file.write_text("", encoding="utf-8")
+
+    from tg_signer.core.plugins import PluginMeta
+
+    def handler(ctx: PluginContext):
+        return True
+
+    monkeypatch.setattr(
+        PluginRegistry,
+        "list_plugins",
+        lambda: {
+            "community_probe": PluginMeta(
+                name="community_probe",
+                handler=handler,
+                version="1.0.0",
+                source_path=str(plugin_file),
+                builtin=False,
+            )
+        },
+    )
+    monkeypatch.setattr(
+        PluginRegistry, "get_community_directories", lambda: [community_dir]
+    )
+
+    resp = api_client.get("/api/plugins", headers=headers)
+    assert resp.status_code == 200
+    item = next(p for p in resp.json() if p["name"] == "community_probe")
+    assert item["community"] is True
+    assert item["builtin"] is False
+
+
 def test_list_and_reload_plugins(api_client):
     """测试已认证用户获取插件列表与重新加载插件"""
     token = _login(api_client)
