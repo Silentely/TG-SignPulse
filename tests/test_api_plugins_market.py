@@ -301,6 +301,55 @@ def test_gate_off_allows_manual_enable_and_preserves_choice(api_client, monkeypa
     assert "dice_roller" not in settings["community_plugins_gate_off_enabled"]
 
 
+def test_batch_toggle_respects_gate_off_and_persists(api_client, monkeypatch):
+    """开关关闭时批量启用需写入手动授权，批量停用需清理授权。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    assert PluginRegistry.is_enabled("dice_roller") is False
+
+    from backend.services.config import get_config_service
+
+    # 批量启用：接口成功且运行时真正启用，授权写入 gate-off 名单
+    resp = api_client.post(
+        "/api/plugins/batch-toggle", headers=headers, json={"enabled": True}
+    )
+    assert resp.status_code == 200
+    assert PluginRegistry.is_enabled("dice_roller") is True
+    settings = get_config_service().get_global_settings()
+    assert "dice_roller" in settings["community_plugins_gate_off_enabled"]
+
+    # 热重载后保持启用
+    resp = api_client.post("/api/plugins/reload", headers=headers)
+    assert resp.status_code == 200
+    assert PluginRegistry.is_enabled("dice_roller") is True
+
+    # 批量停用：运行时停用，并从 gate-off 名单移除
+    resp = api_client.post(
+        "/api/plugins/batch-toggle", headers=headers, json={"enabled": False}
+    )
+    assert resp.status_code == 200
+    assert PluginRegistry.is_enabled("dice_roller") is False
+    settings = get_config_service().get_global_settings()
+    assert "dice_roller" not in settings["community_plugins_gate_off_enabled"]
+
+    resp = api_client.post("/api/plugins/reload", headers=headers)
+    assert resp.status_code == 200
+    assert PluginRegistry.is_enabled("dice_roller") is False
+
+
 def test_market_item_exposes_runtime_loaded(api_client, monkeypatch):
     """市场条目区分「仓库目录加载」与「运行时已注册」，供前端准确标注停用。"""
     token = _login(api_client)

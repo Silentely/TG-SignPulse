@@ -219,15 +219,48 @@ def _write_community_gate_plugin(root: Path) -> None:
 def test_legacy_market_copy_without_marker_is_recognized_as_community(
     monkeypatch, tmp_path
 ):
-    """早期安装未写来源标记时，按目录名与仓库社区目录对齐识别。"""
+    """早期安装未写来源标记时，按自定义插件根目录 + 清单身份识别。"""
     custom_dir = tmp_path / "plugins"
     shutil.copytree(COMMUNITY_PLUGINS_DIR / "dice_roller", custom_dir / "dice_roller")
     (custom_dir / "dice_roller" / ".market_plugin.json").unlink(missing_ok=True)
     monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(COMMUNITY_PLUGINS_DIR))
+    monkeypatch.setenv("PLUGINS_DIR", str(custom_dir))
 
     assert PluginRegistry.is_community_plugin_source(
         custom_dir / "dice_roller" / "main.py"
     )
+
+
+def test_same_named_custom_plugin_is_not_treated_as_community(monkeypatch, tmp_path):
+    """目录名与社区插件相同但清单身份不同/缺失时，来源仍为自定义。"""
+    custom_dir = tmp_path / "plugins"
+    monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(COMMUNITY_PLUGINS_DIR))
+    monkeypatch.setenv("PLUGINS_DIR", str(custom_dir))
+
+    # 同名、id 相同但名称不同：视作独立实现
+    renamed_dir = custom_dir / "dice_roller"
+    renamed_dir.mkdir(parents=True)
+    (renamed_dir / "main.py").write_text("", encoding="utf-8")
+    (renamed_dir / "plugin.json").write_text(
+        json.dumps({"id": "dice_roller", "name": "私有骰子增强"}), encoding="utf-8"
+    )
+    assert not PluginRegistry.is_community_plugin_source(renamed_dir / "main.py")
+
+    # 同名但完全没有 plugin.json：无法证明来源，按自定义处理
+    bare_dir = custom_dir / "bing_daily_quote"
+    bare_dir.mkdir(parents=True)
+    (bare_dir / "main.py").write_text("", encoding="utf-8")
+    assert not PluginRegistry.is_community_plugin_source(bare_dir / "main.py")
+
+    # 目录不在自定义插件根目录内：不参与旧版市场副本兼容识别
+    outside_dir = tmp_path / "elsewhere" / "typing_simulator"
+    outside_dir.mkdir(parents=True)
+    (outside_dir / "main.py").write_text("", encoding="utf-8")
+    shutil.copy(
+        COMMUNITY_PLUGINS_DIR / "typing_simulator" / "plugin.json",
+        outside_dir / "plugin.json",
+    )
+    assert not PluginRegistry.is_community_plugin_source(outside_dir / "main.py")
 
 
 def _write_gate_plugin(root: Path, plugin_name: str) -> None:

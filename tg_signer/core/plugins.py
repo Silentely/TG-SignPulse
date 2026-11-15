@@ -1830,13 +1830,51 @@ class PluginRegistry:
         for candidate in (path, path.parent):
             if cls.is_market_plugin_dir(candidate):
                 return True
-        # 兼容早期市场安装未写来源标记的副本：按目录名与仓库社区目录对齐
+        # 兼容早期市场安装未写来源标记的副本：仅限自定义插件搜索目录内，
+        # 且安装清单与仓库社区插件的 id/name 一致时才按社区来源处理。
+        # 目录名相同不足以证明来源，避免误伤同名手写插件。
+        plugin_home = path.parent
+        if not cls._is_in_custom_plugin_root(plugin_home):
+            return False
+        installed_manifest = cls._read_plugin_manifest(plugin_home)
+        if not installed_manifest:
+            return False
         for directory in cls.get_community_directories():
-            legacy_manifest = directory / path.parent.name / "plugin.json"
+            community_manifest = cls._read_plugin_manifest(directory / plugin_home.name)
+            if not community_manifest:
+                continue
+            if (
+                installed_manifest.get("id")
+                and installed_manifest.get("id") == community_manifest.get("id")
+                and installed_manifest.get("name")
+                and installed_manifest.get("name") == community_manifest.get("name")
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _read_plugin_manifest(directory: Path) -> Optional[dict]:
+        """读取插件目录下的 plugin.json，缺失或格式错误时返回 None。"""
+        try:
+            data = json.loads((directory / "plugin.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    @classmethod
+    def _is_in_custom_plugin_root(cls, directory: Path) -> bool:
+        """判断目录是否位于自定义插件搜索根目录内（市场安装的目标位置）。"""
+        try:
+            resolved = directory.resolve()
+        except OSError:
+            return False
+        for root in cls.get_search_directories():
+            if is_builtin_plugin_path(root):
+                continue
             try:
-                if legacy_manifest.is_file():
-                    return True
-            except OSError:
+                resolved.relative_to(root.resolve())
+                return True
+            except (OSError, ValueError):
                 continue
         return False
 

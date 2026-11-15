@@ -103,6 +103,34 @@ def _sync_persisted_plugin_state() -> None:
     PluginRegistry.set_gate_off_enabled_plugins(_get_gate_off_enabled_plugins())
 
 
+def _apply_plugin_enabled_state(
+    name: str,
+    enabled: bool,
+    disabled_set: set[str],
+    gate_off_enabled: set[str],
+) -> None:
+    """把单个插件的目标启停状态写入两个持久化集合。
+
+    开关关闭期间启用社区来源插件属于显式授权，需要写入 gate-off 白名单；
+    停用则同时清理白名单，避免旧的授权在之后意外恢复插件。
+    """
+    meta = PluginRegistry.get(name)
+    if enabled:
+        disabled_set.discard(name)
+        if not PluginRegistry.allow_community_plugins() and (
+            meta is not None
+            and PluginRegistry.is_community_plugin_source(
+                getattr(meta, "source_path", None)
+            )
+        ):
+            gate_off_enabled.add(name)
+        else:
+            gate_off_enabled.discard(name)
+    else:
+        disabled_set.add(name)
+        gate_off_enabled.discard(name)
+
+
 def _get_custom_plugins_dir() -> Path:
     custom_dirs = [
         d
@@ -1566,43 +1594,29 @@ class PluginService:
 
             cfg_svc = get_config_service()
             settings = dict(cfg_svc.get_global_settings() or {})
-            disabled_list = list(settings.get("disabled_plugins", []))
+            disabled_set = set(settings.get("disabled_plugins", []))
             gate_off_enabled = set(settings.get(GATE_OFF_ENABLED_PLUGINS_KEY, []) or [])
         except Exception:
             cfg_svc = None
-            disabled_list = []
+            disabled_set = set()
             gate_off_enabled = set()
 
         _sync_persisted_plugin_state()
-        new_disabled = PluginRegistry.is_enabled(name)
-
-        if new_disabled:
-            if name not in disabled_list:
-                disabled_list.append(name)
-            gate_off_enabled.discard(name)
-        else:
-            if name in disabled_list:
-                disabled_list.remove(name)
-            if not PluginRegistry.allow_community_plugins() and (
-                PluginRegistry.is_community_plugin_source(
-                    getattr(meta, "source_path", None)
-                )
-            ):
-                # 开关关闭期间的逐个启用属于显式授权，单独记录以便重启后保留
-                gate_off_enabled.add(name)
-            else:
-                gate_off_enabled.discard(name)
+        target_enabled = not PluginRegistry.is_enabled(name)
+        _apply_plugin_enabled_state(
+            name, target_enabled, disabled_set, gate_off_enabled
+        )
 
         if cfg_svc is not None:
             # 只写启停相关字段，避免把整体设置（含社区插件开关推导值）回写
             cfg_svc.save_global_settings(
                 {
-                    "disabled_plugins": disabled_list,
+                    "disabled_plugins": sorted(disabled_set),
                     GATE_OFF_ENABLED_PLUGINS_KEY: sorted(gate_off_enabled),
                 }
             )
 
-        PluginRegistry.set_disabled(name, disabled=new_disabled)
+        PluginRegistry.set_disabled(name, disabled=not target_enabled)
         PluginRegistry.set_gate_off_enabled_plugins(gate_off_enabled)
 
         return _meta_to_info(meta)
@@ -2837,13 +2851,13 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
 
             cfg_svc = get_config_service()
             settings = dict(cfg_svc.get_global_settings() or {})
-            disabled_list = list(settings.get("disabled_plugins", []))
+            disabled_set = set(settings.get("disabled_plugins", []))
+            gate_off_enabled = set(settings.get(GATE_OFF_ENABLED_PLUGINS_KEY, []) or [])
         except Exception:
             cfg_svc = None
             settings = {}
-            disabled_list = []
-
-        disabled_set = set(disabled_list)
+            disabled_set = set()
+            gate_off_enabled = set()
 
         custom_plugins = [
             p
@@ -2857,16 +2871,20 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
             custom_plugins = [p for p in custom_plugins if p.name in name_set]
 
         for p in custom_plugins:
-            if enabled:
-                disabled_set.discard(p.name)
-                PluginRegistry.set_disabled(p.name, disabled=False)
-            else:
-                disabled_set.add(p.name)
-                PluginRegistry.set_disabled(p.name, disabled=True)
+            _apply_plugin_enabled_state(p.name, enabled, disabled_set, gate_off_enabled)
 
         if cfg_svc is not None:
-            # 只写停用列表，避免把整体设置（含社区插件开关推导值）回写
-            cfg_svc.save_global_settings({"disabled_plugins": list(disabled_set)})
+            # 同时写停用列表与开关关闭期间的手动启用授权，避免批量操作与单插件状态分歧
+            cfg_svc.save_global_settings(
+                {
+                    "disabled_plugins": sorted(disabled_set),
+                    GATE_OFF_ENABLED_PLUGINS_KEY: sorted(gate_off_enabled),
+                }
+            )
+
+        for p in custom_plugins:
+            PluginRegistry.set_disabled(p.name, disabled=p.name in disabled_set)
+        PluginRegistry.set_gate_off_enabled_plugins(gate_off_enabled)
 
         return {
             "success": True,

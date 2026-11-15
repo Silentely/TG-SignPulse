@@ -2546,7 +2546,7 @@ onBeforeUnmount(() => {
             v-if="upgradableMarketPlugins.length > 0"
             type="button"
             class="ui-btn-primary !px-2.5 !py-1 !text-xs !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1.5 shadow-xs"
-            :disabled="isUpdatingAll || marketLoading"
+            :disabled="isUpdatingAll || marketLoading || !communityPluginsEnabled"
             :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
             @click="handleBatchUpdateAll"
           >

@@ -279,6 +279,12 @@ describe('PluginsSettings.vue 插件市场功能', () => {
     const updateBtn = wrapper.findAll('button').find((btn) => btn.text().includes('更新 v1.1.0'))
     expect(updateBtn).toBeDefined()
     expect(updateBtn!.attributes('disabled')).toBeDefined()
+
+    const updateAllBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('一键更新全部'))
+    expect(updateAllBtn).toBeDefined()
+    expect(updateAllBtn!.attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('已停用（社区开关关闭）')
   })
 
