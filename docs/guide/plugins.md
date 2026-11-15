@@ -30,7 +30,7 @@ TG-SignPulse 提供了轻量、低侵入、零破坏兼容的自定义 Action �
 
 为了处理自定义插件可能包含同步死循环（例如 `while True: pass`、C 扩展锁死）、恶意阻塞或资源泄露导致宿主服务卡死的问题，TG-SignPulse 采用**独立子进程 Worker + 双向 JSON-RPC 管道代理 + 跨平台进程树硬终止（Process Group SIGKILL）**。这提供崩溃和超时控制，但不构成操作系统安全沙箱。
 
-重要边界：Context v2 grants 只约束经过宿主 RPC 的操作，不约束子进程自身的文件系统与网络能力。社区插件因此一律视为管理员信任代码；默认不加载，必须在「扩展插件」页面开启「允许加载社区插件」开关（对应全局设置 `allow_community_plugins`，或环境变量 `PLUGINS_ALLOW_COMMUNITY=true`）。取值优先级为「设置文件显式键 > 环境变量 > 默认关闭」，面板会显示当前来源；保存开关后插件立即重新加载：关闭后不再加载组件、也不再启动新的执行，正在执行的任务按原生命周期结束，重新开启后自动恢复，无需手动重载。
+重要边界：Context v2 grants 只约束经过宿主 RPC 的操作，不约束子进程自身的文件系统与网络能力。社区插件因此一律视为管理员信任代码；默认不加载，必须在「扩展插件」页面开启「允许加载社区插件」开关（对应全局设置 `allow_community_plugins`，或环境变量 `PLUGINS_ALLOW_COMMUNITY=true`）。取值优先级为「设置文件显式键 > 环境变量 > 默认关闭」，面板会显示当前来源；保存开关后插件立即重新加载：关闭后仓库社区目录不再加载、市场安装/更新被拒绝，已安装的社区插件会保留在列表中并标记为停用，仍可在插件列表逐个手动启用；重新开启后社区目录恢复加载，未单独停用的插件自动恢复，无需手动重载。
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -132,8 +132,8 @@ PERMISSIONS = ["storage", "message_write"]
     author=AUTHOR,            # 开发者署名
     context_version=2,        # 必须显式声明为 2，启用严格宿主 RPC 能力控制
     plugin_api="2.0",         # 插件运行时契约版本（当前标准为 2.0）
-    min_app_version="1.0.0",  # 最低支持的 TG-SignPulse 版本
-    permissions=PERMISSIONS,  # 声明所需能力清单
+    min_app_version="2.8.0",  # 最低支持的 TG-SignPulse 版本（Context v2 自 2.8.0 起强制）
+    permissions=PERMISSIONS,  # 声明所需能力清单（使用规范权限名）
     params_schema=[...],      # 可选：前端动态参数表单 Schema
 )
 async def my_handler(ctx: PluginContext) -> bool:
@@ -157,24 +157,27 @@ async def my_handler(ctx: PluginContext) -> bool:
 | `ctx.message` | 当前收到的 Telegram 消息对象（`pyrogram.types.Message`）。包含 `text`、`photo`、`id` 等。 | `message_read` |
 | `ctx.chat_id` | 当前会话 ID（`int`）。 | 无 |
 | `ctx.params` | 任务配置中透传的自定义参数字典（`dict`）。 | 无 |
-| `await ctx.reply(text: str, **kwargs)` | 快捷引用当前消息进行回复，自动继承会话重试与 FloodWait 退避。 | `message_write` 或 `telegram_send` |
-| `await ctx.send_message(text: str, **kwargs)` | 向当前会话主动发送新文本消息。 | `telegram_send` |
+| `await ctx.reply(text: str, **kwargs)` | 快捷引用当前消息进行回复，自动继承会话重试与 FloodWait 退避。 | `message_write` |
+| `await ctx.send_message(text: str, **kwargs)` | 向当前会话主动发送新文本消息。 | `message_write` |
 | `await ctx.click(text_or_index: str \| int, **kwargs)` | 点击当前消息上的内联键盘按钮。 | `buttons` |
 | `await ctx.react(emoji: str, message_id=None)` | 为指定消息打上 Telegram Emoji 表态（如 👍/🎉）。 | `reactions` |
 | `await ctx.edit_message(text: str, message_id=None)` | 编辑指定消息内容（默认编辑当前上下文触发的消息）。 | `message_write` |
 | `await ctx.delete_message(message_id=None)` | 删除指定消息（默认删除当前上下文触发的消息）。 | `message_write` |
-| `await ctx.send_chat_action(action="typing")` | 广播 Telegram 交互状态（如 `typing` 正在输入）。 | `chat_action` |
-| `await ctx.read_chat_history(max_id=0)` | 标记会话已读，主动消除客户端未读红点。 | `telegram_read` |
-| `await ctx.send_photo(photo, caption=None)` | 发送图片文件或 bytes 数据至当前会话。 | `telegram_send` |
-| `await ctx.send_document(document, caption=None)` | 发送文档文件或二进制数据。 | `telegram_send` |
+| `await ctx.send_chat_action(action="typing")` | 广播 Telegram 交互状态（如 `typing` 正在输入）。 | `message_write` |
+| `await ctx.read_chat_history(max_id=0)` | 标记会话已读，主动消除客户端未读红点。 | `message_read` |
+| `await ctx.request_web_view(bot_peer, from_bot_menu=True, platform="android")` | 获取 Telegram 小程序 WebView 凭据（`initData`）。 | `web_app` |
+| `await ctx.send_photo(photo, caption=None)` | 发送图片文件或 bytes 数据至当前会话。 | `message_write` |
+| `await ctx.send_document(document, caption=None)` | 发送文档文件或二进制数据。 | `message_write` |
 | `await ctx.pin_message(message_id=None)` | 置顶当前或指定消息。 | `message_write` |
 | `await ctx.unpin_message(message_id=None)` | 取消置顶当前或指定消息。 | `message_write` |
-| `await ctx.get_messages(message_ids)` | 获取单条或批量历史消息对象。 | `telegram_read` |
+| `await ctx.get_messages(message_ids)` | 获取单条或批量历史消息对象。 | `message_read` |
 | `await ctx.forward_messages(chat_id, from_chat_id, message_ids)` | 跨会话转发消息。 | `message_write` |
 | `ctx.storage` | 针对当前插件与会话隔离的持久化键值存储（`get` / `set` / `increment`）。 | `storage` |
 | `ctx.global_storage` | 全局跨账号与跨任务共享的插件持久化存储。 | `global_storage` |
 | `ctx.storage_for(scope)` | 按作用域获取存储客户端（支持 `"chat"`、`"account"`、`"task"`、`"global"`）。 | `storage` |
 | `ctx.log(msg: str, level="INFO")` | 记录日志，自动打通至账户运行日志、Web 调试窗口及前端 SSE 实时流。 | 无 |
+
+> 历史别名 `telegram_read`、`telegram_send`、`chat_action` 仍会被接受并归一化为 `message_read`、`message_write`、`message_write`；新插件请直接声明规范权限名。
 
 ### 4. 插件命名与文案守则（坚持通俗易懂的人类语言）
 
@@ -240,7 +243,7 @@ TG-SignPulse 官方预置了 6 个经过严格单测与实战验证的生产级�
 
 ## 社区插件市场精选库 (Marketplace)
 
-除内置插件外，官方维护了社区插件市场（位于 `community_plugins/` 目录），提供经过静态安全审计的即插即用扩展。可在 Web 界面 **扩展插件** → **插件市场** 标签页一键安装。安装与更新受「允许加载社区插件」开关约束：开关关闭时接口返回 409；安装后会复制到本地插件目录并写入市场标记，关闭开关即停止加载。
+除内置插件外，官方维护了社区插件市场（位于 `community_plugins/` 目录），提供经过静态安全审计的即插即用扩展。可在 Web 界面 **扩展插件** → **插件市场** 标签页一键安装。安装与更新受「允许加载社区插件」开关约束：开关关闭时市场安装/更新按钮不可点击、接口返回 409，仓库社区目录不再加载；已安装的社区插件仍保留在插件列表中，但默认停用，可逐个手动启用。安装后会复制到本地插件目录并写入市场标记，插件配置与本地文件在开关切换时均会保留。
 
 开关开启时，仓库 `community_plugins/` 中的插件会直接从该目录加载并出现在「已安装插件」列表，来源标注为「社区目录」；这一步只注册运行时代码，不复制任何文件。市场卡片对这类插件显示「已加载（仓库目录）」，操作按钮为「安装到本地」，点击后才复制到本地插件目录，之后可卸载并跟踪市场更新。
 

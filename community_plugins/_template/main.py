@@ -16,8 +16,8 @@ AUTHOR = "Contributor"
     author=AUTHOR,
     context_version=2,
     plugin_api="2.0",
-    min_app_version="1.0.0",
-    permissions=["storage"],
+    min_app_version="2.8.0",
+    permissions=["message_read", "storage"],
     params_schema=[
         {
             "name": "example_param",

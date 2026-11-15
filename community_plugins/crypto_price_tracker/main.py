@@ -20,7 +20,8 @@ AUTHOR = "BlockExplorer"
     author=AUTHOR,
     context_version=2,
     plugin_api="2.0",
-    permissions=["storage", "telegram_read"],
+    min_app_version="1.9.0",
+    permissions=["storage", "message_read"],
     params_schema=[
         {
             "name": "target_symbol",

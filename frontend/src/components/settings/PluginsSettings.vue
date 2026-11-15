@@ -2781,9 +2781,9 @@ onBeforeUnmount(() => {
               {{ p.description || t('settings.pluginsNoDesc') }}
             </p>
 
-            <!-- 已安装但未加载，且开关处于关闭状态：说明停用来自社区开关 -->
+            <!-- 已安装但被社区开关停用：说明可在插件列表手动启用 -->
             <p
-              v-if="p.installed && !p.runtime_loaded && !communityPluginsEnabled && communityPluginsSource"
+              v-if="p.installed && !p.runtime_enabled && !communityPluginsEnabled && communityPluginsSource"
               class="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1"
               :title="t('settings.marketStatusDisabledHint')"
             >
@@ -2818,12 +2818,12 @@ onBeforeUnmount(() => {
             </button>
 
             <div class="flex items-center gap-1.5">
-              <!-- 未安装 / 仅从仓库加载：安装到本地目录 -->
+              <!-- 未安装 / 仅从仓库加载：安装到本地目录；关闭社区插件开关时禁用 -->
               <button
                 v-if="p.status === 'not_installed' || p.status === 'loaded'"
                 type="button"
                 class="ui-btn-primary !px-2.5 !py-1 !text-xs inline-flex items-center gap-1"
-                :disabled="installingPluginId === p.id"
+                :disabled="installingPluginId === p.id || !communityPluginsEnabled"
                 :title="communityPluginsEnabled
                   ? (p.status === 'loaded' ? t('settings.marketInstallLocalHint') : '')
                   : t('settings.marketCommunityGateOffHint')"
@@ -2836,12 +2836,12 @@ onBeforeUnmount(() => {
                   : (p.status === 'loaded' ? t('settings.marketInstallLocal') : t('settings.marketInstall')) }}
               </button>
 
-              <!-- 可更新：更新按钮 -->
+              <!-- 可更新：更新按钮；关闭社区插件开关时禁用 -->
               <button
                 v-else-if="p.status === 'upgradable'"
                 type="button"
                 class="ui-btn-primary !px-2.5 !py-1 !text-xs !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1"
-                :disabled="installingPluginId === p.id || isUpdatingAll"
+                :disabled="installingPluginId === p.id || isUpdatingAll || !communityPluginsEnabled"
                 :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
                 @click="handleUpdateMarketPlugin(p)"
               >

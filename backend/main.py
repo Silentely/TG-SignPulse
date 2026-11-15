@@ -431,14 +431,14 @@ async def on_startup() -> None:
         )
     try:
         from backend.api.routes.plugins import _get_disabled_plugins
+        from backend.services.plugins import _sync_persisted_plugin_state
         from tg_signer.core.plugins import PluginRegistry
 
         # 先按面板设置回灌环境变量，再清空导入阶段按旧 env 加载的注册表，
         # 避免设置文件与进程环境不一致时残留社区插件。
         count = PluginRegistry.reload_all_plugins()
+        _sync_persisted_plugin_state()
         disabled_set = _get_disabled_plugins()
-        for name in PluginRegistry.list_plugins():
-            PluginRegistry.set_disabled(name, disabled=name in disabled_set)
         logging.getLogger("backend.startup").info(
             "已扫描加载 %d 个自定义扩展插件 (已持久化禁用 %d 个)",
             count,

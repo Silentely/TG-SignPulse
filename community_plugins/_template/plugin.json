@@ -9,10 +9,10 @@
   "homepage": "https://github.com/Silentely/TG-SignPulse",
   "icon": "puzzle",
   "tags": ["custom", "starter"],
-  "min_app_version": "1.8.0",
+  "min_app_version": "2.8.0",
   "context_version": 2,
   "plugin_api": "2.0",
-  "permissions": ["storage"],
+  "permissions": ["message_read", "storage"],
   "params_schema": [
     {
       "name": "example_param",

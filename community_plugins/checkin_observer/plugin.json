@@ -12,7 +12,7 @@
   "min_app_version": "1.9.0",
   "context_version": 2,
   "plugin_api": "2.0",
-  "permissions": ["storage", "telegram_send"],
+  "permissions": ["storage", "message_read", "message_write"],
   "params_schema": [
     {
       "name": "balance_pattern",

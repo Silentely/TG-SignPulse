@@ -19,7 +19,8 @@ AUTHOR = "GameMaster"
     author=AUTHOR,
     context_version=2,
     plugin_api="2.0",
-    permissions=["telegram_send"],
+    min_app_version="1.9.0",
+    permissions=["message_read", "message_write"],
     params_schema=[
         {
             "name": "max_sides",

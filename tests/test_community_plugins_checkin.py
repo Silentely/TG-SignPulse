@@ -382,7 +382,11 @@ def test_community_plugins_metadata_and_registry():
     assert obs_manifest["context_version"] == 2
     assert obs_manifest["plugin_api"] == "2.0"
     assert obs_manifest["min_app_version"] == "1.9.0"
-    assert set(obs_manifest["permissions"]) == {"storage", "telegram_send"}
+    assert set(obs_manifest["permissions"]) == {
+        "storage",
+        "message_read",
+        "message_write",
+    }
 
     # 2. chat_cleaner
     cleaner_manifest_file = base_dir / "chat_cleaner" / "plugin.json"
@@ -397,7 +401,10 @@ def test_community_plugins_metadata_and_registry():
     assert cleaner_manifest["context_version"] == 2
     assert cleaner_manifest["plugin_api"] == "2.0"
     assert cleaner_manifest["min_app_version"] == "1.9.0"
-    assert set(cleaner_manifest["permissions"]) == {"telegram_send"}
+    assert set(cleaner_manifest["permissions"]) == {
+        "message_read",
+        "message_write",
+    }
 
     # Registry checks
     PluginRegistry.load_plugins_from_dir(base_dir)

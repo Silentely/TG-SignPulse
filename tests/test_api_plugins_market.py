@@ -204,8 +204,10 @@ def test_market_install_blocked_when_community_gate_off(api_client, monkeypatch)
     assert resp.status_code == 409
 
 
-def test_gate_save_unloads_and_restores_without_manual_reload(api_client, monkeypatch):
-    """保存开关即停用/恢复：无需额外调用 /plugins/reload。"""
+def test_gate_save_disables_installed_and_restores_without_manual_reload(
+    api_client, monkeypatch
+):
+    """保存开关即停用/恢复：已安装插件保留在列表中，但社区开关关闭时默认停用。"""
     token = _login(api_client)
     headers = _auth(token)
 
@@ -219,25 +221,30 @@ def test_gate_save_unloads_and_restores_without_manual_reload(api_client, monkey
     assert PluginRegistry.is_enabled("dice_roller") is True
     monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
 
-    # 通过设置接口关闭开关：立即卸载注册表，无需手动重载
+    # 通过设置接口关闭开关：已安装插件仍可查看，但立即变为停用
     resp = api_client.post(
         "/api/config/settings",
         headers=headers,
         json={"allow_community_plugins": False},
     )
     assert resp.status_code == 200
-    assert PluginRegistry.get("dice_roller") is None
+    assert PluginRegistry.get("dice_roller") is not None
+    assert PluginRegistry.is_enabled("dice_roller") is False
+    resp = api_client.get("/api/plugins", headers=headers)
+    item = next(p for p in resp.json() if p["name"] == "dice_roller")
+    assert item["enabled"] is False
 
     resp = api_client.get("/api/plugins/market", headers=headers)
     item = next(p for p in resp.json()["plugins"] if p["id"] == "dice_roller")
     assert item["installed"] is True
-    assert item["loaded"] is False
+    assert item["runtime_loaded"] is True
+    assert item["runtime_enabled"] is False
     # 插件文件仍在本地，未因关闭开关被删除
     from backend.services.plugins import _get_custom_plugins_dir
 
     assert (_get_custom_plugins_dir() / "dice_roller").is_dir()
 
-    # 重新开启：自动恢复加载与执行
+    # 重新开启：恢复加载与执行
     resp = api_client.post(
         "/api/config/settings",
         headers=headers,
@@ -246,6 +253,52 @@ def test_gate_save_unloads_and_restores_without_manual_reload(api_client, monkey
     assert resp.status_code == 200
     assert PluginRegistry.get("dice_roller") is not None
     assert PluginRegistry.is_enabled("dice_roller") is True
+
+
+def test_gate_off_allows_manual_enable_and_preserves_choice(api_client, monkeypatch):
+    """关闭社区开关后仍可逐个手动启用已安装插件，并保留该选择。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    assert PluginRegistry.is_enabled("dice_roller") is False
+
+    # 手动启用：显式授权在当前开关状态下继续运行
+    resp = api_client.post("/api/plugins/dice_roller/toggle", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["enabled"] is True
+    assert PluginRegistry.is_enabled("dice_roller") is True
+    resp = api_client.get("/api/plugins", headers=headers)
+    item = next(p for p in resp.json() if p["name"] == "dice_roller")
+    assert item["enabled"] is True
+
+    from backend.services.config import get_config_service
+
+    settings = get_config_service().get_global_settings()
+    assert "dice_roller" in settings["community_plugins_gate_off_enabled"]
+
+    # 重载后仍保持手动启用
+    resp = api_client.post("/api/plugins/reload", headers=headers)
+    assert resp.status_code == 200
+    assert PluginRegistry.is_enabled("dice_roller") is True
+
+    # 再点一次恢复停用，并从手动启用名单移除
+    resp = api_client.post("/api/plugins/dice_roller/toggle", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["enabled"] is False
+    settings = get_config_service().get_global_settings()
+    assert "dice_roller" not in settings["community_plugins_gate_off_enabled"]
 
 
 def test_market_item_exposes_runtime_loaded(api_client, monkeypatch):
@@ -266,6 +319,7 @@ def test_market_item_exposes_runtime_loaded(api_client, monkeypatch):
     assert item["installed"] is True
     assert item["loaded"] is False
     assert item["runtime_loaded"] is True
+    assert item["runtime_enabled"] is True
 
     monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
     resp = api_client.post(
@@ -276,7 +330,9 @@ def test_market_item_exposes_runtime_loaded(api_client, monkeypatch):
     assert resp.status_code == 200
     resp = api_client.get("/api/plugins/market", headers=headers)
     item = next(p for p in resp.json()["plugins"] if p["id"] == "dice_roller")
-    assert item["runtime_loaded"] is False
+    # 关闭开关后仍在注册表中，但处于停用状态
+    assert item["runtime_loaded"] is True
+    assert item["runtime_enabled"] is False
 
 
 def test_gate_reload_preserves_plugin_metrics(api_client, monkeypatch):
@@ -309,8 +365,10 @@ def test_gate_reload_preserves_plugin_metrics(api_client, monkeypatch):
     assert len(PluginRegistry.get_execution_history("dice_roller")) == 1
 
 
-def test_market_installed_plugin_unloads_when_gate_off(api_client, monkeypatch):
-    """市场安装标记让插件在关闭开关后不再加载，重新开启后恢复。"""
+def test_market_installed_plugin_stays_listed_but_disabled_when_gate_off(
+    api_client, monkeypatch
+):
+    """关闭开关后市场安装的插件仍保留在注册表，但默认停用；重新开启后恢复。"""
     from backend.services.plugins import _get_custom_plugins_dir
     from tg_signer.core.plugins import MARKET_PLUGIN_MARKER
 
@@ -329,13 +387,15 @@ def test_market_installed_plugin_unloads_when_gate_off(api_client, monkeypatch):
 
     monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "false")
     PluginRegistry.reload_all_plugins()
-    assert PluginRegistry.get("dice_roller") is None
+    assert PluginRegistry.get("dice_roller") is not None
+    assert PluginRegistry.is_enabled("dice_roller") is False
 
     monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
     PluginRegistry.reload_all_plugins()
     assert PluginRegistry.get("dice_roller") is not None
+    assert PluginRegistry.is_enabled("dice_roller") is True
 
-    # 关闭开关时市场仍应识别本地已安装副本（只是未加载）
+    # 关闭开关时市场仍识别本地已安装副本，并标记为运行态停用
     monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "false")
     PluginRegistry.reload_all_plugins()
     resp = api_client.get("/api/plugins/market", headers=headers)
@@ -343,6 +403,8 @@ def test_market_installed_plugin_unloads_when_gate_off(api_client, monkeypatch):
     item = next(p for p in resp.json()["plugins"] if p["id"] == "dice_roller")
     assert item["installed"] is True
     assert item["loaded"] is False
+    assert item["runtime_loaded"] is True
+    assert item["runtime_enabled"] is False
 
 
 def test_market_install_nonexistent_returns_404(api_client, market_gate_on):

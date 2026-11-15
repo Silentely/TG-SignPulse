@@ -72,10 +72,10 @@ community_plugins/
   "homepage": "https://github.com/your-username/repo",
   "icon": "sparkles",
   "tags": ["example", "demo"],
-  "min_app_version": "1.8.0",
+  "min_app_version": "2.8.0",
   "context_version": 2,
   "plugin_api": "2.0",
-  "permissions": ["storage", "telegram_send"],
+  "permissions": ["storage", "message_write"],
   "params_schema": [
     {
       "name": "keyword",
@@ -97,18 +97,18 @@ community_plugins/
 - `entertainment`：互动娱乐（抽签、掷骰子、成语接龙）
 
 ### 权限 (Permissions) 取值
-按需在 `permissions` 数组中声明插件所需能力：
-- `network`：宿主 RPC 参数声明；不限制插件子进程自行使用 Python 网络库发起请求
+按需在 `permissions` 数组中声明插件所需能力，请使用下列规范名称：
+- `network`：声明插件会发起外部网络请求；该权限用于审计与展示，宿主不会限制插件子进程自行使用 Python 网络库
 - `storage`：允许读写当前会话/账号隔离存储（`ctx.storage`）
 - `global_storage`：允许读写全局插件持久化存储（`ctx.global_storage`）
-- `telegram_read`：允许读取 Telegram 消息与会话历史（`read_chat_history`、`get_messages`）
-- `telegram_send`：允许向 Telegram 发送文本、图片或文档
-- `message_read`：允许读取触发事件消息内容
-- `message_write`：允许编辑、删除、转发消息或置顶消息
-- `chat_action`：允许发送 Telegram 正在输入/正在阅读等动作状态（`send_chat_action`）
+- `message_read`：允许读取触发事件消息内容、会话历史与未读状态（`ctx.message`、`read_chat_history`、`get_messages`）
+- `message_write`：允许发送、回复、编辑、删除、转发或置顶消息，以及广播输入状态（`ctx.reply`、`ctx.send_message`、`ctx.send_chat_action` 等）
 - `cron`：允许配置定时调度触发
 - `buttons`：允许解析并模拟点击 Telegram 内联键盘按钮（`ctx.click`）
 - `reactions`：允许为消息添加表情表态（`ctx.react`）
+- `web_app`：允许获取 Telegram 小程序 WebView 凭据（`ctx.request_web_view`，需 TG-SignPulse 2.9.0 及以上）
+
+> 历史别名 `telegram_read`、`telegram_send`、`chat_action` 仍可加载，会分别归一化为 `message_read`、`message_write`、`message_write`。新插件请直接使用规范名称，并确保 `plugin.json` 与注册装饰器中的权限一致。
 
 ---
 

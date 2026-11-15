@@ -19,7 +19,8 @@ AUTHOR = "TG-Community"
     author=AUTHOR,
     context_version=2,
     plugin_api="2.0",
-    permissions=["network", "telegram_send"],
+    min_app_version="1.9.0",
+    permissions=["network", "message_write"],
     params_schema=[
         {
             "name": "greeting_prefix",

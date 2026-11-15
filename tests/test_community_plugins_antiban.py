@@ -339,7 +339,7 @@ def test_antiban_plugins_registered():
     typing_manifest = json.loads(
         (base_dir / "typing_simulator" / "plugin.json").read_text(encoding="utf-8")
     )
-    assert typing_manifest["permissions"] == ["telegram_send"]
+    assert typing_manifest["permissions"] == ["message_write"]
 
     jitter_manifest = json.loads(
         (base_dir / "jitter_delay" / "plugin.json").read_text(encoding="utf-8")
@@ -349,4 +349,4 @@ def test_antiban_plugins_registered():
     read_manifest = json.loads(
         (base_dir / "auto_read_marker" / "plugin.json").read_text(encoding="utf-8")
     )
-    assert read_manifest["permissions"] == ["telegram_read"]
+    assert read_manifest["permissions"] == ["message_read"]

@@ -40,7 +40,7 @@ PERMISSIONS = ["storage", "message_write"]
     author=AUTHOR,
     context_version=2,
     plugin_api="2.0",
-    min_app_version="1.0.0",
+    min_app_version="2.8.0",
     permissions=PERMISSIONS,
     params_schema=[...],
 )

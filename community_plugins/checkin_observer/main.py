@@ -85,7 +85,7 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
     context_version=2,
     plugin_api="2.0",
     min_app_version="1.9.0",
-    permissions=["storage", "telegram_send"],
+    permissions=["storage", "message_read", "message_write"],
     params_schema=PARAMS_SCHEMA,
 )
 async def handle_checkin_observer(ctx: PluginContext) -> bool:

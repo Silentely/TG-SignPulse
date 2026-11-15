@@ -346,7 +346,7 @@ def _perform_http_post(
     author=AUTHOR,
     context_version=2,
     plugin_api="2.0",
-    min_app_version="1.9.0",
+    min_app_version="2.9.0",
     permissions=["web_app", "storage", "network"],
     params_schema=[
         {

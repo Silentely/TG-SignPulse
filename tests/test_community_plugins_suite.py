@@ -21,6 +21,7 @@ from tg_signer.core.plugins import (
     BUILTIN_LEGACY_PLUGINS_WHITELIST,
     PluginRegistry,
     audit_plugin_source,
+    normalize_permissions_list,
 )
 
 jsonschema = pytest.importorskip("jsonschema")
@@ -140,6 +141,25 @@ def test_plugin_python_sources_pass_ast_audit(plugin_dir: Path):
 
 
 @pytest.mark.parametrize("plugin_dir", _discover_plugin_dirs(), ids=lambda p: p.name)
+def test_manifest_permissions_match_register_and_use_canonical_names(plugin_dir: Path):
+    """plugin.json 与注册装饰器的权限一致，且使用规范权限名。"""
+    manifest = json.loads((plugin_dir / "plugin.json").read_text(encoding="utf-8"))
+    raw_permissions = manifest.get("permissions", [])
+    assert not {"telegram_read", "telegram_send", "chat_action"} & set(
+        raw_permissions
+    ), f"{plugin_dir.name} 仍使用旧版权限别名: {raw_permissions}"
+
+    PluginRegistry.clear()
+    try:
+        assert PluginRegistry.load_plugins_from_dir(plugin_dir) == 1
+        meta = PluginRegistry.get(plugin_dir.name)
+        assert meta is not None
+        assert meta.permissions == normalize_permissions_list(raw_permissions)
+    finally:
+        PluginRegistry.clear()
+
+
+@pytest.mark.parametrize("plugin_dir", _discover_plugin_dirs(), ids=lambda p: p.name)
 def test_build_marketplace_validate_plugin_passes(plugin_dir: Path):
     """Verify build_marketplace.validate_plugin returns success for each community plugin."""
     is_valid, errors, manifest = validate_plugin(plugin_dir)
@@ -149,7 +169,7 @@ def test_build_marketplace_validate_plugin_passes(plugin_dir: Path):
 
 
 def test_plugin_registry_load_all_community_plugins_cleanly():
-    """Verify PluginRegistry.load_plugins_from_dir registers all 8 plugins cleanly."""
+    """Verify PluginRegistry.load_plugins_from_dir registers all 9 plugins cleanly."""
     loaded_count = PluginRegistry.load_plugins_from_dir(COMMUNITY_PLUGINS_DIR)
     assert loaded_count == 9, f"Expected 9 plugins loaded, got {loaded_count}"
 
@@ -162,7 +182,8 @@ def test_plugin_registry_load_all_community_plugins_cleanly():
     for pid in EXPECTED_COMMUNITY_PLUGINS:
         meta = registered[pid]
         assert meta.context_version == 2
-        assert meta.min_app_version == "1.9.0"
+        assert meta.min_app_version is not None
+        assert Version(meta.min_app_version) >= Version("1.9.0")
         assert meta.plugin_api == "2.0"
         assert meta.isolation_mode == "subprocess"
 
@@ -192,6 +213,20 @@ def _write_community_gate_plugin(root: Path) -> None:
         '@PluginRegistry.register(name="community_gate_plugin", mode="active", context_version=2, plugin_api="2.0", min_app_version="1.9.0")\n'
         "async def handle(ctx):\n    return True\n",
         encoding="utf-8",
+    )
+
+
+def test_legacy_market_copy_without_marker_is_recognized_as_community(
+    monkeypatch, tmp_path
+):
+    """早期安装未写来源标记时，按目录名与仓库社区目录对齐识别。"""
+    custom_dir = tmp_path / "plugins"
+    shutil.copytree(COMMUNITY_PLUGINS_DIR / "dice_roller", custom_dir / "dice_roller")
+    (custom_dir / "dice_roller" / ".market_plugin.json").unlink(missing_ok=True)
+    monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(COMMUNITY_PLUGINS_DIR))
+
+    assert PluginRegistry.is_community_plugin_source(
+        custom_dir / "dice_roller" / "main.py"
     )
 
 

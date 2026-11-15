@@ -1023,6 +1023,9 @@ class PluginRegistry:
     _plugins: Dict[str, PluginMeta] = {}
     _loaded_files: set[Path] = set()
     _disabled_plugins: set[str] = set()
+    # 社区开关关闭时，用户仍可逐个手动启用的社区插件名；
+    # 仅在开关关闭时参与判定，开关开启后回到 disabled_plugins 单一来源。
+    _gate_off_enabled_plugins: set[str] = set()
     _load_errors: Dict[str, PluginLoadError] = {}
     _metrics: Dict[str, PluginMetrics] = {}
     _execution_history: Dict[str, deque[PluginExecutionRecord]] = {}
@@ -1119,19 +1122,29 @@ class PluginRegistry:
             cls._disabled_plugins.discard(name)
         meta = cls._plugins.get(name)
         if meta:
-            meta.enabled = not disabled
+            meta.enabled = cls.is_enabled(name)
+
+    @classmethod
+    def set_gate_off_enabled_plugins(cls, names: Iterable[str]) -> None:
+        """设置社区开关关闭时允许手动启用的插件名，并刷新运行时启用状态。"""
+        cls._gate_off_enabled_plugins = {str(n) for n in names if n}
+        for name, meta in cls._plugins.items():
+            meta.enabled = cls.is_enabled(name)
 
     @classmethod
     def is_enabled(cls, name: str) -> bool:
         if name in cls._disabled_plugins:
             return False
-        if cls.allow_community_plugins():
-            return True
-        # 开关关闭时，即使注册表里仍有历史残留，社区来源插件也视为停用
         meta = cls._plugins.get(name)
-        return not (
-            meta and cls.is_community_plugin_source(getattr(meta, "source_path", None))
-        )
+        if meta is None:
+            return True
+        if not cls.allow_community_plugins() and cls.is_community_plugin_source(
+            getattr(meta, "source_path", None)
+        ):
+            # 关闭社区开关后社区来源插件默认停用；
+            # 用户逐个手动启用视为显式授权，可在开关关闭期间继续运行。
+            return name in cls._gate_off_enabled_plugins
+        return True
 
     @classmethod
     def register(
@@ -1230,6 +1243,7 @@ class PluginRegistry:
         cls._plugins.clear()
         cls._loaded_files.clear()
         cls._disabled_plugins.clear()
+        cls._gate_off_enabled_plugins.clear()
         cls._load_errors.clear()
         cls._metrics.clear()
         cls._execution_history.clear()
@@ -1258,9 +1272,7 @@ class PluginRegistry:
                 cls._execution_history.setdefault(name, records)
 
     @classmethod
-    def load_plugins_from_dir(
-        cls, directory: Union[str, Path], *, skip_market_installed: bool = False
-    ) -> int:
+    def load_plugins_from_dir(cls, directory: Union[str, Path]) -> int:
         dir_path = Path(directory).resolve()
         if not dir_path.is_dir():
             _logger.debug("插件目录不存在: %s", dir_path)
@@ -1274,9 +1286,6 @@ class PluginRegistry:
                 if p.name.startswith((".", "_")):
                     continue
                 if p.is_dir():
-                    if skip_market_installed and cls.is_market_plugin_dir(p):
-                        _logger.debug("社区插件未启用，跳过市场安装插件: %s", p)
-                        continue
                     if (p / "main.py").is_file():
                         candidate_files.append(p / "main.py")
                     elif (p / "__init__.py").is_file():
@@ -1810,6 +1819,8 @@ class PluginRegistry:
             path = Path(source_path).resolve()
         except OSError:
             return False
+        if is_builtin_plugin_path(path):
+            return False
         for directory in cls.get_community_directories():
             try:
                 path.relative_to(directory.resolve())
@@ -1819,6 +1830,14 @@ class PluginRegistry:
         for candidate in (path, path.parent):
             if cls.is_market_plugin_dir(candidate):
                 return True
+        # 兼容早期市场安装未写来源标记的副本：按目录名与仓库社区目录对齐
+        for directory in cls.get_community_directories():
+            legacy_manifest = directory / path.parent.name / "plugin.json"
+            try:
+                if legacy_manifest.is_file():
+                    return True
+            except OSError:
+                continue
         return False
 
     @classmethod
@@ -1855,20 +1874,18 @@ class PluginRegistry:
                 "已启用社区插件：该插件可读写宿主文件与网络，请自行确认来源；"
                 "v2 grants 只约束宿主 RPC，不构成操作系统沙箱"
             )
-            # 社区目录先加载，自定义目录后加载：同名插件由本地安装/手写副本覆盖，
-            # 避免市场安装的版本被仓库副本反向覆盖。
-            directories = (
-                builtin_directories
-                + cls.get_community_directories()
-                + configured_directories
-            )
-        else:
-            # 手写自定义插件保持原有行为；仓库社区目录与市场安装的插件
-            # 都需要管理员显式开启「允许加载社区插件」。
-            directories = builtin_directories + configured_directories
+        # 社区仓库目录只在开关开启时加载；市场安装副本始终加载，
+        # 关闭开关时由 is_enabled 统一标记为停用，保证已安装插件仍可查看与手动启用。
+        # 社区目录先加载，自定义目录后加载：同名插件由本地安装/手写副本覆盖，
+        # 避免市场安装的版本被仓库副本反向覆盖。
+        directories = (
+            builtin_directories
+            + (cls.get_community_directories() if allow_community else [])
+            + configured_directories
+        )
         for d in directories:
             if d.is_dir():
-                cls.load_plugins_from_dir(d, skip_market_installed=not allow_community)
+                cls.load_plugins_from_dir(d)
         return len(cls._plugins)
 
     @classmethod

@@ -45,7 +45,7 @@ PARAMS_SCHEMA: List[Dict[str, Any]] = [
     context_version=2,
     plugin_api="2.0",
     min_app_version="1.9.0",
-    permissions=["telegram_read"],
+    permissions=["message_read"],
     params_schema=PARAMS_SCHEMA,
 )
 async def handle_auto_read_marker(ctx: PluginContext) -> bool:

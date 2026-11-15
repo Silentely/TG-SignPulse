@@ -81,6 +81,28 @@ def _get_disabled_plugins() -> set[str]:
         return set()
 
 
+GATE_OFF_ENABLED_PLUGINS_KEY = "community_plugins_gate_off_enabled"
+
+
+def _get_gate_off_enabled_plugins() -> set[str]:
+    """读取社区开关关闭时用户手动启用的社区插件名。"""
+    try:
+        from backend.services.config import get_config_service
+
+        settings = get_config_service().get_global_settings() or {}
+        return set(settings.get(GATE_OFF_ENABLED_PLUGINS_KEY, []) or [])
+    except Exception:
+        return set()
+
+
+def _sync_persisted_plugin_state() -> None:
+    """把持久化的停用列表与手动启用覆盖同步到运行时注册表。"""
+    disabled_set = _get_disabled_plugins()
+    for name in PluginRegistry.list_plugins():
+        PluginRegistry.set_disabled(name, disabled=name in disabled_set)
+    PluginRegistry.set_gate_off_enabled_plugins(_get_gate_off_enabled_plugins())
+
+
 def _get_custom_plugins_dir() -> Path:
     custom_dirs = [
         d
@@ -179,9 +201,7 @@ class ClearPluginStorageResponse(BaseModel):
     message: str
 
 
-def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> PluginInfo:
-    if disabled_set is None:
-        disabled_set = _get_disabled_plugins()
+def _meta_to_info(p: PluginMeta) -> PluginInfo:
     metrics_data = PluginRegistry.get_metrics(p.name)
     metrics_model = (
         PluginMetricsModel(**metrics_data.to_dict()) if metrics_data else None
@@ -200,7 +220,7 @@ def _meta_to_info(p: PluginMeta, disabled_set: Optional[set[str]] = None) -> Plu
         author=getattr(p, "author", "") or "",
         source_path=_safe_source_path(p.source_path),
         params_schema=p.params_schema or [],
-        enabled=p.name not in disabled_set,
+        enabled=PluginRegistry.is_enabled(p.name),
         builtin=getattr(p, "builtin", False),
         community=_is_community_plugin_source(getattr(p, "source_path", None)),
         permissions=getattr(p, "permissions", []),
@@ -415,6 +435,8 @@ class MarketPluginItem(BaseModel):
     loaded: bool = False
     # 插件当前是否已在运行时注册表中（区分「已安装但未加载」与仓库目录加载）
     runtime_loaded: bool = False
+    # 插件当前是否处于启用状态（社区开关关闭时会为 False）
+    runtime_enabled: bool = False
     status: Literal["not_installed", "loaded", "installed", "upgradable"] = (
         "not_installed"
     )
@@ -440,14 +462,12 @@ class MarketCatalogResponse(BaseModel):
 
 
 def _reload_plugins_preserving_state() -> None:
-    """重新静态扫描解析插件目录元数据并完整保留持久化的禁用状态（零执行）。"""
-    disabled_set = _get_disabled_plugins()
+    """重新静态扫描解析插件目录元数据并完整保留持久化的启停状态（零执行）。"""
     # 重载只刷新注册表；仍存在的插件保留运行指标与调用历史
     stats = PluginRegistry.snapshot_runtime_stats()
     PluginRegistry.reload_all_plugins()
     PluginRegistry.restore_runtime_stats(stats)
-    for name in PluginRegistry.list_plugins():
-        PluginRegistry.set_disabled(name, disabled=name in disabled_set)
+    _sync_persisted_plugin_state()
 
 
 def reload_plugins_registry() -> None:
@@ -1206,11 +1226,9 @@ class PluginService:
     ) -> List[PluginInfo]:
         """获取所有已加载的自定义插件列表（支持按模式、分类、状态及关键词筛选）。"""
         plugins = PluginRegistry.list_plugins()
-        disabled_set = _get_disabled_plugins()
-        for name in plugins:
-            PluginRegistry.set_disabled(name, disabled=name in disabled_set)
+        _sync_persisted_plugin_state()
 
-        infos = [_meta_to_info(p, disabled_set) for p in plugins.values()]
+        infos = [_meta_to_info(p) for p in plugins.values()]
         if mode:
             infos = [p for p in infos if p.mode == mode]
         if category:
@@ -1249,9 +1267,8 @@ class PluginService:
             logger.debug("重载前同步全局设置失败: %s", exc)
         _reload_plugins_preserving_state()
         plugins = PluginRegistry.list_plugins()
-        disabled_set = _get_disabled_plugins()
 
-        res_list = [_meta_to_info(p, disabled_set) for p in plugins.values()]
+        res_list = [_meta_to_info(p) for p in plugins.values()]
         logger.info("已重新加载自定义插件，当前共 %d 个可用插件", len(res_list))
         return ReloadPluginsResponse(count=len(res_list), plugins=res_list)
 
@@ -1337,6 +1354,9 @@ class PluginService:
                     installed_is_builtin=installed_is_builtin,
                     loaded=loaded_from_community,
                     runtime_loaded=loaded_meta is not None,
+                    runtime_enabled=(
+                        PluginRegistry.is_enabled(pid) if loaded_meta else False
+                    ),
                     status=status_val,
                 )
             )
@@ -1547,27 +1567,45 @@ class PluginService:
             cfg_svc = get_config_service()
             settings = dict(cfg_svc.get_global_settings() or {})
             disabled_list = list(settings.get("disabled_plugins", []))
+            gate_off_enabled = set(settings.get(GATE_OFF_ENABLED_PLUGINS_KEY, []) or [])
         except Exception:
             cfg_svc = None
             disabled_list = []
+            gate_off_enabled = set()
 
-        currently_disabled = name in disabled_list
-        new_disabled = not currently_disabled
+        _sync_persisted_plugin_state()
+        new_disabled = PluginRegistry.is_enabled(name)
 
         if new_disabled:
             if name not in disabled_list:
                 disabled_list.append(name)
+            gate_off_enabled.discard(name)
         else:
             if name in disabled_list:
                 disabled_list.remove(name)
+            if not PluginRegistry.allow_community_plugins() and (
+                PluginRegistry.is_community_plugin_source(
+                    getattr(meta, "source_path", None)
+                )
+            ):
+                # 开关关闭期间的逐个启用属于显式授权，单独记录以便重启后保留
+                gate_off_enabled.add(name)
+            else:
+                gate_off_enabled.discard(name)
 
         if cfg_svc is not None:
-            # 只写停用列表，避免把整体设置（含社区插件开关推导值）回写
-            cfg_svc.save_global_settings({"disabled_plugins": disabled_list})
+            # 只写启停相关字段，避免把整体设置（含社区插件开关推导值）回写
+            cfg_svc.save_global_settings(
+                {
+                    "disabled_plugins": disabled_list,
+                    GATE_OFF_ENABLED_PLUGINS_KEY: sorted(gate_off_enabled),
+                }
+            )
 
         PluginRegistry.set_disabled(name, disabled=new_disabled)
+        PluginRegistry.set_gate_off_enabled_plugins(gate_off_enabled)
 
-        return _meta_to_info(meta, set(disabled_list))
+        return _meta_to_info(meta)
 
     # 12
     async def test_run_plugin(
@@ -3156,7 +3194,6 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
     # 31
     async def get_manifest(self) -> List[PluginManifestItem]:
         """导出当前所有插件的元数据清单列表。"""
-        disabled_set = _get_disabled_plugins()
         result: List[PluginManifestItem] = []
         for p in PluginRegistry.list_plugins().values():
             result.append(
@@ -3167,7 +3204,7 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
                     version=getattr(p, "version", "1.0.0") or "1.0.0",
                     updated_at=getattr(p, "updated_at", "") or "",
                     author=getattr(p, "author", "") or "",
-                    enabled=p.name not in disabled_set,
+                    enabled=PluginRegistry.is_enabled(p.name),
                     builtin=getattr(p, "builtin", False),
                     permissions=getattr(p, "permissions", []),
                     params_schema=p.params_schema or [],

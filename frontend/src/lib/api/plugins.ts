@@ -181,6 +181,8 @@ export interface MarketPluginItem {
   loaded: boolean
   /** 插件当前是否已在运行时注册表中 */
   runtime_loaded?: boolean
+  /** 插件当前是否处于启用状态（社区开关关闭时为 false） */
+  runtime_enabled?: boolean
   status: "not_installed" | "loaded" | "installed" | "upgradable"
 }
 

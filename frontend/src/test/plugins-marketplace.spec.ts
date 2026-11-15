@@ -119,7 +119,8 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         installed: true,
         installed_is_builtin: false,
         loaded: false,
-        runtime_loaded: false,
+        runtime_loaded: true,
+        runtime_enabled: false,
         status: 'installed',
       },
     ]
@@ -136,7 +137,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
       custom_url: '',
       active_url: 'https://...',
     })
-    // 开关关闭：已安装但未加载，标注停用原因
+    // 开关关闭：已安装但被开关停用，标注停用原因
     vi.mocked(settingsApi.getGlobalSettings).mockResolvedValue({
       allow_community_plugins: false,
       allow_community_plugins_source: 'file',
@@ -171,6 +172,7 @@ describe('PluginsSettings.vue 插件市场功能', () => {
         installed_is_builtin: false,
         loaded: false,
         runtime_loaded: true,
+        runtime_enabled: true,
         status: 'installed',
       },
     ]
@@ -200,6 +202,84 @@ describe('PluginsSettings.vue 插件市场功能', () => {
       expect(wrapper.text()).toContain('骰子')
     })
     expect(wrapper.text()).not.toContain('已停用（社区开关关闭）')
+  })
+
+  it('社区开关关闭时未安装插件的安装按钮不可点击', async () => {
+    const mockPlugins: pluginsApi.MarketPluginItem[] = [
+      {
+        id: 'bing_daily_quote',
+        name: '必应每日一图',
+        version: '1.0.0',
+        mode: 'active',
+        category: 'notification',
+        description: '每日推送必应美图',
+        author: 'TG-SignPulse Team',
+        download_url: 'https://...',
+        installed: false,
+        installed_is_builtin: false,
+        loaded: false,
+        runtime_loaded: false,
+        runtime_enabled: false,
+        status: 'not_installed',
+      },
+      {
+        id: 'crypto_price_tracker',
+        name: '加密货币行情',
+        version: '1.1.0',
+        mode: 'reactive',
+        category: 'message',
+        description: '行情跟踪',
+        author: 'TG-SignPulse Team',
+        download_url: 'https://...',
+        installed: true,
+        installed_version: '1.0.0',
+        installed_is_builtin: false,
+        loaded: false,
+        runtime_loaded: true,
+        runtime_enabled: false,
+        status: 'upgradable',
+      },
+    ]
+
+    vi.spyOn(pluginsApi, 'getMarketCatalog').mockResolvedValue({
+      total: 2,
+      source_type: 'github',
+      source_url: 'https://...',
+      plugins: mockPlugins,
+      cached: false,
+    })
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://...',
+    })
+    vi.mocked(settingsApi.getGlobalSettings).mockResolvedValue({
+      allow_community_plugins: false,
+      allow_community_plugins_source: 'file',
+    } as settingsApi.GlobalSettings)
+    const installSpy = vi.spyOn(pluginsApi, 'installMarketPlugin')
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    await marketTab!.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('必应每日一图')
+    })
+
+    const installBtn = wrapper.findAll('button').find((btn) => btn.text().trim() === '安装')
+    expect(installBtn).toBeDefined()
+    expect(installBtn!.attributes('disabled')).toBeDefined()
+    await installBtn!.trigger('click')
+    expect(installSpy).not.toHaveBeenCalled()
+
+    const updateBtn = wrapper.findAll('button').find((btn) => btn.text().includes('更新 v1.1.0'))
+    expect(updateBtn).toBeDefined()
+    expect(updateBtn!.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('已停用（社区开关关闭）')
   })
 
   it('支持一键安装插件并在安装后刷新列表', async () => {
