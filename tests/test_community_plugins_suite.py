@@ -326,7 +326,10 @@ def test_community_plugins_are_not_loaded_when_disabled(monkeypatch, tmp_path):
     assert "community_gate_plugin" not in PluginRegistry.list_plugins()
 
 
-def test_community_plugins_load_with_explicit_warning(monkeypatch, tmp_path, caplog):
+def test_community_repository_is_not_auto_loaded_even_when_enabled(
+    monkeypatch, tmp_path, caplog
+):
+    """开启开关只授权运行已安装插件，仓库目录仍只作为市场来源。"""
     community_dir = tmp_path / "community_plugins"
     _write_community_gate_plugin(community_dir)
     monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(community_dir))
@@ -344,8 +347,8 @@ def test_community_plugins_load_with_explicit_warning(monkeypatch, tmp_path, cap
     )
     caplog.set_level(logging.WARNING, logger="tg_signer.plugins")
 
-    assert PluginRegistry.load_all_configured_plugins() == 1
-    assert "community_gate_plugin" in PluginRegistry.list_plugins()
+    assert PluginRegistry.load_all_configured_plugins() == 0
+    assert "community_gate_plugin" not in PluginRegistry.list_plugins()
     assert "可读写宿主文件与网络" in caplog.text
 
 
@@ -360,9 +363,8 @@ def test_community_readmes_have_working_bilingual_anchors(plugin_id):
     assert readme.count('<span id="english"></span>') == 1
 
 
-def test_plugin_loading_matrix_keeps_custom_plugins_and_gates_community(
-    monkeypatch, tmp_path
-):
+def test_plugin_loading_matrix_never_loads_community_repository(monkeypatch, tmp_path):
+    """内置与自定义插件照常加载；仓库社区目录无论开关状态都不注册。"""
     builtin_dir = tmp_path / "builtin"
     custom_dir = tmp_path / "custom"
     community_dir = tmp_path / "community"
@@ -397,37 +399,40 @@ def test_plugin_loading_matrix_keeps_custom_plugins_and_gates_community(
 
     PluginRegistry.clear()
     monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
-    assert PluginRegistry.load_all_configured_plugins() == 3
+    assert PluginRegistry.load_all_configured_plugins() == 2
     assert set(PluginRegistry.list_plugins()) == {
         "builtin_gate_plugin",
         "custom_gate_plugin",
-        "community_gate_plugin",
     }
 
 
-def test_custom_plugin_shadows_same_name_community_plugin(monkeypatch, tmp_path):
-    """同名插件优先使用本地/市场安装副本，仓库社区副本不得反向覆盖。"""
+def test_custom_plugin_is_the_only_instance_when_repo_not_auto_loaded(
+    monkeypatch, tmp_path
+):
+    """仓库社区目录不再自动注册，加载结果只有来自自定义目录的副本。"""
     builtin_dir = tmp_path / "builtin"
     custom_dir = tmp_path / "custom"
     community_dir = tmp_path / "community"
     for directory in (builtin_dir, custom_dir, community_dir):
         directory.mkdir()
 
-    def write_plugin(root: Path, version: str) -> Path:
+    def write_market_copy(root: Path) -> Path:
         plugin_dir = root / "shadow_plugin"
         plugin_dir.mkdir()
         path = plugin_dir / "main.py"
         path.write_text(
             "from tg_signer.core.plugins import PluginRegistry\n"
-            f'@PluginRegistry.register(name="shadow_plugin", mode="active", '
-            f'context_version=2, plugin_api="2.0", version="{version}")\n'
+            '@PluginRegistry.register(name="shadow_plugin", mode="active", '
+            'context_version=2, plugin_api="2.0", version="2.0.0")\n'
             "async def handle(ctx):\n    return True\n",
             encoding="utf-8",
         )
+        (plugin_dir / ".market_plugin.json").write_text(
+            '{"id": "shadow_plugin"}', encoding="utf-8"
+        )
         return path
 
-    write_plugin(community_dir, "1.0.0")
-    custom_path = write_plugin(custom_dir, "2.0.0")
+    custom_path = write_market_copy(custom_dir)
 
     monkeypatch.setattr(
         PluginRegistry,
@@ -451,7 +456,6 @@ def test_custom_plugin_shadows_same_name_community_plugin(monkeypatch, tmp_path)
         assert PluginRegistry.load_all_configured_plugins() == 1
         meta = PluginRegistry.get("shadow_plugin")
         assert meta is not None
-        assert meta.version == "2.0.0"
         assert Path(meta.source_path).resolve() == custom_path.resolve()
     finally:
         PluginRegistry.clear()

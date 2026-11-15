@@ -255,6 +255,51 @@ def test_gate_save_disables_installed_and_restores_without_manual_reload(
     assert PluginRegistry.is_enabled("dice_roller") is True
 
 
+def test_gate_on_keeps_repository_plugins_out_of_installed_list(
+    api_client, monkeypatch
+):
+    """开启开关只启用已安装插件，不得把仓库目录插件注册为已安装。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+
+    resp = api_client.get("/api/plugins", headers=headers)
+    gate_on_names = {p["name"] for p in resp.json()}
+    assert "dice_roller" in gate_on_names
+    assert "auto_read_marker" not in gate_on_names
+    assert "bing_daily_quote" not in gate_on_names
+
+    # 关闭开关：列表数量不变，仅市场插件转为停用
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    resp = api_client.get("/api/plugins", headers=headers)
+    items = resp.json()
+    assert {p["name"] for p in items} == gate_on_names
+    dice = next(p for p in items if p["name"] == "dice_roller")
+    assert dice["enabled"] is False
+
+    # 重新开启：列表数量仍不变，市场插件恢复启用
+    resp = api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": True},
+    )
+    assert resp.status_code == 200
+    resp = api_client.get("/api/plugins", headers=headers)
+    assert {p["name"] for p in resp.json()} == gate_on_names
+    assert PluginRegistry.is_enabled("dice_roller") is True
+
+
 def test_gate_off_allows_manual_enable_and_preserves_choice(api_client, monkeypatch):
     """关闭社区开关后仍可逐个手动启用已安装插件，并保留该选择。"""
     token = _login(api_client)

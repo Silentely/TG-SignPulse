@@ -1922,15 +1922,10 @@ class PluginRegistry:
                 "已启用社区插件：该插件可读写宿主文件与网络，请自行确认来源；"
                 "v2 grants 只约束宿主 RPC，不构成操作系统沙箱"
             )
-        # 社区仓库目录只在开关开启时加载；市场安装副本始终加载，
-        # 关闭开关时由 is_enabled 统一标记为停用，保证已安装插件仍可查看与手动启用。
-        # 社区目录先加载，自定义目录后加载：同名插件由本地安装/手写副本覆盖，
-        # 避免市场安装的版本被仓库副本反向覆盖。
-        directories = (
-            builtin_directories
-            + (cls.get_community_directories() if allow_community else [])
-            + configured_directories
-        )
+        # 社区仓库目录只作为插件市场来源，不直接注册为已安装插件；
+        # 只有复制到自定义插件目录的市场安装副本才会加载。
+        # 开关只控制已安装社区插件的运行状态，关闭时由 is_enabled 统一停用。
+        directories = builtin_directories + configured_directories
         for d in directories:
             if d.is_dir():
                 cls.load_plugins_from_dir(d)
