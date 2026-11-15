@@ -4022,20 +4022,24 @@ AUTHOR = "YourName"
           </button>
           <div v-if="marketReadmePlugin" class="flex items-center gap-2">
             <button
-              v-if="marketReadmePlugin.status === 'not_installed'"
+              v-if="marketReadmePlugin.status === 'not_installed' || marketReadmePlugin.status === 'loaded'"
               type="button"
               class="ui-btn-primary !text-xs !py-1 !px-3 inline-flex items-center gap-1"
-              :disabled="installingPluginId === marketReadmePlugin.id"
+              :disabled="installingPluginId === marketReadmePlugin.id || !communityPluginsEnabled"
+              :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
               @click="handleInstallMarketPlugin(marketReadmePlugin); isMarketReadmeOpen = false"
             >
               <Download class="w-3.5 h-3.5" />
-              {{ t('settings.marketInstall') }}
+              {{ marketReadmePlugin.status === 'loaded'
+                ? t('settings.marketInstallLocal')
+                : t('settings.marketInstall') }}
             </button>
             <button
               v-else-if="marketReadmePlugin.status === 'upgradable'"
               type="button"
               class="ui-btn-primary !text-xs !py-1 !px-3 !bg-amber-600 hover:!bg-amber-700 inline-flex items-center gap-1"
-              :disabled="installingPluginId === marketReadmePlugin.id"
+              :disabled="installingPluginId === marketReadmePlugin.id || !communityPluginsEnabled"
+              :title="communityPluginsEnabled ? '' : t('settings.marketCommunityGateOffHint')"
               @click="handleUpdateMarketPlugin(marketReadmePlugin); isMarketReadmeOpen = false"
             >
               <Sparkles class="w-3.5 h-3.5" />

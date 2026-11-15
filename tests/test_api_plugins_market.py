@@ -350,6 +350,148 @@ def test_batch_toggle_respects_gate_off_and_persists(api_client, monkeypatch):
     assert PluginRegistry.is_enabled("dice_roller") is False
 
 
+def test_gate_on_batch_enable_keeps_manual_gate_off_grant(api_client, monkeypatch):
+    """开关开启后的批量启用需保留关闭期间的手动授权。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    assert PluginRegistry.is_enabled("dice_roller") is False
+
+    from backend.services.config import get_config_service
+
+    # 关闭期间手动启用，形成显式授权
+    resp = api_client.post("/api/plugins/dice_roller/toggle", headers=headers)
+    assert resp.status_code == 200
+    assert (
+        "dice_roller"
+        in (
+            get_config_service().get_global_settings()[
+                "community_plugins_gate_off_enabled"
+            ]
+        )
+    )
+
+    # 开启开关后批量启用不得清空关闭期间的选择
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": True},
+    )
+    resp = api_client.post(
+        "/api/plugins/batch-toggle", headers=headers, json={"enabled": True}
+    )
+    assert resp.status_code == 200
+    assert (
+        "dice_roller"
+        in (
+            get_config_service().get_global_settings()[
+                "community_plugins_gate_off_enabled"
+            ]
+        )
+    )
+
+    # 再次关闭开关：显式授权仍在，插件保持启用
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    assert PluginRegistry.is_enabled("dice_roller") is True
+    resp = api_client.get("/api/plugins", headers=headers)
+    item = next(p for p in resp.json() if p["name"] == "dice_roller")
+    assert item["enabled"] is True
+
+
+def test_uninstall_market_plugin_clears_gate_off_grant(api_client, monkeypatch):
+    """卸载已手动启用的市场插件时同步清理 gate-off 授权。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    resp = api_client.post("/api/plugins/dice_roller/toggle", headers=headers)
+    assert resp.status_code == 200
+
+    from backend.services.config import get_config_service
+
+    assert (
+        "dice_roller"
+        in (
+            get_config_service().get_global_settings()[
+                "community_plugins_gate_off_enabled"
+            ]
+        )
+    )
+
+    resp = api_client.delete(
+        "/api/plugins/market/dice_roller/uninstall", headers=headers
+    )
+    assert resp.status_code == 200
+    settings = get_config_service().get_global_settings()
+    assert "dice_roller" not in settings["community_plugins_gate_off_enabled"]
+    assert PluginRegistry.get("dice_roller") is None
+
+
+def test_delete_plugin_clears_gate_off_grant(api_client, monkeypatch):
+    """删除已手动启用的市场插件时同步清理 gate-off 授权。"""
+    token = _login(api_client)
+    headers = _auth(token)
+
+    api_client.put(
+        "/api/plugins/market/source", headers=headers, json={"source_type": "local"}
+    )
+    monkeypatch.setenv("PLUGINS_ALLOW_COMMUNITY", "true")
+    resp = api_client.post("/api/plugins/market/dice_roller/install", headers=headers)
+    assert resp.status_code == 200
+    monkeypatch.delenv("PLUGINS_ALLOW_COMMUNITY", raising=False)
+    api_client.post(
+        "/api/config/settings",
+        headers=headers,
+        json={"allow_community_plugins": False},
+    )
+    resp = api_client.post("/api/plugins/dice_roller/toggle", headers=headers)
+    assert resp.status_code == 200
+
+    from backend.services.config import get_config_service
+
+    assert (
+        "dice_roller"
+        in (
+            get_config_service().get_global_settings()[
+                "community_plugins_gate_off_enabled"
+            ]
+        )
+    )
+
+    resp = api_client.delete("/api/plugins/dice_roller", headers=headers)
+    assert resp.status_code == 200
+    settings = get_config_service().get_global_settings()
+    assert "dice_roller" not in settings["community_plugins_gate_off_enabled"]
+    assert PluginRegistry.get("dice_roller") is None
+
+
 def test_market_item_exposes_runtime_loaded(api_client, monkeypatch):
     """市场条目区分「仓库目录加载」与「运行时已注册」，供前端准确标注停用。"""
     token = _login(api_client)

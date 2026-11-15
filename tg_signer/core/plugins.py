@@ -1830,25 +1830,35 @@ class PluginRegistry:
         for candidate in (path, path.parent):
             if cls.is_market_plugin_dir(candidate):
                 return True
-        # 兼容早期市场安装未写来源标记的副本：仅限自定义插件搜索目录内，
-        # 且安装清单与仓库社区插件的 id/name 一致时才按社区来源处理。
-        # 目录名相同不足以证明来源，避免误伤同名手写插件。
+        # 兼容早期市场安装未写来源标记的副本：仅限自定义插件搜索目录内的目录型插件，
+        # 且安装清单与仓库社区插件的 id 一致、作者（或名称）一致时才按社区来源处理。
+        # 名称会随文案优化调整，优先用作者比对；目录名相同不足以证明来源。
         plugin_home = path.parent
+        if path.name not in {"main.py", "__init__.py"}:
+            return False
         if not cls._is_in_custom_plugin_root(plugin_home):
             return False
         installed_manifest = cls._read_plugin_manifest(plugin_home)
         if not installed_manifest:
             return False
+        installed_id = installed_manifest.get("id")
+        if not installed_id:
+            return False
+        installed_author = str(installed_manifest.get("author") or "").strip()
+        installed_name = str(installed_manifest.get("name") or "").strip()
         for directory in cls.get_community_directories():
             community_manifest = cls._read_plugin_manifest(directory / plugin_home.name)
             if not community_manifest:
                 continue
-            if (
-                installed_manifest.get("id")
-                and installed_manifest.get("id") == community_manifest.get("id")
-                and installed_manifest.get("name")
-                and installed_manifest.get("name") == community_manifest.get("name")
-            ):
+            if installed_id != community_manifest.get("id"):
+                continue
+            community_author = str(community_manifest.get("author") or "").strip()
+            if installed_author and community_author:
+                if installed_author == community_author:
+                    return True
+                continue
+            community_name = str(community_manifest.get("name") or "").strip()
+            if installed_name and installed_name == community_name:
                 return True
         return False
 

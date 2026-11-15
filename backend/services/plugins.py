@@ -117,15 +117,15 @@ def _apply_plugin_enabled_state(
     meta = PluginRegistry.get(name)
     if enabled:
         disabled_set.discard(name)
-        if not PluginRegistry.allow_community_plugins() and (
-            meta is not None
-            and PluginRegistry.is_community_plugin_source(
+        if not PluginRegistry.allow_community_plugins():
+            if meta is not None and PluginRegistry.is_community_plugin_source(
                 getattr(meta, "source_path", None)
-            )
-        ):
-            gate_off_enabled.add(name)
-        else:
-            gate_off_enabled.discard(name)
+            ):
+                gate_off_enabled.add(name)
+            else:
+                gate_off_enabled.discard(name)
+        # 开关开启时不改动 gate-off 授权：保留用户在开关关闭期间做出的选择，
+        # 避免以后再关闭开关时丢失手动启用名单。
     else:
         disabled_set.add(name)
         gate_off_enabled.discard(name)
@@ -1558,6 +1558,9 @@ class PluginService:
                 settings = get_config_service().get_global_settings() or {}
                 disabled = set(settings.get("disabled_plugins", []))
                 configs = dict(settings.get("plugin_configs", {}))
+                gate_off_enabled = set(
+                    settings.get(GATE_OFF_ENABLED_PLUGINS_KEY, []) or []
+                )
                 changed = False
                 if plugin_id in disabled:
                     disabled.remove(plugin_id)
@@ -1565,11 +1568,15 @@ class PluginService:
                 if plugin_id in configs:
                     del configs[plugin_id]
                     changed = True
+                if plugin_id in gate_off_enabled:
+                    gate_off_enabled.discard(plugin_id)
+                    changed = True
                 if changed:
                     get_config_service().save_global_settings(
                         {
                             "disabled_plugins": sorted(disabled),
                             "plugin_configs": configs,
+                            GATE_OFF_ENABLED_PLUGINS_KEY: sorted(gate_off_enabled),
                         }
                     )
             except Exception as cfg_err:
@@ -2244,12 +2251,19 @@ class PluginService:
             if name in configs:
                 configs.pop(name, None)
                 dirty = True
+            gate_off_enabled = list(
+                settings.get(GATE_OFF_ENABLED_PLUGINS_KEY, []) or []
+            )
+            if name in gate_off_enabled:
+                gate_off_enabled.remove(name)
+                dirty = True
             if dirty:
                 # 只写清理后的字段，避免把整体设置（含社区插件开关推导值）回写
                 cfg_service.save_global_settings(
                     {
                         "disabled_plugins": disabled,
                         "plugin_configs": configs,
+                        GATE_OFF_ENABLED_PLUGINS_KEY: sorted(gate_off_enabled),
                     }
                 )
         except Exception as exc:
@@ -2846,6 +2860,7 @@ async def {req.name}_handler(ctx: PluginContext) -> bool:
         else:
             enabled = payload_or_enabled.enabled
         """批量启用或停用所有自定义插件。"""
+        _sync_persisted_plugin_state()
         try:
             from backend.services.config import get_config_service
 

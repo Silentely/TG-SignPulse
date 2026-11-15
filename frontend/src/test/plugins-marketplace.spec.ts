@@ -490,6 +490,114 @@ describe('PluginsSettings.vue 插件市场功能', () => {
       expect(document.body.textContent).toContain('使用方法：发送 /roll 即可掷骰子。')
     })
   })
+  it('社区开关关闭时 README 弹窗内的安装与更新按钮不可点击', async () => {
+    const mockPlugins: pluginsApi.MarketPluginItem[] = [
+      {
+        id: 'bing_daily_quote',
+        name: '必应每日一图',
+        version: '1.0.0',
+        mode: 'active',
+        category: 'notification',
+        description: '必应每日一图',
+        author: 'TG-SignPulse Team',
+        download_url: 'https://...',
+        readme: '# 必应说明文档\n\n每日推送美图。',
+        installed: false,
+        installed_is_builtin: false,
+        loaded: false,
+        status: 'not_installed',
+      },
+      {
+        id: 'crypto_price_tracker',
+        name: '加密货币行情',
+        version: '1.2.0',
+        mode: 'reactive',
+        category: 'message',
+        description: '加密货币行情',
+        author: 'TG-SignPulse Team',
+        download_url: 'https://...',
+        readme: '# 行情说明文档\n\n查询币种行情。',
+        installed: true,
+        installed_version: '1.0.0',
+        installed_is_builtin: false,
+        loaded: false,
+        status: 'upgradable',
+      },
+    ]
+
+    vi.spyOn(pluginsApi, 'getMarketCatalog').mockResolvedValue({
+      total: 2,
+      source_type: 'github',
+      source_url: 'https://...',
+      plugins: mockPlugins,
+      cached: false,
+    })
+    vi.spyOn(pluginsApi, 'getMarketSource').mockResolvedValue({
+      source_type: 'github',
+      custom_url: '',
+      active_url: 'https://...',
+    })
+    vi.mocked(settingsApi.getGlobalSettings).mockResolvedValue({
+      allow_community_plugins: false,
+      allow_community_plugins_source: 'file',
+    } as settingsApi.GlobalSettings)
+    const installSpy = vi.spyOn(pluginsApi, 'installMarketPlugin')
+    const updateSpy = vi.spyOn(pluginsApi, 'updateMarketPlugin')
+
+    const wrapper = mount(PluginsSettings, {
+      global: { plugins: [i18n] },
+    })
+
+    const marketTab = wrapper.findAll('button').find((btn) => btn.text().includes('插件市场'))
+    await marketTab!.trigger('click')
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('必应每日一图')
+    })
+
+    const docButtons = wrapper
+      .findAll('button')
+      .filter((btn) => btn.text().includes('文档说明'))
+    const modalButtons = () =>
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')
+      )
+
+    await docButtons[0].trigger('click')
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('每日推送美图。')
+    })
+    const installBtn = modalButtons().find(
+      (btn) => btn.textContent?.trim() === '安装'
+    )
+    expect(installBtn).toBeDefined()
+    expect(installBtn!.disabled).toBe(true)
+    expect(installBtn!.title).toContain('允许加载社区插件')
+    installBtn!.click()
+    expect(installSpy).not.toHaveBeenCalled()
+
+    // 关闭弹窗后打开可升级插件的文档，更新按钮同样不可点击
+    modalButtons()
+      .find((btn) => btn.textContent?.trim() === '关闭')!
+      .click()
+    await vi.waitFor(() => {
+      expect(document.body.textContent).not.toContain('每日推送美图。')
+    })
+
+    await docButtons[1].trigger('click')
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('查询币种行情。')
+    })
+    const updateBtn = modalButtons().find(
+      (btn) => btn.textContent?.trim() === '更新'
+    )
+    expect(updateBtn).toBeDefined()
+    expect(updateBtn!.disabled).toBe(true)
+    updateBtn!.click()
+    expect(updateSpy).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
   it('支持展示升级版本对比与一键全部更新可升级插件', async () => {
     const { accept } = useConfirm()
     const mockPlugins: pluginsApi.MarketPluginItem[] = [

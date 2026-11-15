@@ -231,6 +231,42 @@ def test_legacy_market_copy_without_marker_is_recognized_as_community(
     )
 
 
+def test_legacy_copy_with_renamed_name_but_matching_author_is_community(
+    monkeypatch, tmp_path
+):
+    """历史改名的市场副本：作者一致即按社区来源处理。"""
+    custom_dir = tmp_path / "plugins"
+    shutil.copytree(COMMUNITY_PLUGINS_DIR / "dice_roller", custom_dir / "dice_roller")
+    (custom_dir / "dice_roller" / ".market_plugin.json").unlink(missing_ok=True)
+    # 社区插件历史上曾整体改过文案名，作者保持稳定；改名后名称不再一致
+    manifest_path = custom_dir / "dice_roller" / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["name"] = "旧版名称"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(COMMUNITY_PLUGINS_DIR))
+    monkeypatch.setenv("PLUGINS_DIR", str(custom_dir))
+
+    assert PluginRegistry.is_community_plugin_source(
+        custom_dir / "dice_roller" / "main.py"
+    )
+
+
+def test_single_file_plugin_without_marker_is_not_treated_as_community(
+    monkeypatch, tmp_path
+):
+    """单文件型插件不参与目录型市场副本兼容识别。"""
+    custom_dir = tmp_path / "plugins"
+    monkeypatch.setenv("COMMUNITY_PLUGINS_DIR", str(COMMUNITY_PLUGINS_DIR))
+    monkeypatch.setenv("PLUGINS_DIR", str(custom_dir))
+
+    single = custom_dir / "dice_roller.py"
+    single.parent.mkdir(parents=True, exist_ok=True)
+    single.write_text(
+        "from tg_signer.core.plugins import PluginRegistry\n", encoding="utf-8"
+    )
+    assert not PluginRegistry.is_community_plugin_source(single)
+
+
 def test_same_named_custom_plugin_is_not_treated_as_community(monkeypatch, tmp_path):
     """目录名与社区插件相同但清单身份不同/缺失时，来源仍为自定义。"""
     custom_dir = tmp_path / "plugins"
