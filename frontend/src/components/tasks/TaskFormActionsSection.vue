@@ -151,6 +151,8 @@ const MACRO_PRESETS = [
   { label: '{{ prev_output }}', desc: '上一动作产出' },
   { label: '{{ random_int(1, 100) }}', desc: '随机整数' },
   { label: '{{ account.name }}', desc: '当前账号名' },
+  { label: '{dict:name}', desc: '素材字典随机取词 (例: {dict:greetings})' },
+  { label: '{dict:name:round_robin}', desc: '素材字典轮询取词 (例: {dict:checkin:round_robin})' },
 ]
 
 const insertMacro = (action: TaskActionItem, macro: string) => {

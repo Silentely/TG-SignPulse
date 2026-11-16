@@ -39,6 +39,7 @@ class DataDictService:
         self._stats: Dict[str, Dict[str, Any]] = {}
         self._stats_dirty = False
         self._stats_last_flush = 0.0
+        self._builtin_cursors: Dict[str, int] = {}
         self._load_stats()
 
     def _dict_file(self, name: str) -> Path:
@@ -210,6 +211,21 @@ class DataDictService:
         self._assert_not_stats(name)
         file_path = self._dict_file(name)
         if not file_path.exists():
+            preset = BUILTIN_DATA_DICT_MAP.get(name)
+            if preset and preset.entries:
+                with self._lock:
+                    if mode == "round_robin":
+                        cursor = self._builtin_cursors.get(name, 0) % len(
+                            preset.entries
+                        )
+                        selected = preset.entries[cursor]
+                        self._builtin_cursors[name] = (cursor + 1) % len(preset.entries)
+                    else:
+                        selected = random.choice(preset.entries)
+                    if record:
+                        self._record_usage(name)
+                        self._maybe_flush_stats()
+                    return selected
             raise ValueError("DATA_DICT_NOT_FOUND")
 
         with self._lock:

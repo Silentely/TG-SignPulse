@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Github, Globe, Moon, Sun, Eye, EyeOff } from 'lucide-vue-next'
 import { login } from '../lib/api'
@@ -22,6 +22,33 @@ const errorMsg = ref('')
 const loading = ref(false)
 const totpInput = ref<HTMLInputElement | null>(null)
 
+const isTotpPrompt = computed(() => showTotp.value && errorMsg.value === t('login.totpRequired'))
+
+const handleTotpInput = () => {
+  if (isTotpPrompt.value) {
+    errorMsg.value = ''
+  }
+}
+
+onMounted(() => {
+  if (authStore.isAuthenticated && !authStore.isTokenExpired()) {
+    router.replace('/dashboard').catch(() => {
+      window.location.href = '/dashboard'
+    })
+  }
+})
+
+watch(
+  () => authStore.isAuthenticated,
+  (authed) => {
+    if (authed && !authStore.isTokenExpired()) {
+      router.replace('/dashboard').catch(() => {
+        window.location.href = '/dashboard'
+      })
+    }
+  },
+)
+
 const mapLoginError = (detail: string): string => {
   const code = detail.trim()
   const key = `login.errors.${code}`
@@ -39,7 +66,9 @@ const mapLoginError = (detail: string): string => {
 }
 
 const handleLogin = async () => {
+  if (loading.value) return
   if (!username.value.trim() || !password.value) return
+  if (showTotp.value && !totpCode.value.trim()) return
   try {
     loading.value = true
     errorMsg.value = ''
@@ -53,7 +82,12 @@ const handleLogin = async () => {
     const res = await login(payload)
     if (res.access_token) {
       authStore.setToken(res.access_token)
-      router.push('/dashboard')
+      try {
+        await router.replace('/dashboard')
+      } catch {
+        window.location.href = '/dashboard'
+      }
+      return
     }
   } catch (e: unknown) {
     const code = getErrorCode(e) || ''
@@ -141,13 +175,17 @@ const openGithub = () => {
             aria-required="true"
             :placeholder="t('login.totpPlaceholder')"
             class="ui-input tracking-[0.35em] text-center font-mono"
+            @input="handleTotpInput"
           >
         </div>
 
         <div
           v-if="errorMsg"
           role="alert"
-          class="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 p-2.5 border border-rose-200 dark:border-rose-800/40 rounded-[var(--sp-radius-sm)]"
+          class="text-xs p-2.5 border rounded-[var(--sp-radius-sm)]"
+          :class="isTotpPrompt
+            ? 'text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-500/10 border-sky-200 dark:border-sky-800/40'
+            : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-800/40'"
         >
           {{ errorMsg }}
         </div>

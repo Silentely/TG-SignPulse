@@ -463,6 +463,14 @@ async def on_startup() -> None:
     run_migrations(get_engine())
     with get_session_local()() as db:
         ensure_admin(db)
+    try:
+        from backend.services.data_dict import get_data_dict_service
+
+        get_data_dict_service()
+    except Exception as exc:
+        logging.getLogger("backend.startup").warning(
+            "初始化素材数据字典服务异常: %s", exc
+        )
     await init_scheduler(sync_on_startup=False)
 
     # Pre-export session strings from .session files to avoid SQLite locks during task execution

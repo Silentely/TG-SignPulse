@@ -544,3 +544,46 @@ def test_legacy_underscore_dict_api_delete(
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
     assert not legacy.exists()
+
+
+def test_get_entry_builtin_preset_fallback(tmp_path: Path):
+    """当用户未显式自建同名字典时，get_entry 自动回退到内置预设字典。"""
+    service = DataDictService(base_dir=tmp_path)
+
+    # 随机取词
+    entry_random = service.get_entry("greetings", mode="random")
+    from backend.services.data_dict_presets import BUILTIN_DATA_DICT_MAP
+
+    assert entry_random in BUILTIN_DATA_DICT_MAP["greetings"].entries
+
+    # 轮询取词
+    e1 = service.get_entry("checkin", mode="round_robin")
+    e2 = service.get_entry("checkin", mode="round_robin")
+    checkin_entries = BUILTIN_DATA_DICT_MAP["checkin"].entries
+    assert e1 == checkin_entries[0]
+    assert e2 == checkin_entries[1]
+
+
+def test_action_rendering_with_data_dict_macro(tmp_path: Path):
+    """测试动作层与素材字典的端到端渲染打通。"""
+    from tg_signer.config import ClickKeyboardByTextAction, SendTextAction
+    from tg_signer.core.flow_adapter import render_template
+    from tg_signer.core.template import set_data_dict_resolver
+
+    service = DataDictService(base_dir=tmp_path)
+    set_data_dict_resolver(lambda name, mode: service.get_entry(name, mode=mode))
+
+    try:
+        # 1. 发送文本动作渲染内置预设
+        send_act = SendTextAction(text="打卡: {dict:checkin:round_robin}")
+        rendered_text = render_template(send_act.text)
+        assert rendered_text.startswith("打卡: ")
+        assert rendered_text != send_act.text
+
+        # 2. 点击按钮动作渲染用户自定义字典
+        service.save_dict("btn_labels", ["确认签到", "立即打卡"])
+        btn_act = ClickKeyboardByTextAction(text="{dict:btn_labels}")
+        rendered_btn = render_template(btn_act.text)
+        assert rendered_btn in ("确认签到", "立即打卡")
+    finally:
+        set_data_dict_resolver(None)
