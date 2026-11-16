@@ -203,8 +203,8 @@
 | :--- | :--- | :--- |
 | `{dict:name}` | `{dict:greetings}` | 从指定字典中**随机**抽取一条词条 |
 | `{dict:name:round_robin}` | `{dict:checkin:round_robin}` | 按照游标顺序**依次轮询**取词，游标会自动递增并持久化 |
-| `{{ dict_entry('name') }}` | `{{ dict_entry('blessings') }}` | AST 表达式随机取词写法（支持与表达式函数自由组合） |
-| `{{ dict_entry('name', 'round_robin') }}` | `{{ dict_entry('chitchat', 'round_robin') }}` | AST 表达式轮询取词写法 |
+| <span v-pre>`{{ dict_entry('name') }}`</span> | <span v-pre>`{{ dict_entry('blessings') }}`</span> | AST 表达式随机取词写法（支持与表达式函数自由组合） |
+| <span v-pre>`{{ dict_entry('name', 'round_robin') }}`</span> | <span v-pre>`{{ dict_entry('chitchat', 'round_robin') }}`</span> | AST 表达式轮询取词写法 |
 
 **组合使用示例：**
 ```text
