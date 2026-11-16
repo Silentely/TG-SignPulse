@@ -80,7 +80,7 @@ def update_task_config(
 
 
 def verify_single_writer_environment() -> None:
-    """单写环境自检守卫：检查是否存在多 worker 配置并发出醒目告警"""
+    """检查常见多 worker 环境变量并告警；不检测实际进程或提供跨进程保护。"""
     concurrency_keys = (
         "WEB_CONCURRENCY",
         "UVICORN_WORKERS",
@@ -100,6 +100,7 @@ def verify_single_writer_environment() -> None:
         warn_msg = (
             f"⚠️ [单写进程架构警报] 检测到并发 Worker 配置 ({', '.join(details)})！"
             "TG-SignPulse 采用单写进程原子部署模型，任务配置锁为进程内互斥锁 (RLock)；"
-            "多 Worker/多副本进程会导致文件修改状态竞争与冲突，请务必保持单 Worker (WEB_CONCURRENCY=1)。"
+            "多 Worker/多副本进程存在文件修改状态竞争与冲突风险，请保持单写进程部署。"
+            "此检查仅提示环境变量配置，不检测实际进程或阻止并发写入。"
         )
         logger.warning(warn_msg)

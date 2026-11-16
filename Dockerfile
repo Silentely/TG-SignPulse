@@ -45,10 +45,10 @@ COPY tg_signer/__init__.py /app/tg_signer/__init__.py
 ARG TARGETPLATFORM
 RUN pip install --no-cache-dir uv && \
   if [ "${TARGETPLATFORM:-}" = "linux/amd64" ] || [ "$(uname -m)" = "x86_64" ]; then \
-    uv export --format requirements-txt --no-hashes --extra speedup --no-emit-project \
+    uv export --locked --format requirements-txt --no-hashes --extra speedup --no-emit-project \
       -o /tmp/requirements.txt; \
   else \
-    uv export --format requirements-txt --no-hashes --no-emit-project \
+    uv export --locked --format requirements-txt --no-hashes --no-emit-project \
       -o /tmp/requirements.txt; \
   fi && \
   pip install --no-cache-dir -r /tmp/requirements.txt && \

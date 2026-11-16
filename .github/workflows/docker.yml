@@ -61,7 +61,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip uv
-          uv export --format requirements-txt --no-hashes --extra dev --no-emit-project \
+          uv export --locked --format requirements-txt --no-hashes --extra dev --no-emit-project \
             -o /tmp/requirements.txt
           python -m pip install -r /tmp/requirements.txt
           python -m pip install --no-deps -e .

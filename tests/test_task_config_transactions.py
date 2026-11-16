@@ -84,3 +84,40 @@ def test_verify_single_writer_environment(monkeypatch, caplog):
         "单写" in record.message or "WEB_CONCURRENCY" in record.message
         for record in caplog.records
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "worker_key", ["WEB_CONCURRENCY", "UVICORN_WORKERS", "GUNICORN_WORKERS", "WORKERS"]
+)
+@pytest.mark.parametrize("workers", [None, "1", "2"])
+async def test_startup_checks_single_writer_before_initialization(
+    monkeypatch, caplog, worker_key, workers
+):
+    import backend.main as main
+
+    for key in ("WEB_CONCURRENCY", "UVICORN_WORKERS", "GUNICORN_WORKERS", "WORKERS"):
+        monkeypatch.delenv(key, raising=False)
+    if workers is not None:
+        monkeypatch.setenv(worker_key, workers)
+
+    class InitializationReached(Exception):
+        pass
+
+    def stop_initialization(settings):
+        raise InitializationReached
+
+    monkeypatch.setattr(main, "_configure_backend_logging", lambda: None)
+    monkeypatch.setattr(main, "ensure_data_dirs", stop_initialization)
+    with caplog.at_level("WARNING", logger="backend.services.task_config_io"):
+        with pytest.raises(InitializationReached):
+            await main.on_startup()
+
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "backend.services.task_config_io" and "单写" in record.message
+    ]
+    assert len(warnings) == (1 if workers == "2" else 0)
+    if warnings:
+        assert f"{worker_key}=2" in warnings[0].message
