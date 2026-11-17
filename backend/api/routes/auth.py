@@ -26,7 +26,12 @@ from backend.core.rate_limit import (
 from backend.core.security import verify_password
 from backend.models.login_log import LoginLog
 from backend.models.user import User
-from backend.schemas.auth import LoginRequest, TokenResponse, UserOut
+from backend.schemas.auth import (
+    LoginRequest,
+    TokenResponse,
+    TOTPRequiredResponse,
+    UserOut,
+)
 
 router = APIRouter()
 logger = logging.getLogger("backend.auth")
@@ -105,7 +110,7 @@ def check_login_rate_limit(payload: LoginRequest, request: Request) -> str:
     return login_key
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse | TOTPRequiredResponse)
 def login(
     payload: LoginRequest,
     request: Request,
@@ -132,10 +137,7 @@ def login(
             # 用户提交了正确密码，但前端尚未收集两步验证码（第一步挑战流程）
             # 不记为登录失败日志，也不应消除此前错误验证码的防爆破计数
             rate_limiter.discard_latest_attempt("auth.login", login_key)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="TOTP_REQUIRED_OR_INVALID",
-            )
+            return TOTPRequiredResponse()
         if not verify_totp(user.totp_secret, totp_code):
             _append_login_log(
                 db,
@@ -146,7 +148,7 @@ def login(
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="TOTP_REQUIRED_OR_INVALID",
+                detail="TOTP_INVALID",
             )
     rate_limiter.reset("auth.login", login_key)
     access_token = create_access_token(

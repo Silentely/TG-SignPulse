@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pyotp
 from fastapi.testclient import TestClient
 
@@ -16,10 +18,10 @@ pytest_plugins = ("tests.test_api",)
 def test_totp_challenge_flow_no_false_failure_log(api_client: TestClient, db):
     """
     1. 账号密码正确，但首次请求不带 totp_code（前端尚未弹出输入框）：
-       - 返回 401 TOTP_REQUIRED_OR_INVALID
+       - 返回 200 requires_totp
        - 不记录任何登录失败日志
     2. 带错误的 totp_code：
-       - 返回 401 TOTP_REQUIRED_OR_INVALID
+       - 返回 401 TOTP_INVALID
        - 记录一条失败日志
     3. 带正确的 totp_code：
        - 返回 200 并返回 access_token
@@ -38,12 +40,22 @@ def test_totp_challenge_flow_no_false_failure_log(api_client: TestClient, db):
         db.commit()
 
         # Step 1: 仅提交账号密码，不带 totp_code
-        resp1 = api_client.post(
-            "/api/auth/login",
-            json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
-        )
-        assert resp1.status_code == 401
-        assert resp1.json()["detail"] == "TOTP_REQUIRED_OR_INVALID"
+        with (
+            patch("backend.api.routes.auth.create_access_token") as create_token,
+            patch(
+                "backend.services.push_notifications.send_login_notification"
+            ) as notify,
+        ):
+            resp1 = api_client.post(
+                "/api/auth/login",
+                json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+            )
+            create_token.assert_not_called()
+            notify.assert_not_called()
+        assert resp1.status_code == 200
+        assert resp1.json() == {"requires_totp": True}
+        protected = api_client.get("/api/auth/me")
+        assert protected.status_code == 401
 
         logs_step1 = (
             db.query(LoginLog).filter(LoginLog.username == ADMIN_USERNAME).all()
@@ -62,7 +74,7 @@ def test_totp_challenge_flow_no_false_failure_log(api_client: TestClient, db):
             },
         )
         assert resp2.status_code == 401
-        assert resp2.json()["detail"] == "TOTP_REQUIRED_OR_INVALID"
+        assert resp2.json()["detail"] == "TOTP_INVALID"
 
         logs_step2 = (
             db.query(LoginLog).filter(LoginLog.username == ADMIN_USERNAME).all()
@@ -123,7 +135,8 @@ def test_missing_totp_does_not_reset_invalid_totp_rate_limit(
                 "/api/auth/login",
                 json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
             )
-            assert challenge.status_code == 401
+            assert challenge.status_code == 200
+            assert challenge.json() == {"requires_totp": True}
 
         fifth_invalid = api_client.post(
             "/api/auth/login",
@@ -142,5 +155,22 @@ def test_missing_totp_does_not_reset_invalid_totp_rate_limit(
         assert blocked.status_code == 429
     finally:
         rate_limiter.reset_all()
+        user.totp_secret = None
+        db.commit()
+
+
+def test_wrong_password_does_not_reveal_totp_challenge(api_client: TestClient, db):
+    user = get_user_by_username(db, ADMIN_USERNAME)
+    assert user is not None
+    user.totp_secret = pyotp.random_base32()
+    db.commit()
+    try:
+        response = api_client.post(
+            "/api/auth/login",
+            json={"username": ADMIN_USERNAME, "password": "incorrect-password"},
+        )
+        assert response.status_code == 401
+        assert response.json() == {"detail": "Invalid username or password"}
+    finally:
         user.totp_secret = None
         db.commit()

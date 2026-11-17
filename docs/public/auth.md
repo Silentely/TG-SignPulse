@@ -50,6 +50,20 @@ Content-Type: application/json
 }
 ```
 
+如果账号已启用 TOTP，但请求未提供 `totp_code`，密码校验通过后会返回 HTTP `200`：
+
+```json
+{
+  "requires_totp": true
+}
+```
+
+此响应表示需要继续二步验证，不包含 `access_token`，不能用于访问受保护 API。收集 6 位验证码后，将账号、密码和 `totp_code` 一起重新提交到登录接口。只有完整认证成功后才会返回 Token。
+
+账号或密码错误返回 HTTP `401`；验证码错误返回 HTTP `401`，响应中的 `detail` 为 `TOTP_INVALID`；尝试次数过多返回 HTTP `429`。
+
+升级到此响应格式时，请同步更新前后端。已经打开的旧版登录页需要刷新后才能识别 `requires_totp` 响应；新版页面仍兼容旧版后端的 `TOTP_REQUIRED_OR_INVALID` 错误响应。
+
 后续请求：
 
 ```http

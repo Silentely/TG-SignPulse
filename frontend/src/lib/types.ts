@@ -6,6 +6,8 @@ export type TokenResponse = {
   token_type: string;
 };
 
+export type LoginResponse = TokenResponse | { requires_totp: true };
+
 // ─── Dashboard 视图模型 ───
 export interface DashboardLog {
   time: string;

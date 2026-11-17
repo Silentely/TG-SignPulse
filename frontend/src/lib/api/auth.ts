@@ -1,7 +1,7 @@
 /**
  * 认证 API：登录。
  */
-import type { TokenResponse } from "../types";
+import type { LoginResponse } from "../types";
 import { request } from "./core";
 
 export const login = (payload: {
@@ -9,7 +9,7 @@ export const login = (payload: {
   password: string;
   totp_code?: string;
 }) =>
-  request<TokenResponse>("/auth/login", {
+  request<LoginResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify(payload),
   });

@@ -22,12 +22,30 @@ const errorMsg = ref('')
 const loading = ref(false)
 const totpInput = ref<HTMLInputElement | null>(null)
 
-const isTotpPrompt = computed(() => showTotp.value && errorMsg.value === t('login.totpRequired'))
+const usernameInput = ref<HTMLInputElement | null>(null)
+const isTotpValid = computed(() => /^[0-9]{6}$/.test(totpCode.value))
 
 const handleTotpInput = () => {
-  if (isTotpPrompt.value) {
-    errorMsg.value = ''
-  }
+  errorMsg.value = ''
+}
+
+const promptTotp = async () => {
+  showTotp.value = true
+  showPassword.value = false
+  // 请求已完成，先解除禁用再聚焦验证码输入框。
+  loading.value = false
+  await nextTick()
+  totpInput.value?.focus()
+  totpInput.value?.select()
+}
+
+const backToCredentials = async () => {
+  if (loading.value) return
+  showTotp.value = false
+  totpCode.value = ''
+  errorMsg.value = ''
+  await nextTick()
+  usernameInput.value?.focus()
 }
 
 onMounted(() => {
@@ -68,7 +86,7 @@ const mapLoginError = (detail: string): string => {
 const handleLogin = async () => {
   if (loading.value) return
   if (!username.value.trim() || !password.value) return
-  if (showTotp.value && !totpCode.value.trim()) return
+  if (showTotp.value && !isTotpValid.value) return
   try {
     loading.value = true
     errorMsg.value = ''
@@ -80,7 +98,11 @@ const handleLogin = async () => {
       payload.totp_code = totpCode.value.trim()
     }
     const res = await login(payload)
-    if (res.access_token) {
+    if ('requires_totp' in res && res.requires_totp) {
+      await promptTotp()
+      return
+    }
+    if ('access_token' in res && res.access_token) {
       authStore.setToken(res.access_token)
       try {
         await router.replace('/dashboard')
@@ -92,15 +114,10 @@ const handleLogin = async () => {
   } catch (e: unknown) {
     const code = getErrorCode(e) || ''
     const detail = getLocalizedErrorMessage(e, t)
-    // 后端 TOTP 场景固定返回稳定错误码 TOTP_REQUIRED_OR_INVALID；
-    // 不再按本地化文案（TOTP/两步验证）判断，避免界面语言影响分支命中
-    if (code === 'TOTP_REQUIRED_OR_INVALID') {
-      showTotp.value = true
-      errorMsg.value = totpCode.value ? t('login.totpInvalid') : t('login.totpRequired')
-      // 保留已输入的验证码（六位码用户常只错一位），全选便于覆盖重输
-      await nextTick()
-      totpInput.value?.focus()
-      totpInput.value?.select()
+    // 兼容旧版后端的挑战错误码；新版缺少验证码走正常响应分支。
+    if (code === 'TOTP_INVALID' || code === 'TOTP_REQUIRED_OR_INVALID') {
+      errorMsg.value = totpCode.value ? t('login.totpInvalid') : ''
+      await promptTotp()
     } else {
       errorMsg.value = mapLoginError(code || detail)
     }
@@ -124,10 +141,12 @@ const openGithub = () => {
       </div>
 
       <form class="space-y-4" @submit.prevent="handleLogin">
-        <div>
+        <div v-show="!showTotp">
           <label class="block text-xs text-[var(--sp-text-muted)] mb-1.5" for="login-username">{{ t('login.username') }}</label>
           <input
             id="login-username"
+            ref="usernameInput"
+            :disabled="loading"
             v-model="username"
             type="text"
             required
@@ -137,11 +156,12 @@ const openGithub = () => {
             class="ui-input"
           >
         </div>
-        <div>
+        <div v-show="!showTotp">
           <label class="block text-xs text-[var(--sp-text-muted)] mb-1.5" for="login-password">{{ t('login.password') }}</label>
           <div class="relative">
             <input
               id="login-password"
+              :disabled="loading"
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
               required
@@ -161,6 +181,10 @@ const openGithub = () => {
           </div>
         </div>
 
+        <p v-if="showTotp" id="login-totp-hint" role="status" class="text-xs text-[var(--sp-text-muted)] leading-relaxed">
+          {{ t('login.totpRequired') }}
+        </p>
+
         <div v-if="showTotp">
           <label class="block text-xs text-[var(--sp-text-muted)] mb-1.5" for="login-totp">{{ t('login.totpCode') }}</label>
           <input
@@ -171,6 +195,11 @@ const openGithub = () => {
             inputmode="numeric"
             autocomplete="one-time-code"
             maxlength="6"
+            minlength="6"
+            pattern="[0-9]{6}"
+            :disabled="loading"
+            aria-describedby="login-totp-hint"
+            :aria-invalid="Boolean(errorMsg)"
             required
             aria-required="true"
             :placeholder="t('login.totpPlaceholder')"
@@ -182,21 +211,28 @@ const openGithub = () => {
         <div
           v-if="errorMsg"
           role="alert"
-          class="text-xs p-2.5 border rounded-[var(--sp-radius-sm)]"
-          :class="isTotpPrompt
-            ? 'text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-500/10 border-sky-200 dark:border-sky-800/40'
-            : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-800/40'"
+          class="text-xs p-2.5 border rounded-[var(--sp-radius-sm)] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-800/40"
         >
           {{ errorMsg }}
         </div>
 
         <button
           type="submit"
-          :disabled="loading || !username.trim() || !password || (showTotp && !totpCode.trim())"
+          :disabled="loading || !username.trim() || !password || (showTotp && !isTotpValid)"
           class="ui-btn-primary w-full mt-2 py-2.5 cursor-pointer"
         >
           <span v-if="loading" class="ui-spinner !w-4 !h-4 !border-2" />
-          {{ loading ? t('login.authenticating') : t('login.signIn') }}
+          {{ loading ? t('login.authenticating') : showTotp ? t('login.verifyAndSignIn') : t('login.nextStep') }}
+        </button>
+        <button
+          v-if="showTotp"
+          type="button"
+          data-testid="login-back"
+          :disabled="loading"
+          class="ui-btn-secondary w-full cursor-pointer"
+          @click="backToCredentials"
+        >
+          {{ t('login.backToCredentials') }}
         </button>
       </form>
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -17,6 +17,10 @@ class LoginRequest(BaseModel):
     username: str
     password: str
     totp_code: Optional[str] = None
+
+
+class TOTPRequiredResponse(BaseModel):
+    requires_totp: Literal[True] = True
 
 
 class TokenResponse(BaseModel):
