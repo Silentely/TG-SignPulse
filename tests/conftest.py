@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Dict
@@ -80,6 +81,12 @@ def _reset_global_test_state():
     from backend.utils.tg_session import _account_store_cache
 
     def _reset() -> None:
+        # FastAPI app 是进程级单例；用例遗留的认证覆盖会让后续未登录
+        # 请求绕过真实依赖（如 /auth/me 返回假用户并触发响应校验 500）。
+        # 仅清理已导入的 app，避免为不使用 API 的测试提前启动模块。
+        main_module = sys.modules.get("backend.main")
+        if main_module is not None:
+            main_module.app.dependency_overrides.clear()
         config_module.get_settings.cache_clear()
         service_config_module._config_service = None
         clear_proxy_probe_cache()
