@@ -35,9 +35,54 @@ DEFAULT_REPLY_FAILURE_PATTERNS: tuple[str, ...] = (
     "打卡失败",
     "操作失败",
     r"验证码错误|验证失败",
+    r"回答超时|答题超时",
+    r"(?:签到)?机会(?:已)?用完|(?:今日|今天|当天)(?:已)?(?:不能|不可|无法)再?签到",
     r"出席率\s*失败",
     r"(?i)(?:failed|failure|invalid)",
 )
+
+
+class BotTerminalFailure(RuntimeError):
+    """机器人明确表示当天无法继续；保留原文并禁止重试。"""
+
+    non_retryable = True
+    failure_category = "other"
+
+
+def is_daily_terminal_failure(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:签到)?机会(?:已)?用完|(?:今日|今天|当天)(?:已)?(?:不能|不可|无法)再?签到"
+            r"|(?:回答|答题|验证)(?:超时|失败|错误).*?(?:明天|明日|次日)再试",
+            str(text or ""),
+        )
+    )
+
+
+def upgrade_reply_patterns(patterns: list[str], *, success: bool) -> list[str]:
+    """只升级已知旧默认组合；自定义规则原样保留。"""
+    old = (
+        [("签到成功",), (r"出席率\s*成功", "签到成功", "操作成功")]
+        if success
+        else [
+            (r"出席率\s*失败", "签到失败", "操作失败"),
+            tuple(
+                p
+                for p in DEFAULT_REPLY_FAILURE_PATTERNS
+                if p
+                not in (
+                    r"回答超时|答题超时",
+                    r"(?:签到)?机会(?:已)?用完|(?:今日|今天|当天)(?:已)?(?:不能|不可|无法)再?签到",
+                )
+            ),
+        ]
+    )
+    defaults = (
+        DEFAULT_REPLY_SUCCESS_PATTERNS if success else DEFAULT_REPLY_FAILURE_PATTERNS
+    )
+    if not patterns or any(set(patterns) == set(group) for group in old):
+        return list(defaults)
+    return list(patterns)
 
 
 def get_default_success_patterns() -> list[str]:

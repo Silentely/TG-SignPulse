@@ -1420,6 +1420,7 @@ class SignerActionsMixin:
                             continue
                         if not self._message_matches_chat_thread(message, chat):
                             continue
+                        self._raise_if_daily_terminal_failure(message)
                         if not self._message_is_actionable_target(message, action):
                             continue
                         self._log_received_target_message(message)
@@ -1645,6 +1646,17 @@ class SignerActionsMixin:
                         continue
                     if not self._message_matches_chat_thread(message, chat):
                         continue
+                    self._raise_if_daily_terminal_failure(message)
+                    if isinstance(
+                        action,
+                        (ChooseOptionByImageAction, ReplyByImageRecognitionAction),
+                    ) and self._message_has_terminal_success_text(message):
+                        self.context.stop_after_current_action = True
+                        self.context.stop_reason = self._summarize_target_message(
+                            message
+                        )
+                        self._log_received_target_message(message, prefix="收到回复")
+                        return None
                     if not self._message_is_actionable_target(message, action):
                         continue
                     self.context.waiting_message = message

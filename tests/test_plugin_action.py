@@ -311,7 +311,7 @@ def test_plugin_registry_idempotency_and_name_sanitization(monkeypatch, tmp_path
     assert total == 2
 
 
-class DummySigner(SignerActionsMixin):
+class DummySigner(SignerActionsMixin, SignerMatchersMixin):
     def __init__(self):
         self.app = MagicMock()
         self.app.send_message = AsyncMock()

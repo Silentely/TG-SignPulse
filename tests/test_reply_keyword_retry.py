@@ -362,3 +362,283 @@ async def test_retry_exhaustion_with_timeout_word_preserves_category():
     await _runner_handle_error(state, error)
     assert state["failure_category"] == "retry_exhausted"
     assert state["timed_out"] is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "回答超时，今日不能再签到了，请明天再试",
+        "你今天已签到或签到机会已用完 / 总分: 1349",
+    ],
+)
+@pytest.mark.asyncio
+async def test_daily_terminal_failure_bypasses_stale_patterns_and_retry(text):
+    bus = TelegramEventBus()
+    calls = []
+    graph = ExecutionGraph(
+        entry_node_id="send",
+        nodes={
+            "send": ActionNode(id="send", next_node_id="wait"),
+            "wait": WaitEventNode(
+                id="wait",
+                success_patterns=["签到成功"],
+                failure_patterns=["签到失败"],
+                retry_keywords=["再试"],
+                retry_interval=0.001,
+                max_retries=1,
+                timeout_seconds=0.03,
+                metadata={"chat_id": 1},
+            ),
+        },
+    )
+
+    async def execute(node, ctx):
+        calls.append(node.id)
+        await bus.publish(
+            TelegramMessageEvent(
+                event_id=str(len(calls)),
+                chat_id=1,
+                message_thread_id=None,
+                message_id=len(calls),
+                sender_id=1,
+                event_type="NEW_MESSAGE",
+                text=text,
+                occurred_at=time.time(),
+            )
+        )
+        return StepOutcome(node_id=node.id, status=NodeStatus.SUCCESS)
+
+    result = await PulseFlowEngine(event_bus=bus).run(
+        graph, ScopedFlowContext(), execute
+    )
+    assert calls == ["send"]
+    assert result["status"] == "failed"
+    assert text in result["error"]
+    assert result["non_retryable"] is True
+
+
+def test_exhausted_opportunity_is_not_terminal_success():
+    from tg_signer.core import UserSigner
+
+    signer = object.__new__(UserSigner)
+    assert not signer._text_has_terminal_success_text("你今天已签到或签到机会已用完")
+    assert not signer._text_has_terminal_success_text("签到机会已用完")
+    assert not signer._text_has_terminal_success_text("今天不能再签到")
+    assert signer._text_has_terminal_success_text("今天已签到，请明天再来")
+
+
+def test_old_default_reply_rules_upgrade_but_custom_rules_survive():
+    from tg_signer.reply_settings import (
+        DEFAULT_REPLY_FAILURE_PATTERNS,
+        DEFAULT_REPLY_SUCCESS_PATTERNS,
+    )
+
+    chat = SignChatV3(
+        chat_id=1,
+        actions=[
+            SendTextAction(
+                text="/checkin",
+                wait_for_reply=True,
+                reply_success_patterns=["签到成功"],
+                reply_failure_patterns=[r"出席率\s*失败", "签到失败", "操作失败"],
+            )
+        ],
+    )
+    wait = next(
+        n
+        for n in GraphNormalizer.from_chat(chat).nodes.values()
+        if isinstance(n, WaitEventNode)
+    )
+    assert wait.success_patterns == list(DEFAULT_REPLY_SUCCESS_PATTERNS)
+    assert wait.failure_patterns == list(DEFAULT_REPLY_FAILURE_PATTERNS)
+    chat.actions[0].reply_success_patterns = ["专用成功回复"]
+    wait = next(
+        n
+        for n in GraphNormalizer.from_chat(chat).nodes.values()
+        if isinstance(n, WaitEventNode)
+    )
+    assert wait.success_patterns == ["专用成功回复"]
+
+
+@pytest.mark.asyncio
+async def test_action_wait_stops_on_daily_terminal_reply():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from tg_signer.config import ChooseOptionByImageAction
+    from tg_signer.core import UserSigner
+    from tg_signer.core.context import UserSignerWorkerContext
+    from tg_signer.reply_settings import BotTerminalFailure
+
+    signer = object.__new__(UserSigner)
+    reply = SimpleNamespace(
+        id=101,
+        text="回答超时，今日不能再签到了，请明天再试",
+        caption=None,
+        chat=SimpleNamespace(id=1),
+        from_user=SimpleNamespace(is_bot=True),
+        message_thread_id=None,
+        reply_markup=None,
+    )
+    signer.context = UserSignerWorkerContext(
+        sign_chats={}, chat_messages={1: {101: reply}}
+    )
+    signer.log = lambda *args, **kwargs: None
+    signer._log_received_target_message = lambda *args, **kwargs: None
+    signer._choose_option_by_image = AsyncMock()
+    with pytest.raises(BotTerminalFailure, match="今日不能再签到"):
+        await signer.wait_for(
+            SignChatV3(chat_id=1, actions=[SendTextAction(text="/checkin")]),
+            ChooseOptionByImageAction(),
+            timeout=1,
+        )
+    signer._choose_option_by_image.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_moves_directly_to_image_challenge_without_terminal_grace_wait():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from tg_signer.config import ChooseOptionByImageAction
+    from tg_signer.core import UserSigner
+
+    signer = object.__new__(UserSigner)
+    signer.context = SimpleNamespace(stop_after_current_action=False)
+    signer._wait_for_terminal_success = AsyncMock()
+    await signer._maybe_stop_after_send(
+        SignChatV3(chat_id=1, actions=[SendTextAction(text="/checkin")]),
+        before_state={},
+        history_limit=8,
+        next_action=ChooseOptionByImageAction(),
+    )
+    signer._wait_for_terminal_success.assert_not_called()
+
+
+def test_saved_graph_reply_defaults_upgrade_without_mutating_source():
+    from tg_signer.reply_settings import (
+        DEFAULT_REPLY_FAILURE_PATTERNS,
+        DEFAULT_REPLY_SUCCESS_PATTERNS,
+    )
+
+    source = ExecutionGraph(
+        entry_node_id="wait",
+        nodes={
+            "wait": WaitEventNode(
+                id="wait",
+                success_patterns=["签到成功"],
+                failure_patterns=[r"出席率\s*失败", "签到失败", "操作失败"],
+            )
+        },
+    )
+    compiled = GraphNormalizer.compile(source)
+    assert compiled.nodes["wait"].success_patterns == list(
+        DEFAULT_REPLY_SUCCESS_PATTERNS
+    )
+    assert compiled.nodes["wait"].failure_patterns == list(
+        DEFAULT_REPLY_FAILURE_PATTERNS
+    )
+    assert source.nodes["wait"].success_patterns == ["签到成功"]
+
+
+def test_previous_broad_failure_defaults_upgrade():
+    from tg_signer.reply_settings import (
+        DEFAULT_REPLY_FAILURE_PATTERNS,
+        upgrade_reply_patterns,
+    )
+
+    previous = [
+        "签到失败",
+        "打卡失败",
+        "操作失败",
+        "验证码错误|验证失败",
+        r"出席率\s*失败",
+        r"(?i)(?:failed|failure|invalid)",
+    ]
+    assert upgrade_reply_patterns(previous, success=False) == list(
+        DEFAULT_REPLY_FAILURE_PATTERNS
+    )
+
+
+@pytest.mark.asyncio
+async def test_daily_failure_during_action_keeps_business_category():
+    from tg_signer.reply_settings import BotTerminalFailure
+
+    text = "回答超时，今日不能再签到了，请明天再试"
+
+    async def execute(node, ctx):
+        raise BotTerminalFailure(text)
+
+    result = await PulseFlowEngine().run(
+        ExecutionGraph(entry_node_id="send", nodes={"send": ActionNode(id="send")}),
+        ScopedFlowContext(),
+        execute,
+    )
+    assert result["status"] == "failed"
+    assert result["failure_category"] == "other"
+    assert result["non_retryable"] is True
+    assert text in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_image_action_stops_when_bot_reports_already_checked_in():
+    from types import SimpleNamespace
+
+    from tg_signer.config import ChooseOptionByImageAction
+    from tg_signer.core import UserSigner
+    from tg_signer.core.context import UserSignerWorkerContext
+
+    signer = object.__new__(UserSigner)
+    reply = SimpleNamespace(
+        id=101,
+        text="今天已签到，请明天再来",
+        caption=None,
+        chat=SimpleNamespace(id=1),
+        from_user=SimpleNamespace(is_bot=True),
+        message_thread_id=None,
+        reply_markup=None,
+    )
+    signer.context = UserSignerWorkerContext(
+        sign_chats={}, chat_messages={1: {101: reply}}
+    )
+    signer.log = lambda *args, **kwargs: None
+    signer._log_received_target_message = lambda *args, **kwargs: None
+    await signer.wait_for(
+        SignChatV3(chat_id=1, actions=[SendTextAction(text="/checkin")]),
+        ChooseOptionByImageAction(),
+        timeout=0.01,
+    )
+    assert signer.context.stop_after_current_action
+    assert "已签到" in signer.context.stop_reason
+
+
+@pytest.mark.asyncio
+async def test_normal_run_preserves_non_retryable_failure_category():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tg_signer.config import SignConfigV3
+    from tg_signer.core import UserSigner
+    from tg_signer.reply_settings import BotTerminalFailure
+
+    signer = object.__new__(UserSigner)
+    failure = BotTerminalFailure("回答超时，今日不能再签到了，请明天再试")
+    context = SimpleNamespace(last_chat_error=failure, chat_messages={}, sign_chats={})
+    config = SignConfigV3(
+        sign_at="00:00:00",
+        chats=[SignChatV3(chat_id=1, actions=[SendTextAction(text="/checkin")])],
+        random_seconds=0,
+    )
+    signer.user = SimpleNamespace(id=1)
+    signer.app = MagicMock(is_connected=True)
+    signer.cfg_cls = SignConfigV3
+    signer._peers_preheated = True
+    signer.load_config = lambda cls: config
+    signer.load_sign_record = lambda: {}
+    signer.ensure_ctx = lambda: context
+    signer._run_config_chats = AsyncMock(return_value=[{"execution_status": "failed"}])
+    signer.log = lambda *args, **kwargs: None
+    with pytest.raises(BotTerminalFailure) as caught:
+        await signer.normal_run(only_once=True, force_rerun=True)
+    assert caught.value is failure
+    assert caught.value.failure_category == "other"

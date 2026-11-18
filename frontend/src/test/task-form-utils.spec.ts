@@ -8,6 +8,7 @@ import {
   parseStepsToActions,
   nextActionId,
   resetActionIdCounter,
+  DEFAULT_REPLY_SUCCESS_PATTERNS,
 } from '../lib/task-form-utils'
 import type { RawTaskAction, TaskActionItem } from '../lib/types'
 
@@ -442,7 +443,19 @@ describe('wait_for_reply and actionsToFlowSteps', () => {
 
     expect(steps[2].step_id).toBe('step_1_wait')
     expect(steps[2].node_type).toBe('wait_event')
-    expect(steps[2].success_patterns).toEqual(['签到成功'])
+    expect(steps[2].success_patterns).toEqual(DEFAULT_REPLY_SUCCESS_PATTERNS)
     expect(steps[2].next_step_id).toBe('COMPLETE')
   })
+})
+
+it('upgrades known legacy reply defaults when loading actions and steps', () => {
+  const raw = { action: 1, text: '/checkin', wait_for_reply: true,
+    reply_success_patterns: ['签到成功'],
+    reply_failure_patterns: ['出席率\\s*失败', '签到失败', '操作失败'] }
+  const parsed = parseActions([raw])
+  expect(parsed[0].reply_success_patterns).toContain('打卡成功')
+  expect(parsed[0].reply_failure_patterns).toContain('回答超时|答题超时')
+  const steps = actionsToFlowSteps([raw])
+  expect(parseStepsToActions(steps)![0].reply_failure_patterns).toContain('回答超时|答题超时')
+  expect(parseActions([{ ...raw, reply_success_patterns: ['我的专用成功'] }])[0].reply_success_patterns).toEqual(['我的专用成功'])
 })

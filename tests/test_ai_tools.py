@@ -1459,19 +1459,19 @@ class SuccessTextDetectionTest(unittest.TestCase):
             signer._callback_text_has_terminal_success_text("今日已完成签到")
         )
 
-    def test_sign_opportunity_exhausted_is_success(self):
-        """签到机会已用完表示今日已签到。"""
+    def test_sign_opportunity_exhausted_is_not_success(self):
+        """签到机会已用完不能证明签到成功。"""
         from tg_signer.core import UserSigner
 
         signer = object.__new__(UserSigner)
-        self.assertTrue(signer._text_has_terminal_success_text("签到机会已用完"))
+        self.assertFalse(signer._text_has_terminal_success_text("签到机会已用完"))
 
-    def test_today_cannot_sign_again_is_success(self):
-        """今天不能再签到表示今日已签到。"""
+    def test_today_cannot_sign_again_is_not_success(self):
+        """今天不能再签到不能证明签到成功。"""
         from tg_signer.core import UserSigner
 
         signer = object.__new__(UserSigner)
-        self.assertTrue(signer._text_has_terminal_success_text("今天不能再签到"))
+        self.assertFalse(signer._text_has_terminal_success_text("今天不能再签到"))
 
     def test_contradictory_same_line_is_not_success(self):
         """同一行内矛盾文本（签到失败，签到成功）不应判定为成功。"""

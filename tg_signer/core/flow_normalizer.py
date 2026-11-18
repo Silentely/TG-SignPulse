@@ -41,6 +41,7 @@ from tg_signer.core.timeout_defaults import (
     DEFAULT_ACTION_TIMEOUT_SECONDS,
     is_legacy_action_timeout,
 )
+from tg_signer.reply_settings import upgrade_reply_patterns
 
 
 class GraphValidationError(ValueError):
@@ -78,6 +79,7 @@ class GraphNormalizer:
         if isinstance(source, ExecutionGraph):
             graph = source.copy(deep=True)
             cls._upgrade_legacy_action_timeouts(graph)
+            cls._upgrade_legacy_reply_patterns(graph)
             cls.validate_graph(graph, budget=budget, warnings=warnings)
             return graph
 
@@ -86,6 +88,7 @@ class GraphNormalizer:
             if "nodes" in src and ("entry_node_id" in src or "max_total_steps" in src):
                 graph = ExecutionGraph.from_dict(src)
                 cls._upgrade_legacy_action_timeouts(graph)
+                cls._upgrade_legacy_reply_patterns(graph)
                 graph.max_total_steps = max(60, len(graph.nodes) * 2)
                 cls.validate_graph(graph, budget=budget, warnings=warnings)
                 return graph
@@ -151,11 +154,25 @@ class GraphNormalizer:
                         "message_thread_id", chat.message_thread_id
                     )
         cls._upgrade_legacy_action_timeouts(graph)
+        cls._upgrade_legacy_reply_patterns(graph)
 
         # 动态对齐单流程最大执行步数
         graph.max_total_steps = max(60, len(graph.nodes) * 2)
         cls.validate_graph(graph, budget=budget, warnings=warnings)
         return graph
+
+    @staticmethod
+    def _upgrade_legacy_reply_patterns(graph: ExecutionGraph) -> None:
+        for node in graph.nodes.values():
+            if isinstance(node, WaitEventNode):
+                if node.success_patterns:
+                    node.success_patterns = upgrade_reply_patterns(
+                        node.success_patterns, success=True
+                    )
+                if node.failure_patterns:
+                    node.failure_patterns = upgrade_reply_patterns(
+                        node.failure_patterns, success=False
+                    )
 
     @classmethod
     def _from_linear_actions(
@@ -322,8 +339,12 @@ class GraphNormalizer:
                     id=wait_node_id,
                     name="等待机器人回复",
                     event_type="ANY",
-                    success_patterns=list(success_pats),
-                    failure_patterns=list(failure_pats),
+                    success_patterns=upgrade_reply_patterns(
+                        list(success_pats), success=True
+                    ),
+                    failure_patterns=upgrade_reply_patterns(
+                        list(failure_pats), success=False
+                    ),
                     timeout_seconds=reply_timeout,
                     retry_keywords=reply_retry_keywords,
                     retry_interval=reply_retry_interval,
@@ -668,8 +689,16 @@ class GraphNormalizer:
             return WaitEventNode(
                 event_type=getattr(step, "event_type", "ANY") or "ANY",
                 filter_patterns=list(getattr(step, "filter_patterns", []) or []),
-                success_patterns=list(getattr(step, "success_patterns", []) or []),
-                failure_patterns=list(getattr(step, "failure_patterns", []) or []),
+                success_patterns=upgrade_reply_patterns(
+                    list(step.success_patterns), success=True
+                )
+                if step.success_patterns
+                else [],
+                failure_patterns=upgrade_reply_patterns(
+                    list(step.failure_patterns), success=False
+                )
+                if step.failure_patterns
+                else [],
                 semantic_result=getattr(step, "semantic_result", None),
                 retry_keywords=step_retry_keywords,
                 retry_interval=max(1.0, min(300.0, float(step_retry_interval))),

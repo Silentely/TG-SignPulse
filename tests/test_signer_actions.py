@@ -9,9 +9,10 @@ from tg_signer.compat import InlineKeyboardMarkup
 from tg_signer.config import ClickKeyboardByTextAction, SignChatV3
 from tg_signer.core.context import chat_scope_key
 from tg_signer.core.signer_actions import SignerActionsMixin
+from tg_signer.core.signer_matchers import SignerMatchersMixin
 
 
-class DummySigner(SignerActionsMixin):
+class DummySigner(SignerActionsMixin, SignerMatchersMixin):
     def __init__(self):
         self.app = MagicMock()
         self.context = SimpleNamespace(

@@ -35,9 +35,26 @@ export const DEFAULT_REPLY_FAILURE_PATTERNS = [
   "打卡失败",
   "操作失败",
   "验证码错误|验证失败",
+  "回答超时|答题超时",
+  "(?:签到)?机会(?:已)?用完|(?:今日|今天|当天)(?:已)?(?:不能|不可|无法)再?签到",
   "出席率\\s*失败",
   "(?i)(?:failed|failure|invalid)",
 ]
+
+/** 升级历史默认组合，保留自定义规则。 */
+export function upgradeReplyPatterns(patterns: string[] | undefined, success: boolean): string[] {
+  const old = success
+    ? [['签到成功'], ['出席率\\s*成功', '签到成功', '操作成功']]
+    : [
+      ['出席率\\s*失败', '签到失败', '操作失败'],
+      DEFAULT_REPLY_FAILURE_PATTERNS.filter(p => p !== '回答超时|答题超时' && !p.startsWith('(?:签到)?机会')),
+    ]
+  const defaults = success ? DEFAULT_REPLY_SUCCESS_PATTERNS : DEFAULT_REPLY_FAILURE_PATTERNS
+  if (!patterns?.length || old.some(group => group.length === patterns.length && group.every(p => patterns.includes(p)))) {
+    return [...defaults]
+  }
+  return [...patterns]
+}
 
 export const DEFAULT_REPLY_RETRY_KEYWORDS = [
   "再试",
@@ -128,10 +145,10 @@ export function parseSingleAction(raw: RawTaskAction): TaskActionItem[] {
   if (raw.wait_for_reply) {
     item.wait_for_reply = true
     if (Array.isArray(raw.reply_success_patterns)) {
-      item.reply_success_patterns = [...raw.reply_success_patterns]
+      item.reply_success_patterns = upgradeReplyPatterns(raw.reply_success_patterns, true)
     }
     if (Array.isArray(raw.reply_failure_patterns)) {
-      item.reply_failure_patterns = [...raw.reply_failure_patterns]
+      item.reply_failure_patterns = upgradeReplyPatterns(raw.reply_failure_patterns, false)
     }
     if (raw.reply_timeout_seconds !== undefined) {
       item.reply_timeout_seconds = raw.reply_timeout_seconds
@@ -352,10 +369,10 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
     } else if (item.kind === 'wait') {
       const act = item.parentAction
       const successPatterns = act.reply_success_patterns && act.reply_success_patterns.length > 0
-        ? [...act.reply_success_patterns]
+        ? upgradeReplyPatterns(act.reply_success_patterns, true)
         : [...DEFAULT_REPLY_SUCCESS_PATTERNS]
       const failurePatterns = act.reply_failure_patterns && act.reply_failure_patterns.length > 0
-        ? [...act.reply_failure_patterns]
+        ? upgradeReplyPatterns(act.reply_failure_patterns, false)
         : [...DEFAULT_REPLY_FAILURE_PATTERNS]
       const timeout = act.reply_timeout_seconds !== undefined ? Number(act.reply_timeout_seconds) : 90
       const retryKeywords = act.reply_retry_keywords && act.reply_retry_keywords.length > 0
@@ -456,10 +473,10 @@ export function parseStepsToActions(steps: any[]): TaskActionItem[] | null {
             actionItem.semantic_result = { ...nextStep.semantic_result }
           }
           actionItem.reply_success_patterns = Array.isArray(nextStep.success_patterns) && nextStep.success_patterns.length > 0
-            ? [...nextStep.success_patterns]
+            ? upgradeReplyPatterns(nextStep.success_patterns, true)
             : (Array.isArray(nextStep.filter_patterns) && nextStep.filter_patterns.length > 0 ? [...nextStep.filter_patterns] : [])
           actionItem.reply_failure_patterns = Array.isArray(nextStep.failure_patterns)
-            ? [...nextStep.failure_patterns]
+            ? upgradeReplyPatterns(nextStep.failure_patterns, false)
             : []
           actionItem.reply_timeout_seconds = nextStep.timeout_seconds !== undefined
             ? Number(nextStep.timeout_seconds)

@@ -34,6 +34,7 @@ from tg_signer.config import (
 )
 from tg_signer.core.context import chat_scope_key
 from tg_signer.core.plugins import PluginRegistry
+from tg_signer.reply_settings import BotTerminalFailure, is_daily_terminal_failure
 
 
 class SignerMatchersMixin:
@@ -417,9 +418,27 @@ class SignerMatchersMixin:
                 self.log(f"下一步动作候选消息检查失败: {e}", level="WARNING")
         return False
 
+    def _raise_if_daily_terminal_failure(self, message: Message) -> None:
+        sender = getattr(message, "from_user", None)
+        if getattr(message, "outgoing", False) or (
+            sender is not None and not getattr(sender, "is_bot", False)
+        ):
+            return
+        text = "\n".join(
+            str(value)
+            for value in (
+                getattr(message, "text", None),
+                getattr(message, "caption", None),
+            )
+            if value
+        )
+        if is_daily_terminal_failure(text):
+            self._log_received_target_message(message, prefix="收到回复")
+            raise BotTerminalFailure(text)
+
     def _text_has_terminal_success_text(self, text: Optional[str]) -> bool:
         normalized = str(text or "").strip().lower()
-        if not normalized:
+        if not normalized or is_daily_terminal_failure(normalized):
             return False
         strong_success_markers = (
             "签到成功",
@@ -663,6 +682,11 @@ class SignerMatchersMixin:
 
         before_state 必须在 send 之前快照；仅认发送后的消息变更，不会把未变更的历史成功当完成。
         """
+        # 图片题由下一步立即处理，避免发送后额外等待挤占机器人答题期限。
+        if isinstance(
+            next_action, (ChooseOptionByImageAction, ReplyByImageRecognitionAction)
+        ):
+            return
         timeout = self._post_send_terminal_timeout()
         if timeout <= 0:
             return
@@ -722,6 +746,11 @@ class SignerMatchersMixin:
                 if (
                     self._message_matches_chat_thread(message, chat)
                     and getattr(message, "id", None) in changed_ids
+                ):
+                    self._raise_if_daily_terminal_failure(message)
+                if (
+                    self._message_matches_chat_thread(message, chat)
+                    and getattr(message, "id", None) in changed_ids
                     and self._message_has_terminal_success_text(message)
                 ):
                     self.context.stop_reason = self._summarize_target_message(message)
@@ -736,6 +765,11 @@ class SignerMatchersMixin:
                     if (
                         self._message_matches_chat_thread(message, chat)
                         and getattr(message, "id", None) in changed_ids
+                    ):
+                        self._raise_if_daily_terminal_failure(message)
+                    if (
+                        self._message_matches_chat_thread(message, chat)
+                        and getattr(message, "id", None) in changed_ids
                         and self._message_has_terminal_success_text(message)
                     ):
                         self.context.stop_reason = self._summarize_target_message(
@@ -744,6 +778,8 @@ class SignerMatchersMixin:
                         self._log_received_target_message(message, prefix="收到回复")
                         return True
             except Exception as e:
+                if getattr(e, "non_retryable", False):
+                    raise
                 self.log(f"最终成功消息检查失败: {e}", level="WARNING")
         return False
 

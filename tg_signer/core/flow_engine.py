@@ -39,6 +39,7 @@ from tg_signer.core.timeout_defaults import (
     DEFAULT_FLOW_NODE_TIMEOUT_SECONDS,
 )
 from tg_signer.log_utils import safe_text_preview
+from tg_signer.reply_settings import BotTerminalFailure, is_daily_terminal_failure
 from tg_signer.semantic.action_policy import (
     DEFAULT_RESULT_GOAL,
     resolve_action_semantic_policy,
@@ -68,6 +69,10 @@ def matches_retry_keyword(text: str, keywords: Any) -> Optional[str]:
         return None
     norm_text = normalize_text_for_matching(text)
     if not norm_text:
+        return None
+    if is_daily_terminal_failure(text) or re.search(
+        r"(?:明天|明日|次日)再试", norm_text
+    ):
         return None
     # “不可重试/不能重试”等是否定语句，不能被识别为稍后重试指令。
     if re.search(
@@ -468,6 +473,8 @@ class PulseFlowEngine:
                 err = outcome.error
                 is_controlled = False
                 if err is not None:
+                    if getattr(err, "failure_category", None):
+                        last_failure_category = str(err.failure_category)
                     f_code = getattr(err, "failure_code", None)
                     s_disp = getattr(err, "semantic_disposition", None)
                     nr = getattr(err, "non_retryable", False)
@@ -1389,6 +1396,22 @@ class PulseFlowEngine:
                         )
                     except Exception:
                         pass
+
+                if is_daily_terminal_failure(text):
+                    _log_msg(f"机器人明确返回当日不可继续：{text}", level="WARNING")
+                    ctx.system.pop(retry_count_key, None)
+                    return StepOutcome(
+                        node_id=node.id,
+                        status=NodeStatus.FAILED,
+                        output_text=text,
+                        error=BotTerminalFailure(text),
+                        updates_last_output=True,
+                        details={
+                            **details,
+                            "failure_category": "other",
+                            "last_reply": text,
+                        },
+                    )
 
                 # 8. 关键词重试判定（宽松匹配「再试 / 重试 / 稍后 / 人数较多 / 繁忙 / 请 10 秒后」等）
                 matched_kw = matches_retry_keyword(text, retry_keywords)

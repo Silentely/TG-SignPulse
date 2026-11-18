@@ -1111,6 +1111,10 @@ class SignerRunnerMixin:
             if success_count == 0 and len(config.chats) > 0:
                 last_chat_err = getattr(self.context, "last_chat_error", None)
                 if last_chat_err:
+                    if isinstance(last_chat_err, Exception) and getattr(
+                        last_chat_err, "non_retryable", False
+                    ):
+                        raise last_chat_err
                     raise RuntimeError(f"{last_chat_err}")
                 raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
 
