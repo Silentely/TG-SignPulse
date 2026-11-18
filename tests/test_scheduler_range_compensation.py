@@ -241,3 +241,83 @@ async def test_sync_jobs_schedules_compensation_for_midday_restart():
     # Verify next_run_time was modified to compensation time within today's window
     assert job.next_run_time == _RANGE_COMPENSATION_RUNS[job_id]
     assert now <= job.next_run_time <= datetime(2026, 9, 21, 18, 0, 0, tzinfo=tz)
+
+
+@pytest.mark.parametrize(
+    "last_message",
+    [
+        "回答超时，今日不能再签到了，请明天再试",
+        "你今天已签到或签到机会已用完 / 总分: 1349",
+    ],
+)
+def test_daily_terminal_failure_is_not_compensated_after_restart(last_message):
+    tz = ZoneInfo("Asia/Shanghai")
+    cfg = {
+        "execution_mode": "range",
+        "range_start": "09:00",
+        "range_end": "18:00",
+        "last_run": {
+            "time": "2026-09-21T07:33:30Z",
+            "success": False,
+            "last_target_message": last_message,
+        },
+    }
+    assert (
+        _compute_range_task_compensation(
+            cfg, tz=tz, now=datetime(2026, 9, 21, 17, 0, tzinfo=tz)
+        )
+        is None
+    )
+    assert (
+        _compute_range_task_compensation(
+            cfg, tz=tz, now=datetime(2026, 9, 22, 11, 0, tzinfo=tz)
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_scheduled_job_skips_persisted_daily_terminal_failure():
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    service = MagicMock()
+    service.get_task.return_value = {
+        "enabled": True,
+        "execution_mode": "range",
+        "last_run": {
+            "time": now.isoformat(),
+            "success": False,
+            "message": "你今天已签到或签到机会已用完",
+        },
+    }
+    service.run_task_with_logs = AsyncMock()
+    with patch(
+        "backend.services.sign_tasks.get_sign_task_service", return_value=service
+    ):
+        with patch(
+            "backend.scheduler._resolve_scheduler_timezone",
+            return_value=ZoneInfo("Asia/Shanghai"),
+        ):
+            await _job_run_sign_task("dahao", "emby-厂妹", is_direct=True)
+    service.run_task_with_logs.assert_not_awaited()
+
+
+def test_legacy_timeout_history_still_blocks_daily_compensation():
+    tz = ZoneInfo("Asia/Shanghai")
+    cfg = {
+        "execution_mode": "range",
+        "range_start": "09:00",
+        "range_end": "18:00",
+        "last_run": {
+            "time": "2026-09-21T07:33:30Z",
+            "success": False,
+            "message": "执行超时",
+            "last_target_message": "TimeoutError",
+            "flow_logs": ["收到回复：回答超时，今日不能再签到了，请明天再试"],
+        },
+    }
+    assert (
+        _compute_range_task_compensation(
+            cfg, tz=tz, now=datetime(2026, 9, 21, 17, 0, tzinfo=tz)
+        )
+        is None
+    )

@@ -144,6 +144,39 @@ def _get_range_window(
     return start_dt, end_dt
 
 
+def _daily_terminal_failure_recorded(
+    last_run: Any, *, now: datetime, tz: ZoneInfo | None
+) -> bool:
+    """依据持久化历史阻止当天再次调度；不把业务失败记为成功。"""
+    from tg_signer.reply_settings import is_daily_terminal_failure
+
+    if not isinstance(last_run, dict) or last_run.get("success") is True:
+        return False
+    raw_time = last_run.get("time") or last_run.get("created_at")
+    if not raw_time:
+        return False
+    try:
+        ran_at = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+        if tz is not None:
+            ran_at = (
+                ran_at.astimezone(tz) if ran_at.tzinfo else ran_at.replace(tzinfo=tz)
+            )
+        elif ran_at.tzinfo is not None and now.tzinfo is None:
+            ran_at = ran_at.astimezone().replace(tzinfo=None)
+        if ran_at.date() != now.date():
+            return False
+    except (ValueError, TypeError):
+        return False
+    messages = [
+        str(last_run.get(key) or "")
+        for key in ("message", "last_target_message", "bot_message")
+    ]
+    logs = last_run.get("flow_logs")
+    if isinstance(logs, list):
+        messages.extend(str(line) for line in logs)
+    return any(is_daily_terminal_failure(text) for text in messages)
+
+
 def _compute_range_task_compensation(
     task_config: dict[str, Any],
     tz: ZoneInfo | None = None,
@@ -199,6 +232,9 @@ def _compute_range_task_compensation(
         except Exception:
             last_run = None
 
+    if _daily_terminal_failure_recorded(last_run, now=now, tz=tz):
+        return None
+
     if isinstance(last_run, dict) and last_run.get("time"):
         try:
             last_run_str = str(last_run["time"]).strip()
@@ -245,6 +281,18 @@ async def _job_run_sign_task(
             _RANGE_COMPENSATION_RUNS.pop(job_id, None)
             logger.info(
                 "Scheduler: 任务 %s (账号=%s) 不存在或已被禁用，放弃执行",
+                task_name,
+                account_name,
+            )
+            return
+
+        tz = _resolve_scheduler_timezone()
+        if _daily_terminal_failure_recorded(
+            task_config.get("last_run"), now=datetime.now(tz), tz=tz
+        ):
+            _RANGE_COMPENSATION_RUNS.pop(job_id, None)
+            logger.info(
+                "Scheduler: 任务 %s (账号=%s) 已收到当天不可继续回复，跳过本次调度",
                 task_name,
                 account_name,
             )

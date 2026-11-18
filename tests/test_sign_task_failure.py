@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from backend.services.sign_task_failure import (
     FailureCategory,
     classify_failure,
@@ -391,3 +393,21 @@ def test_write_json_atomic_writes_valid_json(tmp_path: Path):
         loaded = json.load(f)
     assert loaded == data
     assert not target.with_suffix(target.suffix + ".tmp").exists()
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "回答超时，今日不能再签到了，请明天再试",
+        "你今天已签到或签到机会已用完 / 总分: 1349",
+    ],
+)
+def test_daily_terminal_reply_beats_timeout_budget_in_logs(reply):
+    assert (
+        classify_failure(
+            error=reply,
+            output=("关键词重试执行预算：总任务超时调整为 848 秒\n" + reply),
+            success=False,
+        )
+        == FailureCategory.STRONG_FAILURE
+    )

@@ -46,7 +46,7 @@ class BotTerminalFailure(RuntimeError):
     """机器人明确表示当天无法继续；保留原文并禁止重试。"""
 
     non_retryable = True
-    failure_category = "other"
+    failure_category = "strong_failure"
 
 
 def is_daily_terminal_failure(text: str) -> bool:

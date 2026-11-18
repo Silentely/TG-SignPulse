@@ -575,7 +575,7 @@ async def test_daily_failure_during_action_keeps_business_category():
         execute,
     )
     assert result["status"] == "failed"
-    assert result["failure_category"] == "other"
+    assert result["failure_category"] == "strong_failure"
     assert result["non_retryable"] is True
     assert text in result["error"]
 
@@ -641,4 +641,4 @@ async def test_normal_run_preserves_non_retryable_failure_category():
     with pytest.raises(BotTerminalFailure) as caught:
         await signer.normal_run(only_once=True, force_rerun=True)
     assert caught.value is failure
-    assert caught.value.failure_category == "other"
+    assert caught.value.failure_category == "strong_failure"

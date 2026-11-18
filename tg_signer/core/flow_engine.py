@@ -1408,7 +1408,7 @@ class PulseFlowEngine:
                         updates_last_output=True,
                         details={
                             **details,
-                            "failure_category": "other",
+                            "failure_category": "strong_failure",
                             "last_reply": text,
                         },
                     )

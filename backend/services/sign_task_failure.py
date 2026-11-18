@@ -10,6 +10,8 @@ import re
 from enum import Enum
 from typing import Optional, Union
 
+from tg_signer.reply_settings import is_daily_terminal_failure
+
 
 class FailureCategory(str, Enum):
     """任务失败类别，供日志/诊断/通知使用。"""
@@ -292,6 +294,9 @@ def classify_failure(
         error_str = f"{exc_type_name}: {error}"
     else:
         error_str = str(error or "")
+
+    if is_daily_terminal_failure(error_str):
+        return FailureCategory.STRONG_FAILURE
 
     err_lower = error_str.lower()
     for kw in (
