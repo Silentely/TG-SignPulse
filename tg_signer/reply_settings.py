@@ -24,6 +24,7 @@ DEFAULT_REPLY_SUCCESS_PATTERNS: tuple[str, ...] = (
     "签到成功",
     "打卡成功",
     "(已|今天已|今日已)签到",
+    r"(?:请勿|无需|不可|不能)?重复签到",
     r"获得.+?(?:经验|积分|金币|能量|流量|点数|GB|MB|KB)",
     r"连续签到.+?天",
     r"出席率\s*成功",
@@ -62,7 +63,19 @@ def is_daily_terminal_failure(text: str) -> bool:
 def upgrade_reply_patterns(patterns: list[str], *, success: bool) -> list[str]:
     """只升级已知旧默认组合；自定义规则原样保留。"""
     old = (
-        [("签到成功",), (r"出席率\s*成功", "签到成功", "操作成功")]
+        [
+            ("签到成功",),
+            (r"出席率\s*成功", "签到成功", "操作成功"),
+            (
+                "签到成功",
+                "打卡成功",
+                "(已|今天已|今日已)签到",
+                r"获得.+?(?:经验|积分|金币|能量|流量|点数|GB|MB|KB)",
+                r"连续签到.+?天",
+                r"出席率\s*成功",
+                r"(?i)(?:success|successfully|checked[- ]?in)",
+            ),
+        ]
         if success
         else [
             (r"出席率\s*失败", "签到失败", "操作失败"),

@@ -24,6 +24,7 @@ export const DEFAULT_REPLY_SUCCESS_PATTERNS = [
   "签到成功",
   "打卡成功",
   "(已|今天已|今日已)签到",
+  "(?:请勿|无需|不可|不能)?重复签到",
   "获得.+?(?:经验|积分|金币|能量|流量|点数|GB|MB|KB)",
   "连续签到.+?天",
   "出席率\\s*成功",
@@ -44,7 +45,19 @@ export const DEFAULT_REPLY_FAILURE_PATTERNS = [
 /** 升级历史默认组合，保留自定义规则。 */
 export function upgradeReplyPatterns(patterns: string[] | undefined, success: boolean): string[] {
   const old = success
-    ? [['签到成功'], ['出席率\\s*成功', '签到成功', '操作成功']]
+    ? [
+        ['签到成功'],
+        ['出席率\s*成功', '签到成功', '操作成功'],
+        [
+          "签到成功",
+          "打卡成功",
+          "(已|今天已|今日已)签到",
+          "获得.+?(?:经验|积分|金币|能量|流量|点数|GB|MB|KB)",
+          "连续签到.+?天",
+          "出席率\s*成功",
+          "(?i)(?:success|successfully|checked[- ]?in)",
+        ],
+      ]
     : [
       ['出席率\\s*失败', '签到失败', '操作失败'],
       DEFAULT_REPLY_FAILURE_PATTERNS.filter(p => p !== '回答超时|答题超时' && !p.startsWith('(?:签到)?机会')),
