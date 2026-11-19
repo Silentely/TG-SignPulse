@@ -72,7 +72,6 @@ def main():
         "frontend",
         "run",
         "dev",
-        "--",
         "--port",
         "5173",
         "--host",
@@ -131,6 +130,7 @@ def main():
                 proc.wait(timeout=3)
             except Exception:
                 proc.kill()
+        cleanup_data_dir()
         print("✅ 服务已完全退出")
 
     sys.exit(0 if success else 1)
