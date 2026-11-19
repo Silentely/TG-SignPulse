@@ -37,10 +37,10 @@ TG-SignPulse 当前支持以下登录流程：
 - 目标账号已存在时默认拒绝（HTTP 409），需显式勾选「覆盖同名已有账号」。
 - 单次上传上限 50MB；TData 归档另有限制：解压后总量 ≤ 100MB 且文件数 ≤ 1000（防解压炸弹）。
 
-TData 转换依赖可选依赖 `opentele`：
+TData 转换依赖可选 GUI 依赖组（`opentele`，其导入期需要 PyQt5 与 telethon）：
 
 ```bash
-pip install "tg-signer[tdata]"      # 或 uv sync --extra tdata
+pip install "tg-signer[gui]"        # 或 uv sync --extra gui
 ```
 
 未安装时导入 TData 会返回 `TDATA_CONVERTER_UNAVAILABLE`，`.session` / StringSession 导入不受影响。

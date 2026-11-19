@@ -106,10 +106,10 @@ nvm use
 cd frontend
 
 # 运行全部测试
-npm test
+pnpm test
 
 # 监听模式
-npm run test:watch
+pnpm run test:watch
 ```
 
 测试文件位于 `frontend/src/test/` 目录。
@@ -131,14 +131,15 @@ Vitest 的 jsdom 环境和 Node/Undici 可能分别提供 `Blob`、`File`、`Res
   读取的简化响应对象。
 - fake timer 与异步断言应放入同一个已等待的 `Promise.all()`，避免留下未等待的
   `expect(...).resolves`。
-- 涉及 Node Web API 的测试在提交前至少执行 `nvm use && cd frontend && npm test`，并运行
-  `npm run typecheck` 与 `npm run build`。
+- 涉及 Node Web API 的测试在提交前至少执行 `nvm use && pnpm install && pnpm --dir frontend test`，并运行
+  `pnpm --dir frontend run typecheck` 与 `pnpm --dir frontend run build`。
 
 ### 覆盖率配置
 
 `pyproject.toml` 中配置了 pytest-cov：
 
 - `fail_under` 阈值为 **40%**，同时统计 `tg_signer` 与 `backend` 两个包（`addopts` 中 `--cov=tg_signer --cov=backend`）
+- 默认只生成终端摘要与 `coverage.xml`；HTML 报告体积较大，本地需要时显式追加 `--cov-report=html:htmlcov`
 - 新增测试用例时，优先覆盖核心逻辑和边界条件
 
 ### 新增依赖
@@ -188,4 +189,4 @@ Vitest 的 jsdom 环境和 Node/Undici 可能分别提供 `Blob`、`File`、`Res
 2. **操作按钮**：主要按钮使用 `.ui-btn-primary`，次要按钮使用 `.ui-btn-secondary`，危险按钮使用 `.ui-btn-danger`，行内表格操作使用 `.ui-row-action`。
 3. **排版文字**：正文使用 `text-[var(--sp-text)]`，次级使用 `text-[var(--sp-text-secondary)]`，说明文案使用 `text-[var(--sp-text-muted)]`，分区标题使用 `.ui-section-label`。
 4. **表单控件**：输入框使用 `.ui-input`，下拉选择使用 `<CustomSelect>`，状态徽标使用 `.ui-badge` 或 `.ui-chip-*`。
-5. **双主题自查**：提交前确保在浅色模式与深色模式下均通过对比度验证，且运行 `npm run typecheck && npm test && npm run build` 保证零报错。
+5. **双主题自查**：提交前确保在浅色模式与深色模式下均通过对比度验证，且运行 `pnpm run typecheck && pnpm test && pnpm run build` 保证零报错。

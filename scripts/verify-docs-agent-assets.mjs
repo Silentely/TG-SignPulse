@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 本地校验 docs 构建产物是否包含 Agent 发现所需文件。
- * 用法：npm run docs:build && npm run docs:verify-agent
+ * 用法：pnpm run docs:build && pnpm run docs:verify-agent
  */
 import fs from "node:fs";
 import path from "node:path";

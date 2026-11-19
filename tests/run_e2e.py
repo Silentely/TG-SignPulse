@@ -67,8 +67,8 @@ def main():
     ]
 
     frontend_cmd = [
-        "npm",
-        "--prefix",
+        "pnpm",
+        "--dir",
         "frontend",
         "run",
         "dev",
@@ -108,10 +108,8 @@ def main():
                 ["node", str(ROOT_DIR / "tests/e2e_playwright.mjs")], cwd=str(ROOT_DIR)
             )
         else:
-            print(
-                "🏁 执行 Playwright 官方规范测试套件 (npm --prefix frontend run test:e2e)..."
-            )
-            cmd = ["npx", "playwright", "test"]
+            print("🏁 执行 Playwright 官方规范测试套件 (pnpm exec playwright test)...")
+            cmd = ["pnpm", "exec", "playwright", "test"]
             extra_args = [
                 a
                 for a in sys.argv[1:]

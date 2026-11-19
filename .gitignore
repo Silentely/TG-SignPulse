@@ -131,6 +131,9 @@ _test*.json
 
 frontend/node_modules/
 node_modules/
+docs/node_modules/
+.pnpm-store/
+pnpm-debug.log*
 frontend/.next/
 frontend/out/
 frontend/tsconfig.tsbuildinfo

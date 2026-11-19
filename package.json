@@ -1,18 +1,17 @@
 {
-  "name": "tg-signpulse-docs",
+  "name": "tg-signpulse",
   "private": true,
+  "packageManager": "pnpm@12.15.0",
   "engines": {
     "node": ">=22.23.1 <23"
   },
   "scripts": {
     "docs:agent-assets": "node scripts/prepare-docs-agent-assets.mjs",
     "docs:verify-agent": "node scripts/verify-docs-agent-assets.mjs",
-    "docs:dev": "npm run docs:agent-assets && vitepress dev docs --host 127.0.0.1 --port 5173",
-    "docs:build": "npm run docs:agent-assets && vitepress build docs",
-    "docs:preview": "vitepress preview docs --host 127.0.0.1 --port 4173",
-    "test:e2e": "npm --prefix frontend run test:e2e"
-  },
-  "devDependencies": {
-    "vitepress": "1.6.4"
+    "docs:dev": "pnpm --dir docs run dev",
+    "docs:build": "pnpm --dir docs run build",
+    "docs:preview": "pnpm --dir docs run preview",
+    "test:e2e": "pnpm --dir frontend run test:e2e",
+    "clean": "node scripts/clean.mjs"
   }
 }

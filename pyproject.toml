@@ -57,8 +57,11 @@ dev = [
 speedup = [
     "tgcrypto"
 ]
-tdata = [
-    "opentele>=1.15.1"
+# GUI 相关可选依赖：opentele 在导入期硬依赖 PyQt5 与 telethon，
+# 仅用于本地 Telegram Desktop (tdata) 会话转换，无头服务端不需要。
+# 安装：pip install "tg-signer[gui]" / uv sync --extra gui
+gui = [
+    "opentele>=1.15.1",
 ]
 
 [project.urls]
@@ -105,7 +108,9 @@ ignore = [
 testpaths = ["tests"]
 norecursedirs = [".*", "data", "frontend", "dist", "build", "node_modules"]
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=tg_signer --cov=backend --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml"
+# 默认只输出终端摘要与 XML（CI 使用）；HTML 报告体积大、仅供本地排查，
+# 需要时显式追加：pytest --cov-report=html:htmlcov
+addopts = "--cov=tg_signer --cov=backend --cov-report=term-missing --cov-report=xml:coverage.xml"
 
 [tool.coverage.run]
 source = ["tg_signer", "backend"]

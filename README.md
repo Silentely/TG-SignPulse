@@ -228,11 +228,10 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 uvicorn backend.main:app --reload --port 8080
 
-# 前端
+# 前端（仓库根目录执行，pnpm workspace 会一并安装 docs 依赖）
 nvm use
-cd frontend
-npm ci
-npm run dev
+pnpm install
+pnpm --dir frontend run dev
 ```
 
 - Python 3.10–3.13（推荐 3.12）

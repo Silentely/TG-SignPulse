@@ -268,4 +268,4 @@ All tokens are defined under `:root` (Light mode) and `.dark` (Dark mode) in `fr
 在提交任何前端改动或 PR 前，运行以下自查：
 1. 检查组件 template 是否包含未语义化的 `gray-`、`slate-`、`zinc-` 颜色类（特别是 `border-gray-*`、`bg-gray-*`、`text-gray-*`）；
 2. 确认在浅色模式与深色模式下均已通过对比度测试，无双深或双浅对比度失真；
-3. 运行 `npm run typecheck && npm test && npm run build` 确保无测试与构建回归。
+3. 运行 `pnpm run typecheck && pnpm test && pnpm run build` 确保无测试与构建回归。

@@ -31,12 +31,12 @@
 ### 开发命令
 
 ```bash
-npm run dev          # Vite 开发服务器（端口 3000）
-npm run build        # vue-tsc -b + vite build
-npm run preview      # 预览构建产物
-npm run typecheck    # 仅类型检查
-npm test             # vitest run
-npm run test:watch   # vitest 监听
+pnpm run dev          # Vite 开发服务器（端口 3000）
+pnpm run build       # vue-tsc -b + vite build
+pnpm run preview     # 预览构建产物
+pnpm run typecheck   # 仅类型检查
+pnpm test            # vitest run
+pnpm run test:watch  # vitest 监听
 ```
 
 ### Vite 要点（`vite.config.ts`）
@@ -258,7 +258,7 @@ Tasks.vue
 ## 测试与质量
 
 - `frontend/src/test/*.spec.ts`（约 40 个）：auth、api、composables、task-form、locales 一致性等
-- `npm run typecheck` / `npm run build` 为发布前基线
+- `pnpm run typecheck` / `pnpm run build` 为发布前基线
 
 ## 常见问题 (FAQ)
 

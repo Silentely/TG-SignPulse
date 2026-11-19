@@ -24,8 +24,8 @@
 
 - [ ] `pytest tests/ -n auto -x -q` 全部通过
 - [ ] `ruff check` 核心模块无新增错误
-- [ ] 前端 `npm run typecheck` 通过
-- [ ] 前端 `npm run build` 成功
+- [ ] 前端 `pnpm run typecheck` 通过
+- [ ] 前端 `pnpm run build` 成功
 
 ### 变更审查
 

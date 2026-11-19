@@ -1508,11 +1508,11 @@ dev = [
     { name = "ruff" },
     { name = "tox" },
 ]
+gui = [
+    { name = "opentele" },
+]
 speedup = [
     { name = "tgcrypto" },
-]
-tdata = [
-    { name = "opentele" },
 ]
 
 [package.metadata]
@@ -1529,7 +1529,7 @@ requires-dist = [
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "kurigram", specifier = "==2.2.26" },
     { name = "openai" },
-    { name = "opentele", marker = "extra == 'tdata'", specifier = ">=1.15.1" },
+    { name = "opentele", marker = "extra == 'gui'", specifier = ">=1.15.1" },
     { name = "psutil", specifier = ">=5.9.0" },
     { name = "pydantic", specifier = ">=1.10.26,<2" },
     { name = "pyjwt", specifier = ">=2.8.0" },
@@ -1548,7 +1548,7 @@ requires-dist = [
     { name = "typing-extensions" },
     { name = "uvicorn", extras = ["standard"] },
 ]
-provides-extras = ["dev", "speedup", "tdata"]
+provides-extras = ["dev", "speedup", "gui"]
 
 [[package]]
 name = "tgcrypto"

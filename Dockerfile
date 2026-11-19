@@ -1,11 +1,15 @@
 # Build frontend in the first stage.
 # 与 .nvmrc、package.json engines 和 GitHub Actions 保持一致。
 FROM node:22.23.1-slim AS frontend-builder
-WORKDIR /frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build
+WORKDIR /app
+# pnpm 版本由根 package.json 的 packageManager 字段固定。
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY frontend/package.json frontend/package.json
+COPY docs/package.json docs/package.json
+RUN pnpm install --frozen-lockfile --filter "./frontend..."
+COPY frontend/ ./frontend
+RUN pnpm --dir frontend run build
 
 # Python runtime.
 # Python 3.11：与 .github/workflows/docker.yml 的测试基线、uv.lock 解析目标一致。
@@ -63,7 +67,7 @@ COPY community_plugins /app/community_plugins
 RUN pip install --no-cache-dir --no-deps .
 
 # Frontend static files served from /web.
-COPY --from=frontend-builder /frontend/dist /web
+COPY --from=frontend-builder /app/frontend/dist /web
 
 # Data dir + non-root user + entrypoint.
 ARG APP_UID=10001

@@ -94,13 +94,12 @@ graph TD
 pip install -e ".[dev]"
 uvicorn backend.main:app --host 127.0.0.1 --port 8080
 
-# 前端 (端口 3000，代理 /api 到 8080)
-cd frontend
-npm install
-npm run dev
+# 前端 (端口 3000，代理 /api 到 8080；仓库根目录安装 workspace 依赖)
+pnpm install
+pnpm --dir frontend run dev
 
 # 文档站 (端口 5173)
-npm run docs:dev
+pnpm run docs:dev
 ```
 
 ### Docker 部署
@@ -135,7 +134,7 @@ docker run -d -p 8080:8080 -v ./data:/data ghcr.io/<owner>/tg-signpulse:latest
 - **运行**: 仓库根目录 `pytest`
 - **测试目录**: `tests/`（factories / fixtures / mocks / utils）
 - **后端用例**: 约 70 个 `test_*.py`（API、服务、runner、keyword_monitor、tg_session、SSE、ops 等）
-- **前端**: `frontend/` 下 `npm test`（vitest，约 40 个 `*.spec.ts`）+ `npm run typecheck`
+- **前端**: `frontend/` 下 `pnpm test`（vitest，约 40 个 `*.spec.ts`）+ `pnpm run typecheck`
 
 ## 编码规范
 

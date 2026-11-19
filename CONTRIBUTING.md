@@ -14,7 +14,7 @@
    - `ruff check backend/ tg_signer/ tests/ scripts/`（语法、import 引用与排序等）
    - `ruff format --check backend/ tg_signer/ tests/ scripts/`（**只读格式比对**）
    - **拦截原因**：`--check` 只做静态比对拦截，不会自动修改文件。如果提交前没有执行格式化，哪怕只是多余的空格、引号风格或未排序的 import，都会导致退出码为 1 并终止推送。
-2. **前端类型检查**：若涉及 `frontend/` 目录改动，执行 `npx vue-tsc --noEmit`。
+2. **前端类型检查**：若涉及 `frontend/` 目录改动，执行 `pnpm --dir frontend run typecheck`。
 3. **后端轻量边界冒烟检查**：执行 `scripts/prod_boundary_check.py`（~1-2 秒）。
 
 ---
@@ -64,7 +64,7 @@ bash scripts/format
 
 ### 2. 前端规范 (Vue 3 + TypeScript)
 - 严格遵循 TypeScript 类型定义，禁止无故隐式 `any`。
-- 保证 `npm run typecheck`（`vue-tsc --noEmit`）无类型错误。
+- 保证 `pnpm --dir frontend run typecheck`（`vue-tsc --noEmit`）无类型错误。
 
 ---
 

@@ -210,7 +210,7 @@ panel.example.com {
 
 镜像构建建议分层缓存：
 
-- 前端：先复制 `frontend/package*.json` 并运行 `npm ci`，再复制源码构建。
+- 前端：先复制 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 与各 workspace 的 `package.json`，运行 `pnpm install --frozen-lockfile`，再复制源码构建。
 - 后端：优先缓存 Python wheel / pip 下载目录，依赖文件变化时再失效。
 - Docker Buildx：启用 registry cache 或 GitHub Actions cache，减少多平台构建耗时。
 

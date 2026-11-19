@@ -21,8 +21,8 @@
 | 项 | 说明 |
 |----|------|
 | 内容根 | `docs/` |
-| 本地预览 | 仓库根 `npm run docs:dev`（端口 **5173**） |
-| 构建 | `npm run docs:build`（以根 `package.json` 为准） |
+| 本地预览 | 仓库根 `pnpm run docs:dev`（端口 **5173**） |
+| 构建 | `pnpm run docs:build`（脚本在 `docs/package.json`） |
 | 配置 | VitePress 配置在 `docs/.vitepress/`（主题/侧栏） |
 
 ## 目录结构

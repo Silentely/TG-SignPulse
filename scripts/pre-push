@@ -62,15 +62,15 @@ if git diff --name-only HEAD@{1}..HEAD 2>/dev/null | grep -q "^frontend/" || \
    git diff --cached --name-only | grep -q "^frontend/" || \
    [ -n "$(git status --porcelain frontend/ 2>/dev/null)" ]; then
     echo "🎨 [2/3] 前端类型检查..."
-    if command -v npx &>/dev/null && [ -f "frontend/package.json" ]; then
-        if (cd frontend && npm run typecheck 2>&1); then
+    if command -v pnpm &>/dev/null && [ -f "frontend/package.json" ]; then
+        if (cd frontend && pnpm run typecheck 2>&1); then
             echo "   ✅ 前端类型检查通过"
         else
             echo "   ❌ 前端类型检查失败，请修复后再推送"
             FAILED=1
         fi
     else
-        echo "   ⚠️  npx 未安装或 frontend/ 不存在，跳过"
+        echo "   ⚠️  pnpm 未安装或 frontend/ 不存在，跳过"
     fi
 else
     echo "🎨 [2/3] 前端类型检查 — 无前端变更，跳过"

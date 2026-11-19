@@ -51,7 +51,9 @@ Thumbs.db
 # Documentation
 *.md
 !README.md
-docs/
+# 仅保留 workspace 清单，供 pnpm 解析；不打包文档内容
+docs/**
+!docs/package.json
 
 # Tests
 tests/

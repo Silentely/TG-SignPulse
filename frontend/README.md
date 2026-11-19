@@ -12,19 +12,21 @@ Web UI for TG-SignPulse, styled with Tailwind CSS v4 and a unified Design System
 
 ## Development
 
+本仓库使用 pnpm workspace（根目录 `pnpm-workspace.yaml`）。首次先在仓库根目录执行 `pnpm install`。
+
 ```bash
-# Install dependencies
-npm install
+# Install dependencies (仓库根目录)
+pnpm install
 
 # Start development server
-npm run dev
+pnpm --dir frontend run dev
 
 # Run type checks
-npm run typecheck
+pnpm --dir frontend run typecheck
 
 # Run test suite
-npm test
+pnpm --dir frontend test
 
 # Build production bundle
-npm run build
+pnpm --dir frontend run build
 ```

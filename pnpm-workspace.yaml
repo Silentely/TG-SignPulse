@@ -1,0 +1,7 @@
+packages:
+  - docs
+  - frontend
+
+# pnpm 默认阻止依赖的安装脚本；这里只放行确实需要下载/编译二进制的包。
+allowBuilds:
+  esbuild: true
