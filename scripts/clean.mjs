@@ -13,9 +13,15 @@ const targets = [
   "node_modules",
   "frontend/node_modules",
   "docs/node_modules",
+  ".mypy_cache",
   "htmlcov",
+  ".coverage",
+  "coverage.xml",
   "dist",
   "frontend/dist",
+  "frontend/playwright-report",
+  "frontend/test-results",
+  "playwright-report",
   "docs/.vitepress/dist",
 ];
 

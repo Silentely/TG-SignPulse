@@ -130,6 +130,10 @@ _test*.json
 .agent
 
 frontend/node_modules/
+playwright-report/
+frontend/playwright-report/
+test-results/
+frontend/test-results/
 node_modules/
 docs/node_modules/
 .pnpm-store/
