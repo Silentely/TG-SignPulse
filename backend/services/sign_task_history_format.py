@@ -32,6 +32,17 @@ def build_history_list_item(
         flow_line_count = int(raw_flc if raw_flc is not None else len(flow_logs))
     except (TypeError, ValueError):
         flow_line_count = len(flow_logs)
+    from backend.utils.task_logs import resolve_effective_last_target
+
+    extracted_target = extract_last_target(flow_logs)
+    stored_target = str(item.get("last_target_message") or "").strip()
+    resolved_target = resolve_effective_last_target(
+        stored_target,
+        extracted_target,
+        message=str(item.get("message", "") or ""),
+        success=bool(item.get("success", False)),
+    )
+
     res = {
         "time": timestamp,
         "created_at": timestamp,
@@ -42,8 +53,7 @@ def build_history_list_item(
         "flow_line_count": flow_line_count,
         "task_name": task_name,
         "account_name": account_name,
-        "last_target_message": str(item.get("last_target_message") or "").strip()
-        or extract_last_target(flow_logs),
+        "last_target_message": resolved_target,
         "failure_category": str(item.get("failure_category") or ""),
     }
     if "workflow_path" in item:

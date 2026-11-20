@@ -12,7 +12,10 @@ from backend.core.database import get_db
 from backend.models.login_log import LoginLog
 from backend.models.user import User
 from backend.services.sign_tasks import get_sign_task_service
-from backend.utils.task_logs import extract_last_target_message
+from backend.utils.task_logs import (
+    extract_last_target_message,
+    resolve_effective_last_target,
+)
 
 router = APIRouter()
 
@@ -194,10 +197,15 @@ def get_task_logs(
     for index, item in enumerate(history):
         task_name = str(item.get("task_name") or "未知任务")
         success = bool(item.get("success", False))
-        last_msg = str(
-            item.get("last_target_message") or ""
-        ).strip() or extract_last_target_message(item.get("flow_logs"))
         raw_message = str(item.get("message") or "").strip()
+        stored_msg = str(item.get("last_target_message") or "").strip()
+        extracted_msg = extract_last_target_message(item.get("flow_logs"))
+        last_msg = resolve_effective_last_target(
+            stored_msg,
+            extracted_msg,
+            message=raw_message,
+            success=success,
+        )
         # 列表摘要优先展示目标返回内容，其次原始 message，最后状态兜底
         display_message = (
             last_msg
@@ -241,6 +249,16 @@ def get_task_log_detail(
             status_code=status.HTTP_404_NOT_FOUND, detail="TASK_LOG_NOT_FOUND"
         )
 
+    flow_logs = [str(line) for line in detail.get("flow_logs") or []]
+    extracted_target = extract_last_target_message(flow_logs)
+    stored_target = str(detail.get("last_target_message") or "").strip()
+    resolved_target = resolve_effective_last_target(
+        stored_target,
+        extracted_target,
+        message=str(detail.get("message") or ""),
+        success=bool(detail.get("success", False)),
+    )
+
     failure_category = str(detail.get("failure_category") or "").strip() or None
     return TaskHistoryLogDetailItem(
         id=1,
@@ -251,16 +269,14 @@ def get_task_log_detail(
             f"任务: {str(detail.get('task_name') or '未知任务')} "
             f"{'成功' if bool(detail.get('success')) else '失败'}"
         ),
-        bot_message=str(detail.get("last_target_message") or "").strip()
-        or extract_last_target_message(detail.get("flow_logs")),
+        bot_message=resolved_target or None,
         success=bool(detail.get("success", False)),
         created_at=str(detail.get("time") or ""),
         flow_line_count=int(detail.get("flow_line_count") or 0),
         failure_category=failure_category,
-        flow_logs=[str(line) for line in detail.get("flow_logs") or []],
+        flow_logs=flow_logs,
         flow_truncated=bool(detail.get("flow_truncated", False)),
-        last_target_message=str(detail.get("last_target_message") or "").strip()
-        or None,
+        last_target_message=resolved_target or None,
     )
 
 

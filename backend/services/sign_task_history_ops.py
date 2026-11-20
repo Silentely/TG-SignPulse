@@ -198,6 +198,7 @@ class SignTaskHistoryMixin:
         account_name: str = "",
         flow_logs: Optional[List[str]] = None,
         workflow_path: Optional[List[str]] = None,
+        **result_details: Any,
     ) -> Dict[str, Any]:
         store = self.history_store
         if hasattr(self, "_history_max_entries"):
@@ -212,6 +213,7 @@ class SignTaskHistoryMixin:
             "message": message,
             "flow_logs": flow_logs,
             "workflow_path": workflow_path,
+            **result_details,
         }
         run_entry = store.record_run(
             account=account_name,

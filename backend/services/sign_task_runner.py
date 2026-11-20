@@ -655,8 +655,8 @@ async def _runner_fetch_target_message(
         state.get("last_reply"),
     )
 
-    last_target_message = ""
-    if not state.get("last_reply"):
+    last_target_message = state.get("last_reply") or ""
+    if not last_target_message:
         last_target_message = extract_last_target_message(final_logs)
         if not last_target_message:
             try:
@@ -697,6 +697,7 @@ async def _runner_fetch_target_message(
 
     if last_target_message:
         _set_ctx(state, "last_reply", last_target_message)
+        _set_ctx(state, "last_target_message", last_target_message)
     if last_target_message and not any(
         "任务对象最后一条消息:" in str(line) for line in state.get("final_logs", [])
     ):
@@ -706,7 +707,6 @@ async def _runner_fetch_target_message(
         svc._append_active_log(task_key, last_message_line)
         _set_ctx(state, "final_logs", final_logs)
         _set_ctx(state, "output_str", "\n".join(final_logs))
-        _set_ctx(state, "last_target_message", last_target_message)
 
 
 async def _runner_adaptive_reschedule(
@@ -797,15 +797,31 @@ async def _runner_save_run_info(state: TaskExecutionContext | Dict[str, Any]) ->
             "unknown_side_effects": state.get("unknown_side_effects", []),
             "artifact_id": state.get("artifact_id"),
         }
-    svc._save_run_info(
-        state["task_name"],
-        state.get("success", False),
-        msg,
-        state["account_name"],
-        flow_logs=state.get("final_logs", []),
-        workflow_path=workflow_path,
-        **details,
-    )
+    last_target = state.get("last_target_message") or state.get("last_reply")
+    if last_target:
+        details["last_target_message"] = str(last_target).strip()
+    try:
+        svc._save_run_info(
+            state["task_name"],
+            state.get("success", False),
+            msg,
+            state["account_name"],
+            flow_logs=state.get("final_logs", []),
+            workflow_path=workflow_path,
+            **details,
+        )
+    except TypeError as te:
+        if "unexpected keyword argument" in str(te):
+            svc._save_run_info(
+                state["task_name"],
+                state.get("success", False),
+                msg,
+                state["account_name"],
+                flow_logs=state.get("final_logs", []),
+                workflow_path=workflow_path,
+            )
+        else:
+            raise
 
 
 async def _runner_send_notifications(

@@ -101,17 +101,18 @@ class FakeSvc:
         account_name,
         flow_logs=None,
         workflow_path=None,
+        **extra,
     ):
-        self.saved.append(
-            {
-                "task": task_name,
-                "success": success,
-                "msg": msg,
-                "account": account_name,
-                "logs": list(flow_logs or []),
-                "workflow_path": workflow_path,
-            }
-        )
+        entry = {
+            "task": task_name,
+            "success": success,
+            "msg": msg,
+            "account": account_name,
+            "logs": list(flow_logs or []),
+            "workflow_path": workflow_path,
+        }
+        entry.update(extra)
+        self.saved.append(entry)
 
     def _message_indicates_strong_failure(self, msg: str) -> bool:
         return self.strong_failure
