@@ -43,7 +43,6 @@ let disposed = false
 const pendingReloginName = ref('')
 const showAddModal = ref(false)
 const showEditModal = ref(false)
-const showAddMenu = ref(false)
 const initialMethod = ref<'code' | 'qr'>('code')
 const initialAccountName = ref('')
 const editingAccount = ref<AccountUiItem | null>(null)
@@ -207,7 +206,6 @@ const onEditModalClosed = () => {
 const openAddModal = (method: 'code' | 'qr') => {
   initialAccountName.value = ''
   initialMethod.value = method
-  showAddMenu.value = false
   showAddModal.value = true
 }
 
@@ -454,26 +452,14 @@ const goTasks = (name: string) => {
 
     <!-- FAB for Adding Account -->
     <div class="fixed ui-safe-fab z-40 flex flex-col items-end gap-2">
-      <transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0 translate-y-2" enter-to-class="opacity-100 translate-y-0" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100 translate-y-0" leave-to-class="opacity-0 translate-y-2">
-        <div v-if="showAddMenu" class="flex flex-col gap-1.5 mb-1">
-          <button type="button" class="ui-card ui-card-hover flex items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--sp-text)] shadow-[var(--sp-shadow-md)] rounded-[var(--sp-radius)] cursor-pointer" @click="openAddModal('qr')">
-            <QrCode class="w-4 h-4 text-[var(--sp-text-muted)]" /> {{ t('accounts.qrLogin') }}
-          </button>
-          <button type="button" class="ui-card ui-card-hover flex items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--sp-text)] shadow-[var(--sp-shadow-md)] rounded-[var(--sp-radius)] cursor-pointer" @click="openAddModal('code')">
-            <Phone class="w-4 h-4 text-[var(--sp-text-muted)]" /> {{ t('accounts.codeLogin') }}
-          </button>
-        </div>
-      </transition>
-      
       <button 
         type="button"
         class="ui-fab cursor-pointer"
-        :aria-expanded="showAddMenu"
-        :aria-label="showAddMenu ? t('common.close') : t('accounts.addAccount')"
-        :title="showAddMenu ? t('common.close') : t('accounts.addAccount')"
-        @click="showAddMenu = !showAddMenu"
+        :aria-label="t('accounts.addAccount')"
+        :title="t('accounts.addAccount')"
+        @click="openAddModal('code')"
       >
-        <Plus class="w-5 h-5 transition-transform duration-200" :class="{ 'rotate-45': showAddMenu }" />
+        <Plus class="w-5 h-5" />
       </button>
     </div>
 
