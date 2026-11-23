@@ -268,30 +268,50 @@ const onPluginSelect = (action: TaskActionItem, val: string | number) => {
 const getPatternsText = (patterns?: string[]) => (Array.isArray(patterns) ? patterns.join('\n') : '')
 
 const setSuccessPatterns = (action: TaskActionItem, val: string) => {
-  action.reply_success_patterns = val.split('\n').map((s) => s.trim()).filter(Boolean)
+  action.reply_success_patterns = val.split('\n')
+}
+
+const cleanSuccessPatterns = (action: TaskActionItem) => {
+  if (action.reply_success_patterns) {
+    action.reply_success_patterns = action.reply_success_patterns.map((s) => s.trim()).filter(Boolean)
+  }
 }
 
 const setFailurePatterns = (action: TaskActionItem, val: string) => {
-  action.reply_failure_patterns = val.split('\n').map((s) => s.trim()).filter(Boolean)
+  action.reply_failure_patterns = val.split('\n')
+}
+
+const cleanFailurePatterns = (action: TaskActionItem) => {
+  if (action.reply_failure_patterns) {
+    action.reply_failure_patterns = action.reply_failure_patterns.map((s) => s.trim()).filter(Boolean)
+  }
 }
 
 const setRetryKeywords = (action: TaskActionItem, val: string) => {
-  action.reply_retry_keywords = val.split('\n').map((s) => s.trim()).filter(Boolean)
+  action.reply_retry_keywords = val.split('\n')
 }
+
+const cleanRetryKeywords = (action: TaskActionItem) => {
+  if (action.reply_retry_keywords) {
+    action.reply_retry_keywords = action.reply_retry_keywords.map((s) => s.trim()).filter(Boolean)
+  }
+}
+
+const hasValidPatterns = (arr?: string[]) => Array.isArray(arr) && arr.some((s) => s.trim().length > 0)
 
 const onToggleWaitForReply = (action: TaskActionItem, checked: boolean) => {
   action.wait_for_reply = checked
   if (checked) {
-    if (!action.reply_success_patterns || action.reply_success_patterns.length === 0) {
+    if (!hasValidPatterns(action.reply_success_patterns)) {
       action.reply_success_patterns = [...DEFAULT_REPLY_SUCCESS_PATTERNS]
     }
-    if (!action.reply_failure_patterns || action.reply_failure_patterns.length === 0) {
+    if (!hasValidPatterns(action.reply_failure_patterns)) {
       action.reply_failure_patterns = [...DEFAULT_REPLY_FAILURE_PATTERNS]
     }
     if (action.reply_timeout_seconds === undefined) {
       action.reply_timeout_seconds = 90
     }
-    if (!action.reply_retry_keywords || action.reply_retry_keywords.length === 0) {
+    if (!hasValidPatterns(action.reply_retry_keywords)) {
       action.reply_retry_keywords = [...DEFAULT_REPLY_RETRY_KEYWORDS]
     }
     if (action.reply_retry_interval === undefined) {
@@ -777,6 +797,7 @@ const emit = defineEmits<{
                   rows="2"
                   class="ui-input !h-auto !py-1 !text-xs !px-2 w-full font-mono"
                   @input="setSuccessPatterns(action, ($event.target as HTMLTextAreaElement).value)"
+                  @blur="cleanSuccessPatterns(action)"
                 />
               </div>
 
@@ -790,6 +811,7 @@ const emit = defineEmits<{
                   rows="3"
                   class="ui-input !h-auto !py-1 !text-xs !px-2 w-full font-mono"
                   @input="setFailurePatterns(action, ($event.target as HTMLTextAreaElement).value)"
+                  @blur="cleanFailurePatterns(action)"
                 />
               </div>
 
@@ -845,6 +867,7 @@ const emit = defineEmits<{
                   rows="2"
                   class="ui-input !h-auto !py-1 !text-xs !px-2 w-full font-mono"
                   @input="setRetryKeywords(action, ($event.target as HTMLTextAreaElement).value)"
+                  @blur="cleanRetryKeywords(action)"
                 />
               </div>
             </div>

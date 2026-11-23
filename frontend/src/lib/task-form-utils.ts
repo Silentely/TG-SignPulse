@@ -265,16 +265,25 @@ export function buildSingleAction(
   if (action.wait_for_reply) {
     result.wait_for_reply = true
     if (action.reply_success_patterns && action.reply_success_patterns.length > 0) {
-      result.reply_success_patterns = [...action.reply_success_patterns]
+      const cleaned = action.reply_success_patterns.map(s => s.trim()).filter(Boolean)
+      if (cleaned.length > 0) {
+        result.reply_success_patterns = cleaned
+      }
     }
     if (action.reply_failure_patterns && action.reply_failure_patterns.length > 0) {
-      result.reply_failure_patterns = [...action.reply_failure_patterns]
+      const cleaned = action.reply_failure_patterns.map(s => s.trim()).filter(Boolean)
+      if (cleaned.length > 0) {
+        result.reply_failure_patterns = cleaned
+      }
     }
     if (action.reply_timeout_seconds !== undefined) {
       result.reply_timeout_seconds = Number(action.reply_timeout_seconds)
     }
     if (action.reply_retry_keywords && action.reply_retry_keywords.length > 0) {
-      result.reply_retry_keywords = [...action.reply_retry_keywords]
+      const cleaned = action.reply_retry_keywords.map(s => s.trim()).filter(Boolean)
+      if (cleaned.length > 0) {
+        result.reply_retry_keywords = cleaned
+      }
     }
     if (action.reply_retry_interval !== undefined) {
       result.reply_retry_interval = Number(action.reply_retry_interval)
@@ -381,15 +390,18 @@ export function actionsToFlowSteps(actions: BuiltAction[]): any[] {
       steps.push(step)
     } else if (item.kind === 'wait') {
       const act = item.parentAction
-      const successPatterns = act.reply_success_patterns && act.reply_success_patterns.length > 0
-        ? upgradeReplyPatterns(act.reply_success_patterns, true)
+      const cleanedSuccess = act.reply_success_patterns?.map(s => s.trim()).filter(Boolean) || []
+      const successPatterns = cleanedSuccess.length > 0
+        ? upgradeReplyPatterns(cleanedSuccess, true)
         : [...DEFAULT_REPLY_SUCCESS_PATTERNS]
-      const failurePatterns = act.reply_failure_patterns && act.reply_failure_patterns.length > 0
-        ? upgradeReplyPatterns(act.reply_failure_patterns, false)
+      const cleanedFailure = act.reply_failure_patterns?.map(s => s.trim()).filter(Boolean) || []
+      const failurePatterns = cleanedFailure.length > 0
+        ? upgradeReplyPatterns(cleanedFailure, false)
         : [...DEFAULT_REPLY_FAILURE_PATTERNS]
       const timeout = act.reply_timeout_seconds !== undefined ? Number(act.reply_timeout_seconds) : 90
-      const retryKeywords = act.reply_retry_keywords && act.reply_retry_keywords.length > 0
-        ? [...act.reply_retry_keywords]
+      const cleanedRetry = act.reply_retry_keywords?.map(s => s.trim()).filter(Boolean) || []
+      const retryKeywords = cleanedRetry.length > 0
+        ? cleanedRetry
         : [...DEFAULT_REPLY_RETRY_KEYWORDS]
       const retryInterval = act.reply_retry_interval !== undefined ? Number(act.reply_retry_interval) : 10
       const maxRetries = act.reply_retry_max_attempts !== undefined ? Number(act.reply_retry_max_attempts) : 3

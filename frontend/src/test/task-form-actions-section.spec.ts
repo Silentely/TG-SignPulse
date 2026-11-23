@@ -1,5 +1,6 @@
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { reactive } from 'vue'
 import i18n from '../i18n'
 import TaskFormActionsSection from '../components/tasks/TaskFormActionsSection.vue'
 import * as pluginsApi from '../lib/api/plugins'
@@ -127,5 +128,74 @@ describe('TaskFormActionsSection.vue 动作区插件调试集成', () => {
     const pluginOpt = options.find((opt) => opt.value === "custom_plugin")
     expect(pluginOpt).toBeDefined()
     expect(pluginOpt?.disabled).toBe(false)
+  })
+
+  it('允许在回复确认的成功与失败匹配规则及重试关键词中正常回车换行并在失焦时清理', async () => {
+    vi.spyOn(pluginsApi, 'getPlugins').mockResolvedValueOnce([])
+    const action: TaskActionItem = reactive({
+      id: 1,
+      type: 'send_text',
+      value: '/checkin',
+      aiPrompt: '',
+      wait_for_reply: true,
+      reply_success_patterns: ['签到成功'],
+      reply_failure_patterns: ['签到失败'],
+      reply_retry_keywords: ['重试'],
+    })
+
+    const wrapper = mount(TaskFormActionsSection, {
+      props: { actions: [action], stepNum: '2' },
+      global: { plugins: [i18n] },
+    })
+
+    const advanced = wrapper.findAll('button').find(btn => btn.attributes('title')?.includes('高级'))
+    expect(advanced).toBeDefined()
+    await advanced!.trigger('click')
+
+    const textareas = wrapper.findAll('textarea')
+    expect(textareas.length).toBeGreaterThanOrEqual(3)
+
+    const successTextarea = textareas[0]
+    expect((successTextarea.element as HTMLTextAreaElement).value).toBe('签到成功')
+
+    // 模拟用户在成功规则后按回车键换行
+    await successTextarea.setValue('签到成功\n')
+    expect((successTextarea.element as HTMLTextAreaElement).value).toBe('签到成功\n')
+    expect(action.reply_success_patterns).toEqual(['签到成功', ''])
+
+    // 继续输入第二行
+    await successTextarea.setValue('签到成功\n打卡成功')
+    expect(action.reply_success_patterns).toEqual(['签到成功', '打卡成功'])
+
+    // 尾部有多余换行，失焦时自动清理
+    await successTextarea.setValue('签到成功\n打卡成功\n')
+    await successTextarea.trigger('blur')
+    await flushPromises()
+    expect((successTextarea.element as HTMLTextAreaElement).value).toBe('签到成功\n打卡成功')
+    expect(action.reply_success_patterns).toEqual(['签到成功', '打卡成功'])
+
+    // 失败匹配规则回车换行测试
+    const failureTextarea = textareas[1]
+    expect((failureTextarea.element as HTMLTextAreaElement).value).toBe('签到失败')
+    await failureTextarea.setValue('签到失败\n')
+    expect((failureTextarea.element as HTMLTextAreaElement).value).toBe('签到失败\n')
+    expect(action.reply_failure_patterns).toEqual(['签到失败', ''])
+    await failureTextarea.setValue('签到失败\n操作超时')
+    expect(action.reply_failure_patterns).toEqual(['签到失败', '操作超时'])
+    await failureTextarea.trigger('blur')
+    await flushPromises()
+    expect(action.reply_failure_patterns).toEqual(['签到失败', '操作超时'])
+
+    // 重试关键词回车换行测试
+    const retryTextarea = textareas[2]
+    expect((retryTextarea.element as HTMLTextAreaElement).value).toBe('重试')
+    await retryTextarea.setValue('重试\n')
+    expect((retryTextarea.element as HTMLTextAreaElement).value).toBe('重试\n')
+    expect(action.reply_retry_keywords).toEqual(['重试', ''])
+    await retryTextarea.setValue('重试\n稍后再试')
+    expect(action.reply_retry_keywords).toEqual(['重试', '稍后再试'])
+    await retryTextarea.trigger('blur')
+    await flushPromises()
+    expect(action.reply_retry_keywords).toEqual(['重试', '稍后再试'])
   })
 })
