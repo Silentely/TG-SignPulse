@@ -76,6 +76,13 @@ const activeRawTarget = computed(() => activeChat.value && originalTargets.get(a
 const parseableRawActions = (raw: SignTaskChat | undefined): TaskActionItem[] | null => {
   if (!raw) return null
   if (Array.isArray(raw.actions) && raw.actions.length > 0) {
+    const la = (raw.actions as RawTaskAction[]).find(a => a.action === 8)
+    if (la) {
+      if (Array.isArray(la.continue_actions) && la.continue_actions.length > 0) {
+        return parseActionsUtil(la.continue_actions as RawTaskAction[])
+      }
+      return []
+    }
     return parseActionsUtil(raw.actions as RawTaskAction[])
   }
   if (Array.isArray(raw.steps)) {
@@ -87,7 +94,7 @@ const canEditTargetFlow = computed(() => {
   const raw = activeRawTarget.value
   return Boolean(raw && !raw.flow_graph && parseableRawActions(raw))
 })
-watch(activeChatIndex, () => { flowEditorEnabled.value = false }, { flush: 'sync' })
+watch(activeChatIndex, () => { flowEditorEnabled.value = Boolean(canEditTargetFlow.value) }, { flush: 'sync' })
 const selectedChatId = computed({
   get: () => activeChat.value?.chatId ?? 0,
   set: (v: number) => { if (activeChat.value) activeChat.value.chatId = v },
@@ -257,6 +264,7 @@ const loadAccounts = async () => {
             listenerActiveTimeEnd.value = String(la.active_time_end)
           }
           if (la.continue_actions) parseActions(la.continue_actions)
+          if (!primary.flow_graph) flowEditorEnabled.value = true
         } else if (primary.steps) {
           const parsedSteps = parseStepsToActions(primary.steps)
           if (parsedSteps && parsedSteps.length > 0) {
@@ -264,7 +272,7 @@ const loadAccounts = async () => {
             if (!primary.flow_graph) flowEditorEnabled.value = true
           } else if (primary.actions) {
             parseActions(primary.actions)
-            if (!la) flowEditorEnabled.value = true
+            flowEditorEnabled.value = true
           }
         } else if (primary.actions) {
           parseActions(primary.actions)
@@ -496,7 +504,7 @@ const saveActiveFlowDraft = () => {
   })
 }
 watch(actions, saveActiveFlowDraft, { deep: true, flush: 'sync' })
-watch([listenerKeywords, listenerMatchMode, listenerPushChannel, listenerForwardChatId,
+watch([scheduleMode, listenerKeywords, listenerMatchMode, listenerPushChannel, listenerForwardChatId,
   listenerForwardThreadId, listenerBarkUrl, listenerCustomUrl, listenerServerChanKey,
   listenerIgnoreSelf, listenerTimeWindowEnabled, listenerActiveTimeStart, listenerActiveTimeEnd],
 saveActiveFlowDraft, { flush: 'sync' })

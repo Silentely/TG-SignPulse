@@ -150,4 +150,120 @@ describe('lossless task updates', () => {
     })
     wrapper.unmount()
   })
+
+  it('shows listen and action sections when editing an existing listen task with action 8', async () => {
+    const listenTask = {
+      ...original,
+      execution_mode: 'listen',
+      chats: [{
+        chat_id: 100,
+        name: 'listen-bot',
+        action_interval: 5,
+        actions: [
+          {
+            action: 8,
+            keywords: ['签到', '打卡'],
+            match_mode: 'contains',
+            push_channel: 'continue',
+            ignore_self: true,
+            continue_actions: [
+              { action: 1, text: '/sign', extension: 1 },
+            ],
+          },
+        ],
+      }],
+    } as unknown as SignTask
+
+    const wrapper = mount(TaskForm, {
+      props: { initialTask: listenTask, lockTaskName: true },
+      global: {
+        stubs: {
+          CustomSelect: true,
+          MultiSelect: true,
+          TaskFormTargetSection: true,
+          TaskFormListenSection: true,
+          TaskFormActionsSection: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'TaskFormListenSection' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'TaskFormActionsSection' }).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="preserved-flow-summary"]').exists()).toBe(false)
+
+    const listenSection = wrapper.findComponent({ name: 'TaskFormListenSection' })
+    expect(listenSection.props('keywords')).toBe('签到\n打卡')
+    expect(listenSection.props('matchMode')).toBe('contains')
+    expect(listenSection.props('pushChannel')).toBe('continue')
+
+    const actionsSection = wrapper.findComponent({ name: 'TaskFormActionsSection' })
+    const actions = actionsSection.props('actions') as { value: string }[]
+    expect(actions).toHaveLength(1)
+    expect(actions[0]!.value).toBe('/sign')
+
+    expect(wrapper.vm.buildUpdatePatch()).toEqual({ revision: 'rev1', field_mask: [] })
+
+    actions[0]!.value = '/checkin_now'
+    await flushPromises()
+
+    const patch = wrapper.vm.buildUpdatePatch()
+    expect(patch.field_mask).toEqual(['chats'])
+    expect(patch.chats).toHaveLength(1)
+    expect(patch.chats![0]!.actions).toEqual([
+      {
+        action: 8,
+        keywords: ['签到', '打卡'],
+        match_mode: 'contains',
+        push_channel: 'continue',
+        ignore_self: true,
+        continue_actions: [
+          { action: 1, text: '/checkin_now' },
+        ],
+      },
+    ])
+
+    wrapper.unmount()
+  })
+
+  it('shows listen section without action section when editing bark push listen task', async () => {
+    const barkListenTask = {
+      ...original,
+      execution_mode: 'listen',
+      chats: [{
+        chat_id: 200,
+        name: 'bark-bot',
+        actions: [
+          {
+            action: 8,
+            keywords: ['重要通知'],
+            match_mode: 'exact',
+            push_channel: 'bark',
+            bark_url: 'https://api.day.app/key/',
+            ignore_self: true,
+          },
+        ],
+      }],
+    } as unknown as SignTask
+
+    const wrapper = mount(TaskForm, {
+      props: { initialTask: barkListenTask, lockTaskName: true },
+      global: {
+        stubs: {
+          CustomSelect: true,
+          MultiSelect: true,
+          TaskFormTargetSection: true,
+          TaskFormListenSection: true,
+          TaskFormActionsSection: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'TaskFormListenSection' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'TaskFormActionsSection' }).exists()).toBe(false)
+    expect(wrapper.find('[data-testid="preserved-flow-summary"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
 })
