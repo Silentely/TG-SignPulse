@@ -17,6 +17,8 @@ from typing import Awaitable, Callable, Optional
 
 # 头像本地缓存有效期：7 天（秒）
 AVATAR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+# 无头像标记有效期：5 分钟（300 秒），避免瞬时故障或新设头像被长期 404 短路
+NO_AVATAR_CACHE_TTL_SECONDS = 300
 # 临时残存文件清理阈值：1 小时（秒）
 _TMP_FILE_CLEANUP_TTL_SECONDS = 3600
 
@@ -25,7 +27,7 @@ DownloadFn = Callable[[], Awaitable[Optional[bytes]]]
 
 
 def marker_hits_no_avatar(
-    no_avatar_marker: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS
+    no_avatar_marker: Path, ttl: int = NO_AVATAR_CACHE_TTL_SECONDS
 ) -> bool:
     """无头像标记在有效期内返回 True（调用方直接判定无头像）；过期标记删除后返回 False。"""
     try:
@@ -124,12 +126,13 @@ def cleanup_avatar_cache(cache_dir: Path, ttl: int = AVATAR_CACHE_TTL_SECONDS) -
             if not entry.is_file():
                 continue
             name = entry.name
-            # 针对中断遗留的 .tmp 文件使用更短的 1 小时过期阈值
-            file_ttl = (
-                _TMP_FILE_CLEANUP_TTL_SECONDS
-                if name.startswith(".avatar_") and name.endswith(".tmp")
-                else ttl
-            )
+            # .no_avatar 标记 5 分钟过期；中断遗留 .tmp 1 小时过期；正常头像使用 ttl (7天)
+            if name.endswith(".no_avatar"):
+                file_ttl = NO_AVATAR_CACHE_TTL_SECONDS
+            elif name.startswith(".avatar_") and name.endswith(".tmp"):
+                file_ttl = _TMP_FILE_CLEANUP_TTL_SECONDS
+            else:
+                file_ttl = ttl
             if now - entry.stat().st_mtime >= file_ttl:
                 entry.unlink(missing_ok=True)
                 removed += 1

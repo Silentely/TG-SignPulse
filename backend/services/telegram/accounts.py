@@ -116,6 +116,38 @@ def mark_account_connected(account_name: str) -> None:
 
 class TelegramAccountsMixin:
     @staticmethod
+    def _lookup_chat_username(chat_id: int, account_name: str) -> Optional[str]:
+        """尝试从本地会话缓存中反查 chat_id 对应的 username。"""
+        from backend.core.config import get_settings
+        from backend.services.sign_task_chats import load_chats_cache_file
+
+        settings = get_settings()
+        signs_dir = settings.resolve_workdir()
+        accounts_to_check = [account_name]
+        try:
+            if signs_dir.exists():
+                for p in signs_dir.iterdir():
+                    if (
+                        p.is_dir()
+                        and p.name != account_name
+                        and not p.name.startswith(".")
+                    ):
+                        accounts_to_check.append(p.name)
+        except Exception:
+            pass
+
+        for acc in accounts_to_check:
+            cache_file = signs_dir / acc / "chats_cache.json"
+            chats = load_chats_cache_file(cache_file)
+            if chats:
+                for c in chats:
+                    if isinstance(c, dict) and c.get("id") == chat_id:
+                        uname = c.get("username")
+                        if uname and isinstance(uname, str) and uname.strip():
+                            return uname.strip()
+        return None
+
+    @staticmethod
     def _normalize_account_name(account_name: str) -> str:
         return validate_storage_name(account_name, field_name="account_name")
 
@@ -405,17 +437,71 @@ class TelegramAccountsMixin:
         try:
             async with acquire_account_lock_with_timeout(account_name, timeout=15.0):
                 async with client:
-                    chat = await asyncio.wait_for(client.get_chat(chat_id), timeout=10)
+                    chat = None
+                    # 1. 直接尝试通过 chat_id 获取
+                    try:
+                        chat = await asyncio.wait_for(
+                            client.get_chat(chat_id), timeout=8
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "直接 get_chat(%s) 失败: %s，尝试通过 username 或预热解析",
+                            chat_id,
+                            e,
+                        )
+
+                    # 2. 若直接获取失败（常因临时 client 缺少 peer access_hash），尝试从本地缓存查 username
+                    if not chat:
+                        username = self._lookup_chat_username(chat_id, account_name)
+                        if username:
+                            try:
+                                chat = await asyncio.wait_for(
+                                    client.get_chat(f"@{username.lstrip('@')}"),
+                                    timeout=8,
+                                )
+                            except Exception as e:
+                                logger.debug(
+                                    "通过 username @%s 获取 chat 失败: %s", username, e
+                                )
+
+                    # 3. 若仍未获取到，遍历少量会话以使服务端推送 peer 灌入内存缓存
+                    if not chat:
+                        try:
+                            count = 0
+                            async for _ in client.get_dialogs(limit=30):
+                                count += 1
+                                if count >= 30:
+                                    break
+                            chat = await asyncio.wait_for(
+                                client.get_chat(chat_id), timeout=8
+                            )
+                        except Exception as e:
+                            logger.debug(
+                                "预热会话后重新 get_chat(%s) 失败: %s", chat_id, e
+                            )
+
                     if not chat or not getattr(chat, "photo", None):
                         return None
 
-                    photo_bytes = await asyncio.wait_for(
-                        client.download_media(chat.photo.small_file_id, in_memory=True),
-                        timeout=15,
-                    )
-                    if photo_bytes:
-                        photo_bytes.seek(0)
-                        return photo_bytes.read()
+                    # 4. 下载头像数据：优先 small_file_id，若为空则回退至 big_file_id
+                    photo = chat.photo
+                    candidate_ids = [
+                        getattr(photo, "small_file_id", None),
+                        getattr(photo, "big_file_id", None),
+                    ]
+                    for fid in candidate_ids:
+                        if not fid:
+                            continue
+                        try:
+                            photo_bytes = await asyncio.wait_for(
+                                client.download_media(fid, in_memory=True),
+                                timeout=15,
+                            )
+                            if photo_bytes:
+                                photo_bytes.seek(0)
+                                return photo_bytes.read()
+                        except Exception as e:
+                            logger.debug("download_media(%s) 失败: %s", fid, e)
                     return None
         except Exception as e:
             # 瞬时错误不能与"该 chat 无头像"混为一谈：抛出让路由层区分

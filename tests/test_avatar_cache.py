@@ -23,7 +23,7 @@ def test_marker_hits_within_ttl(tmp_path):
 def test_marker_expired_is_removed(tmp_path):
     marker = tmp_path / "a.no_avatar"
     marker.write_text("")
-    old = time.time() - avatar_cache.AVATAR_CACHE_TTL_SECONDS - 10
+    old = time.time() - avatar_cache.NO_AVATAR_CACHE_TTL_SECONDS - 10
     os.utime(marker, (old, old))
     assert avatar_cache.marker_hits_no_avatar(marker) is False
     assert not marker.exists()
@@ -114,3 +114,67 @@ async def test_get_avatar_bytes_mkstemp_failure_raises_oserror(tmp_path, monkeyp
     with pytest.raises(OSError, match="缓存目录不可写"):
         await avatar_cache.get_avatar_bytes(cache, marker, download)
     assert not cache.exists()
+
+
+def test_cleanup_avatar_cache_removes_expired_no_avatar(tmp_path):
+    marker = tmp_path / "chat_123.no_avatar"
+    marker.write_text("")
+    old = time.time() - avatar_cache.NO_AVATAR_CACHE_TTL_SECONDS - 10
+    os.utime(marker, (old, old))
+
+    fresh_marker = tmp_path / "chat_456.no_avatar"
+    fresh_marker.write_text("")
+
+    removed = avatar_cache.cleanup_avatar_cache(tmp_path)
+    assert removed == 1
+    assert not marker.exists()
+    assert fresh_marker.exists()
+
+
+def test_lookup_chat_username(tmp_path, monkeypatch):
+    import json
+
+    from backend.services.telegram.accounts import TelegramAccountsMixin
+
+    class FakeSettings:
+        def resolve_workdir(self):
+            return tmp_path
+
+    monkeypatch.setattr("backend.core.config.get_settings", lambda: FakeSettings())
+
+    acc_dir = tmp_path / "test_acc"
+    acc_dir.mkdir()
+    cache_file = acc_dir / "chats_cache.json"
+    cache_file.write_text(
+        json.dumps(
+            [
+                {
+                    "id": 8300459562,
+                    "title": "厂妹",
+                    "username": "changmei_bot",
+                    "type": "bot",
+                },
+                {
+                    "id": 123456,
+                    "title": "普通群",
+                    "username": None,
+                    "type": "supergroup",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    username = TelegramAccountsMixin._lookup_chat_username(8300459562, "test_acc")
+    assert username == "changmei_bot"
+
+    # 其他账号 fallback 也能查到
+    username_fallback = TelegramAccountsMixin._lookup_chat_username(
+        8300459562, "other_acc"
+    )
+    assert username_fallback == "changmei_bot"
+
+    # 无 username 的返回 None
+    assert TelegramAccountsMixin._lookup_chat_username(123456, "test_acc") is None
+    # 不存在的 id 返回 None
+    assert TelegramAccountsMixin._lookup_chat_username(999999, "test_acc") is None
