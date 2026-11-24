@@ -147,7 +147,7 @@ defineExpose({ expand, validate })
           min="1"
           step="1"
           autocomplete="off"
-          class="ui-input"
+          class="ui-input api-id-input"
           :class="{ '!border-rose-500 !ring-1 !ring-rose-500': highlightId }"
           :placeholder="t('accountApi.apiIdPlaceholder')"
           :disabled="disabled"
@@ -210,3 +210,17 @@ defineExpose({ expand, validate })
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 隐藏数字输入框的原生上下调节箭头，避免误触加减 API ID */
+.api-id-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.api-id-input::-webkit-outer-spin-button,
+.api-id-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+</style>
