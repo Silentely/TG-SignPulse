@@ -496,12 +496,26 @@ async def send_account_invalid_notification(
         )
 
 
+def _is_legacy_credential_mismatch(stored_status: dict) -> bool:
+    """识别旧版本因全局凭据漂移写入的伪失效状态。
+
+    旧版本会对全局 API 凭据与 Session 的 api_id 差异报错并标记失效，
+    升级后此类状态必须重新做实时检测才能自愈；新版本明确写入
+    ``API_CREDENTIALS_MISMATCH`` 的真实账号级不匹配仍保持短路。
+    """
+    if str(stored_status.get("code") or "") == "API_CREDENTIALS_MISMATCH":
+        return False
+    message = str(stored_status.get("message") or "")
+    return "Session 使用 API ID" in message and "不一致" in message
+
+
 async def mark_account_invalid(
     *,
     account_name: str,
     task_name: str,
     message: str,
     notify_on_failure: bool = True,
+    code: str = "ACCOUNT_SESSION_INVALID",
 ) -> bool:
     """标记账号失效；首次失效且允许通知时推送。返回是否新通知。"""
     current = get_account_status(account_name)
@@ -511,7 +525,7 @@ async def mark_account_invalid(
         account_name,
         status="invalid",
         message=message,
-        code="ACCOUNT_SESSION_INVALID",
+        code=code,
         needs_relogin=True,
         invalid_notified_at=notified_at,
     )
@@ -533,7 +547,11 @@ async def check_account_before_task(
 ) -> Optional[str]:
     """任务前账号预检；失效返回原因文案，正常返回 None。"""
     stored_status = get_account_status(account_name)
-    if stored_status.get("status") == "invalid" and stored_status.get("needs_relogin"):
+    if (
+        stored_status.get("status") == "invalid"
+        and stored_status.get("needs_relogin")
+        and not _is_legacy_credential_mismatch(stored_status)
+    ):
         message = (
             str(stored_status.get("message") or "").strip()
             or f"账号 {account_name} 登录已失效，请重新登录"
@@ -543,6 +561,7 @@ async def check_account_before_task(
             task_name=task_name,
             message=message,
             notify_on_failure=notify_on_failure,
+            code=str(stored_status.get("code") or "ACCOUNT_SESSION_INVALID"),
         )
         return message
 
@@ -583,6 +602,7 @@ async def check_account_before_task(
             task_name=task_name,
             message=message,
             notify_on_failure=notify_on_failure,
+            code=code or "ACCOUNT_SESSION_INVALID",
         )
         return message
 

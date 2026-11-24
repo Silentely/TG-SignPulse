@@ -362,6 +362,26 @@ class TestCredentialUpdateSemantics:
 # ---------------------------------------------------------------------------
 
 
+def _write_session_file_with_api_id(
+    session_dir: Path, account_name: str, api_id: int
+) -> Path:
+    session_file = session_dir / f"{account_name}.session"
+    conn = sqlite3.connect(session_file)
+    try:
+        conn.execute(
+            "CREATE TABLE sessions (dc_id INTEGER, api_id INTEGER, "
+            "test_mode INTEGER, auth_key BLOB, user_id INTEGER, is_bot INTEGER)"
+        )
+        conn.execute(
+            "INSERT INTO sessions VALUES (2, ?, 0, ?, 1, 0)",
+            (api_id, bytes(256)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return session_file
+
+
 class TestSessionCredentialCompatibility:
     def test_sqlite_session_api_id_is_read_without_mutation(self, tmp_path):
         session_file = tmp_path / "acc.session"
@@ -439,6 +459,34 @@ class TestSessionCredentialCompatibility:
             api_id=222, api_hash="hash", source="account", account_name="acc"
         )
         assert ensure_session_credentials_match("acc", resolved) == 222
+
+    @pytest.mark.parametrize("source", ["env", "panel", "default"])
+    def test_global_source_mismatch_keeps_existing_session(self, store, source):
+        """全局凭据漂移不能阻断旧 Session（升级兼容性回归）。"""
+        session_dir = store.parent
+        session_file = _write_session_file_with_api_id(
+            session_dir, "acc", DEFAULT_API_ID
+        )
+        before = session_file.read_bytes()
+
+        resolved = ResolvedTelegramCredentials(
+            api_id=18114140, api_hash="global-hash", source=source
+        )
+        assert ensure_session_credentials_match(
+            "acc", resolved, session_dir=session_dir
+        ) == int(DEFAULT_API_ID)
+        assert session_file.exists()
+        assert session_file.read_bytes() == before
+
+    def test_account_source_mismatch_still_requires_relogin(self, store):
+        session_dir = store.parent
+        _write_session_file_with_api_id(session_dir, "acc", 611335)
+
+        resolved = ResolvedTelegramCredentials(
+            api_id=222, api_hash="custom-hash", source="account", account_name="acc"
+        )
+        with pytest.raises(ApiCredentialsMismatch):
+            ensure_session_credentials_match("acc", resolved, session_dir=session_dir)
 
     def test_replace_session_file_swaps_atomically(self, tmp_path):
         target_dir = tmp_path / "session"

@@ -524,6 +524,67 @@ class TestCheckAccountBeforeTask:
         assert "acc1" in result and "重新登录" in result
 
     @pytest.mark.asyncio()
+    async def test_legacy_credential_mismatch_rechecks_and_self_heals(self, check_env):
+        """旧版本因全局凭据漂移写入的伪失效状态应实时复检后恢复。"""
+        check_env.state["stored"] = {
+            "status": "invalid",
+            "needs_relogin": True,
+            "code": "ACCOUNT_SESSION_INVALID",
+            "message": (
+                "账号 acc1 的 Session 使用 API ID 611335 创建，"
+                "与当前配置的 API ID 18114140 不一致，请重新登录该账号"
+            ),
+        }
+        check_env.set_service(_FakeTelegramService({"ok": True}))
+
+        result = await sign_task_notify.check_account_before_task(
+            account_name="acc1", task_name="daily", no_updates=True
+        )
+
+        assert result is None
+        assert check_env.service.calls == [("acc1", 10.0, True)]
+        assert check_env.marked == []
+
+    @pytest.mark.asyncio()
+    async def test_explicit_credential_mismatch_short_circuits(self, check_env):
+        """新版本明确标记的账号级凭据不匹配无需反复联网复检。"""
+        check_env.state["stored"] = {
+            "status": "invalid",
+            "needs_relogin": True,
+            "code": "API_CREDENTIALS_MISMATCH",
+            "message": "账号 acc1 的 Session 使用 API ID 111 创建，请重新登录该账号",
+        }
+
+        result = await sign_task_notify.check_account_before_task(
+            account_name="acc1", task_name="daily", no_updates=True
+        )
+
+        assert result
+        assert check_env.service.calls == []
+        assert check_env.marked[0]["code"] == "API_CREDENTIALS_MISMATCH"
+
+    @pytest.mark.asyncio()
+    async def test_live_credential_mismatch_preserves_code(self, check_env):
+        check_env.set_service(
+            _FakeTelegramService(
+                {
+                    "ok": False,
+                    "status": "blocked",
+                    "needs_relogin": True,
+                    "code": "API_CREDENTIALS_MISMATCH",
+                    "message": "凭据已变更，请重新登录",
+                }
+            )
+        )
+
+        message = await sign_task_notify.check_account_before_task(
+            account_name="acc1", task_name="daily", no_updates=False
+        )
+
+        assert message == "凭据已变更，请重新登录"
+        assert check_env.marked[0]["code"] == "API_CREDENTIALS_MISMATCH"
+
+    @pytest.mark.asyncio()
     async def test_service_error_fails_open(self, check_env, caplog):
         check_env.set_service(_FakeTelegramService(error=RuntimeError("network")))
         with caplog.at_level(logging.WARNING, logger="backend.sign_task_notify"):

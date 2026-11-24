@@ -304,16 +304,24 @@ def ensure_session_credentials_match(
     *,
     session_dir=None,
 ) -> Optional[int]:
-    """校验 Session 创建时的 api_id 与当前凭据一致。
+    """校验账号级专属凭据与 Session 创建时的 api_id 是否一致。
 
-    返回 Session 中记录的 api_id（无法读取时返回 ``None``）。不一致时抛
+    返回 Session 中记录的 api_id（无法读取时返回 ``None``）。只有账号显式
+    配置了专属凭据（``source == "account"``）时才会校验；不一致时抛
     :class:`ApiCredentialsMismatch`，调用方必须按「需重新登录」处理，
     不得删除 Session，也不得误判为会话失效。
+
+    全局凭据（env / 面板 / 内置默认）的变更属于配置漂移，不能阻断旧 Session：
+    Pyrogram 复用已有 Session 时使用 Session 内持久化的 api_id 建立
+    InitConnection，``api_hash`` 只在新授权时使用，因此旧 Session 仍可正常
+    使用。此类情况直接返回 Session 记录的 api_id，保持升级前行为。
     """
     from backend.utils.tg_session import get_account_session_api_id
 
     session_api_id = get_account_session_api_id(account_name, session_dir=session_dir)
-    if session_api_id and int(session_api_id) != int(resolved.api_id):
+    if not resolved.is_custom or not session_api_id:
+        return session_api_id
+    if int(session_api_id) != int(resolved.api_id):
         raise ApiCredentialsMismatch(
             f"账号 {account_name} 的 Session 使用 API ID {session_api_id} 创建，"
             f"与当前配置的 API ID {resolved.api_id} 不一致，请重新登录该账号"
