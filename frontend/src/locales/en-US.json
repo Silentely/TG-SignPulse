@@ -153,7 +153,19 @@
     "jevStatusReady": "JEV: Ready",
     "jevStatusHealthy": "JEV: Healthy · Hit {rate}%",
     "jevStatusTripped": "JEV: Circuit Open",
-    "jevStatusUnknown": "JEV: Status Unknown"
+    "jevStatusUnknown": "JEV: Status Unknown",
+    "runStatusAndRecent": "Run Status & Recent Finished",
+    "recentFinished": "Recent Finished",
+    "noRecentFinished": "No recent runs",
+    "upcomingRuns": "Upcoming Sign Runs",
+    "accountHealth": "Account Health & Alerts",
+    "allAccountsHealthy": "All accounts healthy",
+    "healthyCount": "Connected: {count}",
+    "invalidCount": "Expired: {count}",
+    "checkingCount": "Checking: {count}",
+    "accountsNeedingRelogin": "Sessions need attention",
+    "reloginAction": "Re-login",
+    "noFailures": "No recent failures"
   },
   "accounts": {
     "noRemark": "No remark",

@@ -153,7 +153,19 @@
     "jevStatusReady": "JEV 语义: 运行正常",
     "jevStatusHealthy": "JEV 语义: 运行正常 · 命中率 {rate}%",
     "jevStatusTripped": "JEV 语义: 熔断中",
-    "jevStatusUnknown": "JEV 语义: 状态未知"
+    "jevStatusUnknown": "JEV 语义: 状态未知",
+    "runStatusAndRecent": "运行状态与最近执行",
+    "recentFinished": "最近完成",
+    "noRecentFinished": "暂无近期执行记录",
+    "upcomingRuns": "即将执行签到",
+    "accountHealth": "账号健康与预警",
+    "allAccountsHealthy": "所有账号状态健康",
+    "healthyCount": "正常: {count}",
+    "invalidCount": "需重登: {count}",
+    "checkingCount": "检测中: {count}",
+    "accountsNeedingRelogin": "存在异常会话需处理",
+    "reloginAction": "去重新登录",
+    "noFailures": "近期无失败记录"
   },
   "accounts": {
     "noRemark": "暂无备注",
