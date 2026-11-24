@@ -1,15 +1,25 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Users, Zap, Terminal, Settings, RefreshCw, ShieldAlert, Stethoscope } from 'lucide-vue-next'
+import {
+  Users,
+  Zap,
+  Terminal,
+  Settings,
+  RefreshCw,
+  ShieldAlert,
+  Stethoscope,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+} from 'lucide-vue-next'
 import type {
   ActiveRunSummary,
-  KeywordHitRecord,
-  AccountStatusJob,
   ScheduledJob,
 } from '../lib/api'
 import { useI18n } from '../composables/useI18n'
 import { useDashboardData } from '../composables/useDashboardData'
+import { useAccountsStore } from '../stores/accounts'
 import type { DashboardLog } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import DashboardTrendsChart from '../components/dashboard/DashboardTrendsChart.vue'
@@ -32,6 +42,7 @@ const quickLinks = [
 
 const { t } = useI18n()
 const router = useRouter()
+const accountsStore = useAccountsStore()
 const selectedLog = ref<DashboardLog | null>(null)
 const runbookDiagnosis = ref<RunbookDiagnosis | null>(null)
 const runbookLoading = ref(false)
@@ -47,12 +58,26 @@ const {
   upcomingJobs,
   activeRuns,
   failureBreakdown,
-  recentHits,
-  statusJobs,
   jevStatus,
   formatTime,
   reload: reloadData,
 } = useDashboardData()
+
+/** 统计失效/需要重新登录的账号 */
+const invalidAccounts = computed(() => {
+  const list = accountsStore?.accounts || []
+  return list.filter(
+    (a) => a.needs_relogin || a.status === 'invalid' || a.status === 'error',
+  )
+})
+
+/** 统计当前健康正常连接账号数量 */
+const connectedCount = computed(() => {
+  const list = accountsStore?.accounts || []
+  return list.filter(
+    (a) => a.status === 'connected' || a.status === 'checking',
+  ).length
+})
 
 /** 跳转到日志页并按账号筛选，附带任务/时间/失败分类以便自动打开详情 */
 const goToLogs = (log: DashboardLog) => {
@@ -113,39 +138,6 @@ const openFailureCategory = (category: string) => {
     name: 'logs',
     query: { category: category || undefined },
   })
-}
-
-const openKeywordHit = (hit: KeywordHitRecord) => {
-  router.push({
-    name: 'tasks',
-    query: {
-      account: hit.account_name || undefined,
-      task: hit.task_name || undefined,
-      tab: 'hits',
-    },
-  })
-}
-
-const openStatusJob = () => {
-  router.push({ name: 'accounts' })
-}
-
-const statusJobLabel = (job: AccountStatusJob) => {
-  const done = job.progress?.done ?? 0
-  const total = job.progress?.total ?? 0
-  const ok = job.progress?.ok ?? job.summary?.ok ?? 0
-  const fail = job.progress?.fail ?? job.summary?.fail ?? 0
-  if (job.status === 'running' || job.status === 'canceling') {
-    return `${done}/${total} · ${ok}/${fail}`
-  }
-  return `${job.summary?.ok ?? ok}/${job.summary?.fail ?? fail}`
-}
-
-/** 状态 Job 原始状态码映射为本地化文案（running/canceling/failed/done） */
-const jobStatusLabel = (status: string) => {
-  const key = `dashboard.jobStatus.${status}`
-  const translated = t(key)
-  return translated !== key ? translated : status
 }
 
 const loadRunbookDiagnosis = async () => {
@@ -333,14 +325,22 @@ const loadRunbookDiagnosis = async () => {
       </div>
     </div>
 
-    <!-- 活跃运行 + 失败分类 -->
+    <!-- 运行状态与最近执行 + 失败分类 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div class="ui-card p-5">
-        <div class="ui-section-label mb-4">{{ t('dashboard.activeRuns') }}</div>
-        <div v-if="activeRuns.length === 0" class="ui-empty !py-10">
-          <p class="ui-empty-desc">{{ t('dashboard.noActiveRuns') }}</p>
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.runStatusAndRecent') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
+            @click="router.push({ name: 'tasks' })"
+          >
+            {{ t('dashboard.goTasks') }}
+          </button>
         </div>
-        <div v-else class="space-y-1">
+
+        <!-- 1. 有活跃任务时高亮展示 -->
+        <div v-if="activeRuns.length > 0" class="space-y-1">
           <button
             v-for="(run, idx) in activeRuns"
             :key="`${run.task_name}-${run.account_name}-${run.run_id}-${idx}`"
@@ -358,18 +358,64 @@ const loadRunbookDiagnosis = async () => {
             </span>
           </button>
         </div>
+
+        <!-- 2. 无活跃任务时展示待命指示 + 最近完成的签到记录 -->
+        <div v-else class="space-y-2.5">
+          <div class="flex items-center justify-between text-xs text-[var(--sp-text-muted)] pb-2 border-b border-[var(--sp-border)]">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500/80" />
+              <span>{{ t('dashboard.noActiveRuns') }}</span>
+            </div>
+            <span class="text-[11px] font-medium">{{ t('dashboard.recentFinished') }}</span>
+          </div>
+
+          <div v-if="logs.length === 0" class="ui-empty !py-6">
+            <p class="ui-empty-desc">{{ t('dashboard.noRecentFinished') }}</p>
+          </div>
+          <div v-else class="space-y-1">
+            <button
+              v-for="log in logs.slice(0, 3)"
+              :key="logKey(log)"
+              type="button"
+              class="ui-list-row w-full flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-[var(--sp-radius-sm)] text-left cursor-pointer"
+              @click="goToLogs(log)"
+            >
+              <span
+                class="ui-badge shrink-0 !text-[10px] !px-1.5 !py-0.5"
+                :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+              >
+                {{ log.status === 'success' ? '✓' : '✗' }}
+              </span>
+              <span class="truncate font-medium text-[var(--sp-text)]" :title="log.task">{{ log.task || '-' }}</span>
+              <span class="text-[var(--sp-text-muted)] truncate shrink-0 max-w-[5rem]" :title="log.account">{{ log.account || '-' }}</span>
+              <span class="ml-auto text-[10px] text-[var(--sp-text-muted)] font-mono shrink-0">{{ log.time }}</span>
+            </button>
+          </div>
+        </div>
       </div>
+
+      <!-- 失败分类 -->
       <div class="ui-card p-5">
-        <div class="ui-section-label mb-4">{{ t('dashboard.failureBreakdown') }}</div>
-        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-10">
-          <p class="ui-empty-desc">{{ t('dashboard.noFailureBreakdown') }}</p>
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.failureBreakdown') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
+            @click="router.push({ name: 'logs' })"
+          >
+            {{ t('dashboard.goLogs') }}
+          </button>
+        </div>
+        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-8 flex flex-col items-center gap-1.5">
+          <CheckCircle2 class="w-6 h-6 text-emerald-500" />
+          <p class="ui-empty-desc text-emerald-600 dark:text-emerald-400 font-medium">{{ t('dashboard.noFailures') }}</p>
         </div>
         <div v-else class="flex flex-wrap gap-2">
           <button
             v-for="item in failureBreakdown"
             :key="item.category"
             type="button"
-            class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90"
+            class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90 transition-opacity"
             :title="t('dashboard.openFailureInLogs')"
             @click="openFailureCategory(item.category)"
           >
@@ -379,11 +425,12 @@ const loadRunbookDiagnosis = async () => {
       </div>
     </div>
 
-    <!-- 最近关键词命中 + 账号状态 Job -->
+    <!-- 即将执行签到 + 账号健康预警 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- 即将执行签到 -->
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
-          <span>{{ t('dashboard.recentHits') }}</span>
+          <span>{{ t('dashboard.upcomingRuns') }}</span>
           <button
             type="button"
             class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
@@ -392,109 +439,91 @@ const loadRunbookDiagnosis = async () => {
             {{ t('dashboard.viewTasks') }}
           </button>
         </div>
-        <div v-if="recentHits.length === 0" class="ui-empty !py-10">
-          <p class="ui-empty-desc">{{ t('dashboard.noRecentHits') }}</p>
+        <div v-if="upcomingJobs.length === 0" class="ui-empty !py-8">
+          <p class="ui-empty-desc">{{ t('dashboard.noUpcoming') }}</p>
         </div>
         <div v-else class="space-y-1">
-          <button
-            v-for="hit in recentHits"
-            :key="hit.id"
-            type="button"
-            class="ui-list-row w-full flex items-center gap-2 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)] text-left cursor-pointer"
-            @click="openKeywordHit(hit)"
+          <div
+            v-for="job in upcomingJobs.slice(0, 4)"
+            :key="job.id"
+            class="ui-list-row flex items-center gap-2.5 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)] cursor-pointer"
+            @click="router.push({ name: 'tasks' })"
+            :title="job.execution_mode === 'range' && job.range_start && job.range_end
+              ? `${t('dashboard.modeRangeHint', { start: job.range_start, end: job.range_end })} · ${job.id}`
+              : `${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
           >
-            <span class="font-mono text-sky-600 dark:text-sky-400 shrink-0 max-w-[5.5rem] truncate" :title="hit.keyword">
-              {{ hit.keyword || '-' }}
+            <Clock class="w-3.5 h-3.5 text-[var(--sp-text-muted)] shrink-0" />
+            <span class="font-mono text-[var(--sp-text-muted)] text-[11px] shrink-0 w-32 truncate">
+              {{ formatJobScheduleDisplay(job) }}
             </span>
-            <span class="truncate text-[var(--sp-text)]" :title="hit.task_name">
-              {{ hit.task_name || '-' }}
+            <span
+              class="ui-badge shrink-0 !text-[10px]"
+              :class="job.kind === 'sign' ? 'border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'"
+            >
+              {{ jobKindLabel(job.kind) }}
             </span>
-            <span class="text-[var(--sp-text-muted)] truncate shrink-0 max-w-[5rem]" :title="hit.account_name">
-              {{ hit.account_name || '-' }}
+            <span
+              v-if="job.execution_mode === 'range'"
+              class="ui-badge shrink-0 border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 !text-[9px]"
+            >
+              {{ t('dashboard.modeRange') }}
             </span>
-            <span class="ml-auto text-[10px] text-[var(--sp-text-muted)] font-mono shrink-0">
-              {{ formatTime(hit.time) }}
-            </span>
-          </button>
+            <span class="truncate text-[var(--sp-text)] font-mono ml-auto" :title="job.id">{{ job.id }}</span>
+          </div>
         </div>
       </div>
+
+      <!-- 账号健康与异常预警 -->
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
-          <span>{{ t('dashboard.statusJobs') }}</span>
+          <span>{{ t('dashboard.accountHealth') }}</span>
           <button
             type="button"
             class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
-            @click="openStatusJob"
+            @click="router.push({ name: 'accounts' })"
           >
             {{ t('dashboard.goAccounts') }}
           </button>
         </div>
-        <div v-if="statusJobs.length === 0" class="ui-empty !py-10">
-          <p class="ui-empty-desc">{{ t('dashboard.noStatusJobs') }}</p>
-        </div>
-        <div v-else class="space-y-1">
-          <button
-            v-for="job in statusJobs"
-            :key="job.job_id"
-            type="button"
-            class="ui-list-row w-full flex items-center gap-2 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)] text-left cursor-pointer"
-            @click="openStatusJob"
-          >
-            <span
-              class="ui-badge shrink-0 !text-[10px]"
-              :class="job.status === 'running' || job.status === 'canceling'
-                ? 'border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'
-                : job.status === 'failed'
-                  ? 'ui-badge-error'
-                  : 'ui-badge-neutral'"
-            >
-              <span
-                v-if="job.status === 'running' || job.status === 'canceling'"
-                class="ui-pulse-dot !bg-sky-500"
-              />
-              {{ jobStatusLabel(job.status) }}
-            </span>
-            <span class="font-mono text-[var(--sp-text)] truncate">
-              {{ statusJobLabel(job) }}
-            </span>
-            <span class="ml-auto text-[10px] text-[var(--sp-text-muted)] font-mono shrink-0">
-              {{ formatTime(job.updated_at || job.created_at || '') }}
-            </span>
-          </button>
-        </div>
-      </div>
-    </div>
 
-    <!-- Upcoming schedule -->
-    <div class="ui-card p-5">
-      <div class="ui-section-label mb-4">{{ t('dashboard.upcomingJobs') }}</div>
-      <div v-if="upcomingJobs.length === 0" class="ui-empty !py-10">
-        <p class="ui-empty-desc">{{ t('dashboard.noUpcoming') }}</p>
-      </div>
-      <div v-else class="space-y-0.5">
-        <div
-          v-for="job in upcomingJobs"
-          :key="job.id"
-          class="ui-list-row flex items-center gap-3 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)]"
-          :title="job.execution_mode === 'range' && job.range_start && job.range_end
-            ? `${t('dashboard.modeRangeHint', { start: job.range_start, end: job.range_end })} · ${job.id}`
-            : `${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
-        >
-          <span class="font-mono text-[var(--sp-text-muted)] w-36 shrink-0">{{ formatJobScheduleDisplay(job) }}</span>
-          <span
-            class="ui-badge shrink-0"
-            :class="job.kind === 'sign' ? 'border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40' : 'ui-badge-neutral'"
-          >
-            {{ jobKindLabel(job.kind) }}
+        <div class="flex items-center gap-2 mb-3 text-xs">
+          <span class="ui-badge ui-badge-success !text-[11px]">
+            {{ t('dashboard.healthyCount', { count: connectedCount }) }}
           </span>
-          <span
-            v-if="job.execution_mode === 'range'"
-            class="ui-badge shrink-0 border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 text-[10px]"
-            :title="t('dashboard.modeRangeHint', { start: job.range_start || '', end: job.range_end || '' })"
-          >
-            {{ t('dashboard.modeRange') }}
+          <span v-if="invalidAccounts.length > 0" class="ui-badge ui-badge-error !text-[11px]">
+            {{ t('dashboard.invalidCount', { count: invalidAccounts.length }) }}
           </span>
-          <span class="truncate text-[var(--sp-text)] font-mono" :title="job.id">{{ job.id }}</span>
+        </div>
+
+        <div v-if="invalidAccounts.length === 0" class="ui-empty !py-6 flex flex-col items-center gap-1.5">
+          <CheckCircle2 class="w-6 h-6 text-emerald-500" />
+          <p class="ui-empty-desc text-emerald-600 dark:text-emerald-400 font-medium">
+            {{ t('dashboard.allAccountsHealthy') }}
+          </p>
+        </div>
+        <div v-else class="space-y-1.5">
+          <div class="text-[11px] font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mb-1">
+            <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+            <span>{{ t('dashboard.accountsNeedingRelogin') }}</span>
+          </div>
+          <div
+            v-for="acc in invalidAccounts.slice(0, 3)"
+            :key="acc.name"
+            class="ui-list-row flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 rounded-[var(--sp-radius-sm)] border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20"
+          >
+            <div class="flex items-center gap-2 truncate">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+              <span class="font-medium text-[var(--sp-text)] truncate" :title="acc.name">{{ acc.name }}</span>
+              <span v-if="acc.remark" class="text-[10px] text-[var(--sp-text-muted)] truncate">({{ acc.remark }})</span>
+            </div>
+            <button
+              type="button"
+              class="text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:underline shrink-0 cursor-pointer"
+              @click="router.push({ name: 'accounts' })"
+            >
+              {{ t('dashboard.reloginAction') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
