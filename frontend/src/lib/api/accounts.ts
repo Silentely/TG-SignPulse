@@ -12,7 +12,13 @@ import {
 } from "./core";
 import { downloadBlob, normalizeNetworkError } from "../download";
 
-export interface LoginStartRequest {
+/** 账号级 API 凭据：必须成对提交，留空表示继承全局配置 */
+export interface AccountApiCredentialsInput {
+  api_id?: number | string | null;
+  api_hash?: string | null;
+}
+
+export interface LoginStartRequest extends AccountApiCredentialsInput {
   account_name: string;
   phone_number: string;
   proxy?: string;
@@ -25,7 +31,7 @@ export interface LoginStartResponse {
   message: string;
 }
 
-export interface LoginVerifyRequest {
+export interface LoginVerifyRequest extends AccountApiCredentialsInput {
   account_name: string;
   phone_number: string;
   phone_code: string;
@@ -42,7 +48,7 @@ export interface LoginVerifyResponse {
   message: string;
 }
 
-export interface QrLoginStartRequest {
+export interface QrLoginStartRequest extends AccountApiCredentialsInput {
   account_name: string;
   proxy?: string;
 }
@@ -103,6 +109,15 @@ export interface AccountInfo {
   status_code?: string | null;
   status_checked_at?: string | null;
   needs_relogin?: boolean;
+  /** 是否配置了账号级独立 API 凭据 */
+  use_custom_api?: boolean;
+  /** 账号级 API ID（不敏感） */
+  api_id?: number | null;
+  /** 是否已保存账号级 API Hash（永不回传明文） */
+  has_api_hash?: boolean;
+  /** 脱敏 Hash，例如 "d524****ac9c" */
+  api_hash_masked?: string | null;
+  api_credentials_source?: "custom" | "global";
   tags?: string[];
   device_family?: string | null;
   device_profile?: DeviceProfile | null;
@@ -289,7 +304,7 @@ export const listAccountOfficialMessages = (token: string, accountName: string, 
 export const updateAccount = (
   token: string,
   accountName: string,
-  data: {
+  data: AccountApiCredentialsInput & {
     new_account_name?: string | null;
     remark?: string | null;
     proxy?: string | null;
@@ -380,7 +395,7 @@ export async function downloadAccountLogs(
 
 // ─── 会话导入 ───
 
-export interface ImportSessionRequest {
+export interface ImportSessionRequest extends AccountApiCredentialsInput {
   account_name: string;
   session_type?: "auto" | "string" | "file";
   session_content?: string;
@@ -411,6 +426,8 @@ export const importAccountSessionFile = async (
   force = false,
   proxy?: string,
   tdataPassword?: string,
+  apiId?: number | string | null,
+  apiHash?: string | null,
 ): Promise<ImportSessionResponse> => {
   const formData = new FormData();
   formData.append("account_name", accountName);
@@ -418,6 +435,10 @@ export const importAccountSessionFile = async (
   formData.append("force", String(force));
   if (proxy) formData.append("proxy", proxy);
   if (tdataPassword) formData.append("tdata_password", tdataPassword);
+  if (apiId !== undefined && apiId !== null && String(apiId).trim() !== "") {
+    formData.append("api_id", String(apiId));
+  }
+  if (apiHash) formData.append("api_hash", apiHash);
   formData.append("file", file);
 
   return requestFormData<ImportSessionResponse>(

@@ -888,6 +888,7 @@
     "apiIdPlaceholder": "例如 1234567",
     "apiHash": "API Hash",
     "apiHashPlaceholder": "32 位十六进制，可在 my.telegram.org 申请",
+    "apiHashStoredHint": "服务端已保存 API Hash（仅展示脱敏值）；留空保存表示保留现有 Hash。",
     "accountCooldownHint": "同账号连续执行的最小间隔秒数",
     "historyMaxAgeHint": "历史日志保留天数，超出自动清理",
     "aiVisionTimeoutHint": "AI 识图请求超时秒数",
@@ -1376,6 +1377,24 @@
     "verifyFailed": "验证失败",
     "disableFailed": "关闭失败",
     "totpCode": "验证码"
+  },
+  "accountApi": {
+    "advanced": "高级设置",
+    "customBadge": "已配置",
+    "description": "针对此账号使用专属 API 凭据；留空则默认继承系统全局设置。",
+    "apiId": "Telegram API ID",
+    "apiIdPlaceholder": "留空使用全局配置",
+    "apiHash": "Telegram API Hash",
+    "apiHashPlaceholder": "留空使用全局配置",
+    "keepHashPlaceholder": "留空保留当前 Hash（{hash}）",
+    "pairRequired": "API ID 与 API Hash 必须成对填写，或均留空使用全局配置",
+    "idInvalid": "Telegram API ID 必须是正整数",
+    "currentHash": "当前已保存 Hash：{hash}。",
+    "keepHashHint": "留空表示保留当前值。",
+    "clear": "清除账号独立凭据",
+    "reloginHint": "修改已有账号的 API 凭据后需要重新登录此账号才能生效。",
+    "showSecret": "显示 API Hash",
+    "hideSecret": "隐藏 API Hash"
   },
   "addAccount": {
     "codeTitle": "验证码登录",

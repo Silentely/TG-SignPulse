@@ -2,6 +2,7 @@
 import { ref, watch, onUnmounted } from 'vue'
 import { Phone, QrCode, FileDown } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
+import AccountApiCredentials from './AccountApiCredentials.vue'
 import {
   startAccountLogin,
   verifyAccountLogin,
@@ -13,6 +14,7 @@ import {
   importAccountSession,
   importAccountSessionFile,
 } from '../../lib/api'
+import { validateAccountApiCredentials } from '../../lib/api-credentials'
 import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -37,10 +39,29 @@ const form = ref({
   proxy: '',
   session_content: '',
   tdata_password: '',
+  api_id: '',
+  api_hash: '',
 })
 
 const loading = ref(false)
 const error = ref('')
+
+/** 高级设置（账号级 API 凭据）组件引用：提交前展开并展示校验错误 */
+const apiCredentialsRef = ref<InstanceType<typeof AccountApiCredentials> | null>(null)
+
+const ensureApiCredentialsValid = (): boolean => {
+  const check = validateAccountApiCredentials(form.value.api_id, form.value.api_hash)
+  if (check.valid) return true
+  // 错误文案由面板内联展示：避免用户补齐后顶部仍残留过期提示
+  apiCredentialsRef.value?.expand()
+  return false
+}
+
+/** 成对凭据统一序列化：两项都为空时不下发，表示继承全局配置 */
+const apiCredentialPayload = () => ({
+  api_id: form.value.api_id.trim() || undefined,
+  api_hash: form.value.api_hash.trim() || undefined,
+})
 
 // Import session specific
 const importSubtype = ref<'file' | 'string'>('file')
@@ -101,15 +122,18 @@ const handleQrImageError = () => {
   qrLoadFailed.value = true
 }
 
-const reset = async () => {
+const reset = () => {
   pollHandle?.stop()
   pollHandle = null
   if (loginId.value) {
-    try {
-      const token = getAuthToken()
-      if (token) await cancelQrLogin(token, loginId.value)
-    } catch (e: unknown) {
-      devLog.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
+    const token = getAuthToken()
+    const pendingLoginId = loginId.value
+    loginId.value = ''
+    // 取消请求走后台：保持 reset 同步，避免登录方式切换时表单被迟到响应二次清空
+    if (token) {
+      void cancelQrLogin(token, pendingLoginId).catch((e: unknown) => {
+        devLog.warn('cancelQrLogin failed:', getLocalizedErrorMessage(e, t))
+      })
     }
   }
   form.value = {
@@ -121,6 +145,8 @@ const reset = async () => {
     proxy: '',
     session_content: '',
     tdata_password: '',
+    api_id: '',
+    api_hash: '',
   }
   highlightTdataPassword.value = false
   phoneCodeHash.value = ''
@@ -155,12 +181,17 @@ watch(loginMethod, () => {
   const password = form.value.password
   const proxy = form.value.proxy
   const tdataPassword = form.value.tdata_password
+  // 高级设置凭据在三种登录方式间共享，切换页签不得丢失
+  const apiId = form.value.api_id
+  const apiHash = form.value.api_hash
   reset()
   form.value.account_name = accountName
   form.value.remark = remark
   form.value.password = password
   form.value.proxy = proxy
   form.value.tdata_password = tdataPassword
+  form.value.api_id = apiId
+  form.value.api_hash = apiHash
 })
 
 const handleClose = () => {
@@ -247,6 +278,7 @@ const handleGetQr = async () => {
     error.value = t('addAccount.nameRequired')
     return
   }
+  if (!ensureApiCredentialsValid()) return
   const token = getAuthToken()
   if (!token) return
 
@@ -255,7 +287,8 @@ const handleGetQr = async () => {
   try {
     const res = await startQrLogin(token, {
       account_name: form.value.account_name,
-      proxy: form.value.proxy || undefined
+      proxy: form.value.proxy || undefined,
+      ...apiCredentialPayload(),
     })
     loginId.value = res.login_id
     qrImage.value = res.qr_image || ''
@@ -277,6 +310,7 @@ const handleSendCode = async () => {
     error.value = t('addAccount.namePhoneRequired')
     return
   }
+  if (!ensureApiCredentialsValid()) return
   const token = getAuthToken()
   if (!token) return
 
@@ -286,7 +320,8 @@ const handleSendCode = async () => {
     const res = await startAccountLogin(token, {
       account_name: form.value.account_name,
       phone_number: form.value.phone_number,
-      proxy: form.value.proxy || undefined
+      proxy: form.value.proxy || undefined,
+      ...apiCredentialPayload(),
     })
     phoneCodeHash.value = res.phone_code_hash
     codeSent.value = true
@@ -325,6 +360,10 @@ const handleSave = async () => {
       loading.value = false
       return
     }
+    if (!ensureApiCredentialsValid()) {
+      loading.value = false
+      return
+    }
     highlightTdataPassword.value = false
     await runSaveStep(async () => {
       if (importSubtype.value === 'file') {
@@ -339,6 +378,8 @@ const handleSave = async () => {
           forceOverwrite.value,
           form.value.proxy || undefined,
           form.value.tdata_password || undefined,
+          form.value.api_id.trim() || undefined,
+          form.value.api_hash.trim() || undefined,
         )
       } else {
         if (!form.value.session_content.trim()) {
@@ -352,6 +393,7 @@ const handleSave = async () => {
           force: forceOverwrite.value,
           proxy: form.value.proxy || undefined,
           tdata_password: form.value.tdata_password || undefined,
+          ...apiCredentialPayload(),
         })
       }
       await saveRemarkIfPresent(token)
@@ -390,6 +432,10 @@ const handleSave = async () => {
       loading.value = false
       return
     }
+    if (!ensureApiCredentialsValid()) {
+      loading.value = false
+      return
+    }
     await runSaveStep(async () => {
       await verifyAccountLogin(token, {
         account_name: form.value.account_name,
@@ -397,7 +443,8 @@ const handleSave = async () => {
         phone_code: form.value.phone_code,
         phone_code_hash: phoneCodeHash.value,
         password: form.value.password || undefined,
-        proxy: form.value.proxy || undefined
+        proxy: form.value.proxy || undefined,
+        ...apiCredentialPayload(),
       })
       await saveRemarkIfPresent(token)
       toast.success(t('addAccount.loginSuccess'))
@@ -650,6 +697,13 @@ onUnmounted(() => {
           class="ui-input"
         >
       </div>
+
+      <!-- 账号级 API 凭据：默认收起，成对填写或均留空 -->
+      <AccountApiCredentials
+        ref="apiCredentialsRef"
+        v-model:api-id="form.api_id"
+        v-model:api-hash="form.api_hash"
+      />
 
       <!-- QR specific block -->
       <div v-if="loginMethod === 'qr'" class="ui-form-section mt-2">

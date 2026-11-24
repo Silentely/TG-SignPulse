@@ -6,7 +6,6 @@ import asyncio
 import base64
 import contextlib
 import logging
-import os
 import secrets
 import time
 from typing import Any, Dict, Optional
@@ -152,22 +151,12 @@ class TelegramQrLoginMixin:
         if not preserve_session:
             session_mode = get_session_mode()
             if session_mode == "file":
-                account_name = data.get("account_name")
-                if account_name:
-                    session_file = self.session_dir / f"{account_name}.session"
-                    if session_file.exists():
-                        try:
-                            session_file.unlink()
-                            for ext in [
-                                ".session-journal",
-                                ".session-wal",
-                                ".session-shm",
-                            ]:
-                                aux_file = self.session_dir / f"{account_name}{ext}"
-                                if aux_file.exists():
-                                    aux_file.unlink()
-                        except Exception:
-                            pass
+                staging_base = data.get("staging_base")
+                if staging_base and not data.get("_persisted"):
+                    from backend.utils.tg_session import cleanup_staging_session
+
+                    # 只清理本次登录的暂存 Session；原有正式 Session 保持可用
+                    cleanup_staging_session(staging_base)
         lease = data.get("lock_lease")
         if lease is not None:
             lease.release()
@@ -205,11 +194,10 @@ class TelegramQrLoginMixin:
     def _resolve_api_credentials(
         self, data: Optional[Dict[str, Any]] = None, *, strict: bool = False
     ) -> tuple:
-        """解析 api_id/api_hash：会话缓存优先，配置/环境变量兜底。
+        """解析 api_id/api_hash：优先复用登录事务上下文中的凭据。
 
-        - data 非空时优先复用其中缓存的 api_id/api_hash，并回写解析结果
-        - strict=True（start_qr_login）解析失败原样抛出；
-          strict=False 返回 (None, None) 由调用方决定降级
+        QR 登录在一个事务内跨多个轮询请求，``start_qr_login`` 解析后写入
+        ``data``，后续 ``ExportLoginToken`` / 2FA / 持久化必须全程复用同一套。
         """
         if data is not None:
             api_id = data.get("api_id")
@@ -219,23 +207,23 @@ class TelegramQrLoginMixin:
 
         from backend.services.config import get_config_service
         from backend.services.telegram.credentials import (
-            resolve_telegram_api_credentials,
+            resolve_telegram_credentials,
         )
 
         try:
-            api_id, api_hash = resolve_telegram_api_credentials(
+            resolved = resolve_telegram_credentials(
                 get_config_service().get_telegram_config(),
-                env_api_id=os.getenv("TG_API_ID"),
-                env_api_hash=os.getenv("TG_API_HASH"),
+                account_name=(data or {}).get("account_name"),
             )
         except Exception:
             if strict:
                 raise
             return None, None
         if data is not None:
-            data["api_id"] = api_id
-            data["api_hash"] = api_hash
-        return api_id, api_hash
+            data["api_id"] = resolved.api_id
+            data["api_hash"] = resolved.api_hash
+            data["api_credentials_source"] = resolved.source
+        return resolved.api_id, resolved.api_hash
 
     async def _import_login_token(
         self, client, data: Dict[str, Any], token, migrate_dc_id
@@ -436,7 +424,7 @@ class TelegramQrLoginMixin:
             # check_password 导致登录失败。
             await self._apply_migrate_auth(client, data)
             await self._persist_client_session(
-                client, data.get("account_name"), data.get("proxy")
+                client, data.get("account_name"), data.get("proxy"), login_session=data
             )
         except SessionPasswordNeeded:
             data["status"] = "password_required"
@@ -510,7 +498,7 @@ class TelegramQrLoginMixin:
 
         await self._apply_migrate_auth(client, data)
         await self._persist_client_session(
-            client, data.get("account_name"), data.get("proxy")
+            client, data.get("account_name"), data.get("proxy"), login_session=data
         )
 
         self._log_qr_state(login_id, "success", data)
@@ -558,7 +546,11 @@ class TelegramQrLoginMixin:
         return data.get("authorized_user")
 
     async def start_qr_login(
-        self, account_name: str, proxy: Optional[str] = None
+        self,
+        account_name: str,
+        proxy: Optional[str] = None,
+        api_id: Optional[int | str] = None,
+        api_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
 
         account_name = self._normalize_account_name(account_name)
@@ -597,15 +589,33 @@ class TelegramQrLoginMixin:
         except Exception:
             pass
 
-        # API credentials
+        # API credentials：高级设置显式凭据优先，留空回退账号/全局解析链
         from backend.services.config import get_config_service
 
         config_service = get_config_service()
+        from backend.services.telegram.credentials import (
+            parse_credential_pair,
+            resolve_telegram_credentials,
+        )
+
         try:
-            api_id, api_hash = self._resolve_api_credentials(strict=True)
-        except ValueError:
+            provided_pair = parse_credential_pair(
+                api_id, api_hash, source="account", account_name=account_name
+            )
+            credentials = resolve_telegram_credentials(
+                config_service.get_telegram_config(),
+                account_name=account_name,
+                profile=(
+                    {"api_id": provided_pair.api_id, "api_hash": provided_pair.api_hash}
+                    if provided_pair is not None
+                    else None
+                ),
+            )
+            api_id_value = credentials.api_id
+            api_hash_value = credentials.api_hash
+        except ValueError as exc:
             _release_account_lock()
-            raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
+            raise ValueError(str(exc)) from None
 
         if not proxy:
             global_proxy = config_service.get_global_proxy()
@@ -631,24 +641,22 @@ class TelegramQrLoginMixin:
                 _release_account_lock()
                 raise
 
-        # 清理旧 session 文件（与手机号登录保持一致）
+        # 登录使用暂存 Session：授权成功后才原子替换正式文件，
+        # 失败/过期时保留账号原有 Session。
+        login_id = secrets.token_urlsafe(16)
+        staging_base = None
         if session_mode == "file":
-            session_file = self.session_dir / f"{account_name}.session"
-            if session_file.exists():
-                try:
-                    session_file.unlink()
-                    for ext in [".session-journal", ".session-wal", ".session-shm"]:
-                        aux_file = self.session_dir / f"{account_name}{ext}"
-                        if aux_file.exists():
-                            aux_file.unlink()
-                except OSError:
-                    pass
+            staging_base = self.session_dir / (
+                f".qr_{account_name}_{login_id.replace('-', '')[:12]}"
+            )
+            session_path = str(staging_base)
+        else:
+            session_path = str(self.session_dir / account_name)
 
-        session_path = str(self.session_dir / account_name)
         client_kwargs = {
             "name": session_path,
-            "api_id": api_id,
-            "api_hash": api_hash,
+            "api_id": api_id_value,
+            "api_hash": api_hash_value,
             "proxy": proxy_dict,
             "in_memory": session_mode == "string",
         }
@@ -684,8 +692,6 @@ class TelegramQrLoginMixin:
                 "utf-8"
             )
 
-            login_id = secrets.token_urlsafe(16)
-
             session_data = {
                 "account_name": account_name,
                 "proxy": proxy,
@@ -698,8 +704,16 @@ class TelegramQrLoginMixin:
                 "lock": account_lock,
                 "lock_lease": lock_lease,
                 "migrate_dc_id": getattr(result, "dc_id", None),
-                "api_id": api_id,
-                "api_hash": api_hash,
+                "api_id": api_id_value,
+                "api_hash": api_hash_value,
+                "api_credentials_source": credentials.source,
+                "pending_credentials": (
+                    (provided_pair.api_id, provided_pair.api_hash)
+                    if provided_pair is not None
+                    else None
+                ),
+                "staging_base": staging_base,
+                "_persisted": False,
                 "handler": None,
                 "_created_at": time.monotonic(),
             }
@@ -769,6 +783,10 @@ class TelegramQrLoginMixin:
                 await client.disconnect()
             except Exception:
                 pass
+            if staging_base is not None:
+                from backend.utils.tg_session import cleanup_staging_session
+
+                cleanup_staging_session(staging_base)
             _release_account_lock()
             raise ValueError(f"请求过于频繁，请等待 {e.value} 秒后重试")
         except Exception as e:
@@ -776,6 +794,10 @@ class TelegramQrLoginMixin:
                 await client.disconnect()
             except Exception:
                 pass
+            if staging_base is not None:
+                from backend.utils.tg_session import cleanup_staging_session
+
+                cleanup_staging_session(staging_base)
             _release_account_lock()
             raise ValueError(f"获取二维码失败: {str(e)}")
 

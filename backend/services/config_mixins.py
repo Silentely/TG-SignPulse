@@ -1869,28 +1869,55 @@ class TelegramConfigMixin:
         获取 Telegram API 配置
 
         Returns:
-            配置字典，包含 api_id, api_hash, is_custom (是否为自定义配置)
+            配置字典，包含 api_id, api_hash, is_custom (是否为自定义配置)、
+            configured (面板是否写入了配置)、configured_api_id / configured_api_hash
+            （面板原始值，可能为单边，供凭据解析器 fail-closed 判定）。
         """
         config_file = self._get_telegram_config_file()
 
-        # 默认配置
         default_config = {
             "api_id": self.DEFAULT_TG_API_ID,
             "api_hash": self.DEFAULT_TG_API_HASH,
             "is_custom": False,
+            "configured": False,
+            "configured_api_id": None,
+            "configured_api_hash": None,
         }
 
         config = self._read_json_file(config_file)
-        if config is None:
+        if not isinstance(config, dict):
             _warn_default_tg_credentials_once()
             return default_config
-        # 如果有自定义配置，标记为自定义
-        if config.get("api_id") and config.get("api_hash"):
-            config["is_custom"] = True
-            return config
-        else:
+
+        raw_id = config.get("api_id")
+        raw_hash = config.get("api_hash")
+        configured_id = str(raw_id).strip() if raw_id not in (None, "") else ""
+        configured_hash = str(raw_hash).strip() if raw_hash not in (None, "") else ""
+
+        # 面板完整配置：直接使用面板值
+        if configured_id and configured_hash:
+            return {
+                "api_id": configured_id,
+                "api_hash": configured_hash,
+                "is_custom": True,
+                "configured": True,
+                "configured_api_id": configured_id,
+                "configured_api_hash": configured_hash,
+            }
+
+        # 面板单边配置：保留原始值并标记 configured，解析器会据此 fail-closed，
+        # 绝不把单边面板值与环境变量/内置默认值拼接。
+        if configured_id or configured_hash:
             _warn_default_tg_credentials_once()
-            return default_config
+            return {
+                **default_config,
+                "configured": True,
+                "configured_api_id": configured_id or None,
+                "configured_api_hash": configured_hash or None,
+            }
+
+        _warn_default_tg_credentials_once()
+        return default_config
 
     def save_telegram_config(self, api_id: str, api_hash: str) -> bool:
         """

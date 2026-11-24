@@ -16,6 +16,8 @@ const {
   settings,
   timezoneOptions,
   tgConfig,
+  tgHasApiHash,
+  tgApiHashMasked,
   aiConfig,
   aiKeyDecryptFailed,
   loading,
@@ -127,6 +129,8 @@ const {
           <TelegramApiSettings
             v-model="tgConfig"
             :reveal="{ tgApiId: revealSecrets.tgApiId, tgApiHash: revealSecrets.tgApiHash }"
+            :has-api-hash="tgHasApiHash"
+            :api-hash-masked="tgApiHashMasked"
             :loading="tgLoading"
             @save="saveTgConfig"
             @reset="resetTgConfig"

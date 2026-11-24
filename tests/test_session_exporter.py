@@ -8,6 +8,7 @@ import pytest
 from pyrogram import raw
 from pyrogram.errors import SessionPasswordNeeded
 
+from backend.services.telegram.credentials import ResolvedTelegramCredentials
 from backend.services.telegram.session_exporter import (
     SessionExportResult,
     create_standalone_session_export,
@@ -64,8 +65,14 @@ async def test_export_standalone_session_success_flow():
             return_value=mock_candidate_client,
         ),
         patch(
-            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
-            return_value=(12345, "test_hash"),
+            "backend.services.telegram.credentials.resolve_telegram_credentials",
+            return_value=ResolvedTelegramCredentials(
+                api_id=12345, api_hash="test_hash", source="account"
+            ),
+        ),
+        patch(
+            "backend.services.telegram.credentials.ensure_session_credentials_match",
+            return_value=None,
         ),
         patch(
             "backend.services.telegram.session_exporter.get_config_service"
@@ -154,8 +161,14 @@ async def test_export_standalone_session_handles_dc_migration():
             return_value=mock_candidate_client,
         ),
         patch(
-            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
-            return_value=(12345, "test_hash"),
+            "backend.services.telegram.credentials.resolve_telegram_credentials",
+            return_value=ResolvedTelegramCredentials(
+                api_id=12345, api_hash="test_hash", source="account"
+            ),
+        ),
+        patch(
+            "backend.services.telegram.credentials.ensure_session_credentials_match",
+            return_value=None,
         ),
         patch(
             "backend.services.telegram.session_exporter.get_config_service"
@@ -228,8 +241,14 @@ async def test_export_standalone_session_handles_lock_timeout():
             return_value=mock_candidate_client,
         ),
         patch(
-            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
-            return_value=(12345, "test_hash"),
+            "backend.services.telegram.credentials.resolve_telegram_credentials",
+            return_value=ResolvedTelegramCredentials(
+                api_id=12345, api_hash="test_hash", source="account"
+            ),
+        ),
+        patch(
+            "backend.services.telegram.credentials.ensure_session_credentials_match",
+            return_value=None,
         ),
         patch(
             "backend.services.telegram.session_exporter.get_config_service"
@@ -322,8 +341,14 @@ async def test_export_standalone_session_handles_2fa():
             return_value=mock_candidate_client,
         ),
         patch(
-            "backend.services.telegram.session_exporter.resolve_telegram_api_credentials",
-            return_value=(12345, "test_hash"),
+            "backend.services.telegram.credentials.resolve_telegram_credentials",
+            return_value=ResolvedTelegramCredentials(
+                api_id=12345, api_hash="test_hash", source="account"
+            ),
+        ),
+        patch(
+            "backend.services.telegram.credentials.ensure_session_credentials_match",
+            return_value=None,
         ),
         patch(
             "backend.services.telegram.session_exporter.get_config_service"

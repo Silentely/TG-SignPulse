@@ -24,6 +24,7 @@ import pytest
 from tg_signer.compat import ChatType
 from tg_signer.core import (
     _CLIENT_INSTANCES,
+    ApiConfigError,
     UserSigner,
     get_api_config,
     get_client,
@@ -208,12 +209,20 @@ class TestGetApiConfig:
         assert api_id == 99999
         assert api_hash == "custom-hash"
 
-    def test_invalid_api_id_falls_back(self, monkeypatch):
+    def test_invalid_api_id_fails_closed(self, monkeypatch):
         monkeypatch.setenv("TG_API_ID", "not-a-number")
-        api_id, _ = get_api_config()
-        assert api_id == 611335
+        monkeypatch.setenv("TG_API_HASH", "custom-hash")
+        with pytest.raises(ApiConfigError):
+            get_api_config()
 
-    def test_empty_api_hash_falls_back(self, monkeypatch):
+    def test_one_sided_env_id_fails_closed(self, monkeypatch):
+        monkeypatch.setenv("TG_API_ID", "99999")
+        monkeypatch.delenv("TG_API_HASH", raising=False)
+        with pytest.raises(ApiConfigError):
+            get_api_config()
+
+    def test_blank_api_hash_falls_back_to_default(self, monkeypatch):
+        monkeypatch.delenv("TG_API_ID", raising=False)
         monkeypatch.setenv("TG_API_HASH", "   ")
         _, api_hash = get_api_config()
         assert api_hash == "d524b414d21f4d37f08684c1df41ac9c"
@@ -315,7 +324,8 @@ class TestClientInitialization:
             expected_key = str(
                 pathlib.Path("/tmp/test_core").joinpath("test_init").resolve()
             )
-            assert client.key == expected_key
+            # 缓存键包含凭据指纹，避免不同 api 凭据复用同一连接
+            assert client.key.startswith(f"{expected_key}::cred=")
         finally:
             for k in list(_CLIENT_INSTANCES.keys()):
                 if k not in keys_before:

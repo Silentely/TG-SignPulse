@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import time
 from typing import Any, Dict, Optional
 
@@ -31,16 +30,28 @@ logger = logging.getLogger("backend.telegram.login_phone")
 
 
 async def _discard_login_client(
-    client, session_key: Optional[str], release_lock
+    client,
+    session_key: Optional[str],
+    release_lock,
+    *,
+    staging_base=None,
 ) -> None:
     """登录流程的统一清理：断连（容忍已断开/失败）→ 弹出会话 → 释放账号锁。
 
-    各异常分支共用，避免断连/弹会话/放锁三环在新增分支时漏写。
+    未持久化的登录使用暂存 Session 文件；失败清理时一并删除，绝不触碰
+    账号原有的正式 Session。
     """
+    session_data = _login_sessions.get(session_key) if session_key else None
     try:
         await client.disconnect()
     except Exception:
         pass
+    if session_data and not session_data.get("_persisted"):
+        staging_base = session_data.get("staging_base") or staging_base
+    if staging_base and not (session_data and session_data.get("_persisted")):
+        from backend.utils.tg_session import cleanup_staging_session
+
+        cleanup_staging_session(staging_base)
     if session_key:
         _login_sessions.pop(session_key, None)
     if release_lock:
@@ -67,7 +78,12 @@ class TelegramPhoneLoginMixin:
         return expires_ts
 
     async def start_login(
-        self, account_name: str, phone_number: str, proxy: Optional[str] = None
+        self,
+        account_name: str,
+        phone_number: str,
+        proxy: Optional[str] = None,
+        api_id: Optional[int | str] = None,
+        api_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         开始登录流程（发送验证码）
@@ -145,25 +161,37 @@ class TelegramPhoneLoginMixin:
         except Exception as e:
             logger.debug("start_login 清理后台客户端失败: %s", e)
 
-        # 获取 API credentials
+        # 获取 API credentials：高级设置中显式填写的成对凭据优先，
+        # 留空则沿用该账号已配置凭据或全局解析链。
         from backend.services.config import get_config_service
 
         config_service = get_config_service()
         tg_config = config_service.get_telegram_config()
 
         from backend.services.telegram.credentials import (
-            resolve_telegram_api_credentials,
+            parse_credential_pair,
+            resolve_telegram_credentials,
         )
 
         try:
-            api_id, api_hash = resolve_telegram_api_credentials(
-                tg_config,
-                env_api_id=os.getenv("TG_API_ID"),
-                env_api_hash=os.getenv("TG_API_HASH"),
+            provided_pair = parse_credential_pair(
+                api_id, api_hash, source="account", account_name=account_name
             )
-        except ValueError:
+            credentials = resolve_telegram_credentials(
+                tg_config,
+                account_name=account_name,
+                profile=(
+                    {"api_id": provided_pair.api_id, "api_hash": provided_pair.api_hash}
+                    if provided_pair is not None
+                    else None
+                ),
+            )
+        except ValueError as exc:
             _release_account_lock()
-            raise ValueError("Telegram API ID / API Hash 未配置或无效") from None
+            raise ValueError(str(exc)) from None
+
+        api_id_value = credentials.api_id
+        api_hash_value = credentials.api_hash
 
         if not proxy:
             global_proxy = config_service.get_global_proxy()
@@ -188,31 +216,23 @@ class TelegramPhoneLoginMixin:
             except Exception:
                 _release_account_lock()
                 raise
-        # 4. 如果是重新登录，尝试先清理旧的 session 文件 (避免 SQLite 锁或损坏)
-        # 注意: 如果 session 有效但用户只是想重登，删除也没问题，因为反正要重新验证
+        # 4. 登录使用暂存 Session：验证成功后才原子替换正式文件，
+        #    失败时保留账号原有 Session 不受影响。
+        staging_base = None
         if session_mode == "file":
-            session_file = self.session_dir / f"{account_name}.session"
-            if session_file.exists():
-                try:
-                    # 尝试删除主文件
-                    session_file.unlink()
-                    # 顺便删掉 journal/wal/shm
-                    for ext in [".session-journal", ".session-wal", ".session-shm"]:
-                        aux_file = self.session_dir / f"{account_name}{ext}"
-                        if aux_file.exists():
-                            aux_file.unlink()
-                except OSError as e:
-                    # 如果删除失败，说明真的被锁得很死，或者权限问题
-                    logger.debug("删除旧 Session 文件失败: %s - 可能文件仍被占用", e)
-                    # 这里不抛出异常，尝试继续，也许 Pyrogram 能处理?
-                    # 但通常 "unable to open database file" 就是因为这个。
-                    pass
+            import uuid
 
-        session_path = str(self.session_dir / account_name)
+            staging_base = self.session_dir / (
+                f".login_{account_name}_{uuid.uuid4().hex[:12]}"
+            )
+            session_path = str(staging_base)
+        else:
+            session_path = str(self.session_dir / account_name)
+
         client_kwargs = {
             "name": session_path,
-            "api_id": api_id,
-            "api_hash": api_hash,
+            "api_id": api_id_value,
+            "api_hash": api_hash_value,
             "proxy": proxy_dict,
             "in_memory": session_mode == "string",
             # 手机号验证码登录不依赖 updates，关闭可减少 flood/timeout 噪音
@@ -243,6 +263,16 @@ class TelegramPhoneLoginMixin:
                 "lock": account_lock,
                 "lock_lease": lock_lease,
                 "account_name": account_name,
+                "api_id": api_id_value,
+                "api_hash": api_hash_value,
+                "api_credentials_source": credentials.source,
+                "pending_credentials": (
+                    (provided_pair.api_id, provided_pair.api_hash)
+                    if provided_pair is not None
+                    else None
+                ),
+                "staging_base": staging_base,
+                "_persisted": False,
                 "_created_at": time.monotonic(),
             }
 
@@ -256,14 +286,20 @@ class TelegramPhoneLoginMixin:
             }
 
         except PhoneNumberInvalid:
-            await _discard_login_client(client, None, _release_account_lock)
+            await _discard_login_client(
+                client, None, _release_account_lock, staging_base=staging_base
+            )
             raise ValueError("手机号格式无效，请使用国际格式（如 +8613800138000）")
         except FloodWait as e:
-            await _discard_login_client(client, None, _release_account_lock)
+            await _discard_login_client(
+                client, None, _release_account_lock, staging_base=staging_base
+            )
             raise ValueError(f"请求过于频繁，请等待 {e.value} 秒后重试")
         except Exception as e:
             logger.exception("手机号登录发送验证码阶段异常: %s", e)
-            await _discard_login_client(client, None, _release_account_lock)
+            await _discard_login_client(
+                client, None, _release_account_lock, staging_base=staging_base
+            )
 
             error_details = str(e)
             if (
@@ -284,6 +320,8 @@ class TelegramPhoneLoginMixin:
         phone_code_hash: str,
         password: Optional[str] = None,
         proxy: Optional[str] = None,
+        api_id: Optional[int | str] = None,
+        api_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         验证登录（输入验证码和可选的2FA密码）
@@ -317,6 +355,23 @@ class TelegramPhoneLoginMixin:
 
         if not session_data:
             raise ValueError("登录会话已过期，请重新发送验证码")
+
+        # 认证事务一致性：verify 阶段必须复用 start 阶段解析出的凭据。
+        # 若调用方重复提交了高级设置凭据，只允许与事务上下文完全一致。
+        from backend.services.telegram.credentials import parse_credential_pair
+
+        if api_id is not None or api_hash is not None:
+            provided_pair = parse_credential_pair(
+                api_id, api_hash, source="account", account_name=account_name
+            )
+            if provided_pair is not None and (
+                int(provided_pair.api_id) != int(session_data.get("api_id") or 0)
+                or str(provided_pair.api_hash)
+                != str(session_data.get("api_hash") or "")
+            ):
+                raise ValueError(
+                    "API_CREDENTIALS_CHANGED: 登录凭据在验证阶段发生变化，请重新发送验证码"
+                )
 
         client = session_data["client"]
         global_semaphore = get_global_semaphore()
@@ -369,7 +424,9 @@ class TelegramPhoneLoginMixin:
                     # 登录成功，获取用户信息
                     # get_me 走超时保护：网络挂起时登录接口不能无限等待
                     me = await asyncio.wait_for(client.get_me(), timeout=10)
-                    await self._persist_client_session(client, account_name, proxy)
+                    await self._persist_client_session(
+                        client, account_name, proxy, login_session=session_data
+                    )
 
                     # 断开连接并清理（成功路径同样容忍断连抖动，避免已登录被误报失败）
                     await _discard_login_client(
@@ -393,7 +450,9 @@ class TelegramPhoneLoginMixin:
                     try:
                         await client.check_password(password)
                         me = await asyncio.wait_for(client.get_me(), timeout=10)
-                        await self._persist_client_session(client, account_name, proxy)
+                        await self._persist_client_session(
+                            client, account_name, proxy, login_session=session_data
+                        )
 
                         # 断开连接并清理
                         await _discard_login_client(
@@ -435,31 +494,70 @@ class TelegramPhoneLoginMixin:
                 raise ValueError(f"登录失败: {error_msg}")
 
     async def _persist_client_session(
-        self, client, account_name: str, proxy: Optional[str] = None
+        self,
+        client,
+        account_name: str,
+        proxy: Optional[str] = None,
+        *,
+        login_session: Optional[Dict[str, Any]] = None,
+        staging_base=None,
     ) -> None:
+        """持久化登录结果；保证正式 Session 只在验证成功后原子替换。"""
         session_mode = get_session_mode()
-        if session_mode == "string":
+        if login_session is not None:
+            staging_base = login_session.get("staging_base")
+            pending_credentials = login_session.get("pending_credentials")
+        else:
+            pending_credentials = None
+
+        session_string = None
+        try:
             session_string = await client.export_session_string()
+        except Exception as exc:
+            if session_mode == "string":
+                raise ValueError("导出 session_string 失败") from exc
+
+        if session_mode == "string":
             if not session_string:
                 raise ValueError("导出 session_string 失败")
             set_account_session_string(account_name, session_string)
             save_session_string_file(self.session_dir, account_name, session_string)
-            mark_account_connected(account_name)
         else:
             # 即使在 file 模式，也尝试保存 session_string 作为降级方案
-            try:
-                session_string = await client.export_session_string()
-            except Exception:
-                session_string = None
             if session_string:
                 try:
                     set_account_session_string(account_name, session_string)
                     save_session_string_file(
                         self.session_dir, account_name, session_string
                     )
-                    mark_account_connected(account_name)
                 except Exception:
                     pass
+
+            if staging_base is not None:
+                from backend.utils.tg_session import replace_session_file
+
+                # 先断开连接，确保 SQLite 写入落盘后再原子替换正式文件
+                try:
+                    if getattr(client, "is_connected", False):
+                        await client.disconnect()
+                except Exception:
+                    pass
+                replace_session_file(staging_base, account_name, self.session_dir)
+
+        if pending_credentials:
+            from backend.utils.tg_session import set_account_credentials
+
+            # 新会话已用该凭据完成授权，无需再次提示重新登录
+            set_account_credentials(
+                account_name,
+                int(pending_credentials[0]),
+                str(pending_credentials[1]),
+                mark_needs_relogin=False,
+            )
+
+        if login_session is not None:
+            login_session["_persisted"] = True
+
         if not proxy:
             from backend.services.config import get_config_service
 

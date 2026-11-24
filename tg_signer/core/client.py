@@ -711,22 +711,64 @@ class Client(BaseClient):
 
 
 def get_api_config():
-    api_id_env = os.environ.get("TG_API_ID")
-    api_hash_env = os.environ.get("TG_API_HASH")
+    """解析全局 api_id / api_hash（环境变量对 > 内置默认对）。
 
-    api_id = 611335
+    fail-closed：只配置了 TG_API_ID 或 TG_API_HASH 其中一项时直接报错，
+    绝不把单边环境变量与默认 Hash 拼接，否则 Telegram 会返回
+    ``400 API_ID_INVALID``。
+    """
+    api_id_env = (os.environ.get("TG_API_ID") or "").strip()
+    api_hash_env = (os.environ.get("TG_API_HASH") or "").strip()
+
+    if bool(api_id_env) != bool(api_hash_env):
+        raise ApiConfigError(
+            "API ID 与 API Hash 必须成对配置（TG_API_ID + TG_API_HASH）"
+        )
+
     if api_id_env:
         try:
             api_id = int(api_id_env)
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            raise ApiConfigError("TG_API_ID 必须是正整数") from exc
+        if api_id <= 0:
+            raise ApiConfigError("TG_API_ID 必须是正整数")
+        return api_id, api_hash_env
 
-    if isinstance(api_hash_env, str) and api_hash_env.strip():
-        api_hash = api_hash_env.strip()
-    else:
-        api_hash = "d524b414d21f4d37f08684c1df41ac9c"
+    return 611335, "d524b414d21f4d37f08684c1df41ac9c"
 
-    return api_id, api_hash
+
+# 账号级凭据解析钩子：由宿主应用（backend）注册，避免引擎反向依赖 backend。
+# 注册函数返回 (api_id, api_hash)；返回 None 表示该账号无独立凭据。
+_ACCOUNT_CREDENTIAL_RESOLVER = None
+
+
+class ApiConfigError(ValueError):
+    """API 凭据成对校验失败。"""
+
+    code = "API_CREDENTIALS_PAIR_REQUIRED"
+
+
+def register_account_credential_resolver(resolver) -> None:
+    """注册账号级凭据解析器（backend 启动时调用）。"""
+    global _ACCOUNT_CREDENTIAL_RESOLVER
+    _ACCOUNT_CREDENTIAL_RESOLVER = resolver
+
+
+def _resolve_account_credential_pair(name: str):
+    resolver = _ACCOUNT_CREDENTIAL_RESOLVER
+    if resolver is None:
+        return None
+    resolved = resolver(str(name))
+    if not resolved:
+        return None
+    return resolved
+
+
+def _credential_fingerprint(api_id, api_hash) -> str:
+    import hashlib
+
+    digest = hashlib.sha256(f"{int(api_id)}:{api_hash}".encode("utf-8")).hexdigest()
+    return digest[:16]
 
 
 def get_proxy(proxy: str = None):
@@ -824,16 +866,28 @@ def get_client(
     **kwargs,
 ) -> Client:
     proxy = proxy or get_proxy()
+
+    # fail-closed：显式只传了 api_id / api_hash 中的一项时，禁止与全局配置拼接
+    if bool(api_id) != bool(api_hash):
+        raise ApiConfigError("API ID 与 API Hash 必须成对提供，禁止与全局配置单边拼接")
+
     if not api_id or not api_hash:
-        _api_id, _api_hash = get_api_config()
-        api_id = api_id or _api_id
-        api_hash = api_hash or _api_hash
+        account_pair = _resolve_account_credential_pair(name)
+        if account_pair is not None:
+            api_id, api_hash = account_pair
+        else:
+            api_id, api_hash = get_api_config()
+
+    credential_fp = _credential_fingerprint(api_id, api_hash)
 
     # Use separate cache keys for in-memory vs file-mode clients to prevent
     # database lock conflicts when keyword monitor (file mode) and manual
-    # task execution (in-memory mode) run on the same account
+    # task execution (in-memory mode) run on the same account.
+    # 凭据指纹纳入缓存键：账号凭据变更后不会复用旧连接，file 与 ::memory
+    # 两种模式各自独立失效。
     base_key = str(pathlib.Path(workdir).joinpath(name).resolve())
-    key = f"{base_key}::memory" if in_memory else base_key
+    cred_key = f"{base_key}::cred={credential_fp}"
+    key = f"{cred_key}::memory" if in_memory else cred_key
 
     extra_device_kwargs = {}
     if device_model is not None:

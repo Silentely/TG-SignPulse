@@ -66,6 +66,8 @@ describe('useSettingsSave', () => {
     })
     const save = useSettingsSave({
       tgConfig: ref(over?.tg || { api_id: '', api_hash: '' }),
+      tgHasApiHash: ref(false),
+      tgApiHashMasked: ref(''),
       aiConfig: aiRef,
       aiKeyDecryptFailed: ref(false),
       aiConfigLoaded: ref(over?.aiConfigLoaded ?? true),
@@ -77,6 +79,8 @@ describe('useSettingsSave', () => {
       markSectionClean,
       afterBotTokenSaved,
       afterWebdavSettingsSaved,
+      afterTgSaved: vi.fn(),
+      afterTgReset: vi.fn(),
       loadBackupStatus,
     })
     return {
@@ -203,6 +207,8 @@ describe('useSettingsSave', () => {
     const tg = ref({ api_id: '1', api_hash: 'h' })
     const save = useSettingsSave({
       tgConfig: tg,
+      tgHasApiHash: ref(false),
+      tgApiHashMasked: ref(''),
       aiConfig: ref({ base_url: '', model: '', api_key: '', fallback_providers: [] }),
       aiKeyDecryptFailed: ref(false),
       buildGeneralPayload: () => ({}),
@@ -213,6 +219,8 @@ describe('useSettingsSave', () => {
       markSectionClean: vi.fn(),
       afterBotTokenSaved: vi.fn(),
       afterWebdavSettingsSaved: vi.fn(),
+      afterTgSaved: vi.fn(),
+      afterTgReset: vi.fn(),
       loadBackupStatus: vi.fn(async () => {}),
     })
     await save.resetTgConfig()
@@ -248,6 +256,8 @@ describe('useSettingsSave', () => {
     const markSectionClean = vi.fn()
     const save = useSettingsSave({
       tgConfig: ref({ api_id: '', api_hash: '' }),
+      tgHasApiHash: ref(false),
+      tgApiHashMasked: ref(''),
       aiConfig: ai,
       aiKeyDecryptFailed,
       buildGeneralPayload: () => ({}),
@@ -258,6 +268,8 @@ describe('useSettingsSave', () => {
       markSectionClean,
       afterBotTokenSaved: vi.fn(),
       afterWebdavSettingsSaved: vi.fn(),
+      afterTgSaved: vi.fn(),
+      afterTgReset: vi.fn(),
       loadBackupStatus: vi.fn(async () => {}),
     })
     await save.saveAiConfig()

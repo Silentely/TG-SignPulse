@@ -335,6 +335,47 @@ class TestAccountAPI:
         resp = api_client.get("/api/accounts")
         assert resp.status_code == 401
 
+    def test_list_accounts_exposes_masked_credentials(self, api_client, db):
+        """账号列表返回凭据来源与脱敏 Hash 字段"""
+        token = _login(api_client)
+        mock_svc = _mock_tg_service()
+        mock_svc.list_accounts.return_value = [
+            {
+                "name": "account_1",
+                "session_file": "account_1.session",
+                "exists": True,
+                "size": 1024,
+                "remark": None,
+                "proxy": None,
+                "status": "connected",
+                "status_message": None,
+                "status_code": None,
+                "status_checked_at": None,
+                "needs_relogin": True,
+                "use_custom_api": True,
+                "api_id": 12345,
+                "has_api_hash": True,
+                "api_hash_masked": "d524****ac9c",
+                "api_credentials_source": "custom",
+            }
+        ]
+
+        with patch(
+            "backend.api.routes.accounts.get_telegram_service", return_value=mock_svc
+        ):
+            resp = api_client.get("/api/accounts", headers=_auth(token))
+
+        assert resp.status_code == 200
+        body = resp.json()
+        account = body["accounts"][0]
+        assert account["use_custom_api"] is True
+        assert account["api_id"] == 12345
+        assert account["has_api_hash"] is True
+        assert account["api_hash_masked"] == "d524****ac9c"
+        assert account["api_credentials_source"] == "custom"
+        assert account["needs_relogin"] is True
+        assert "d524b414" not in json.dumps(body)
+
     def test_check_account_exists_true(self, api_client, db):
         """检查账号存在：返回 exists=true"""
 
@@ -806,6 +847,28 @@ class TestTelegramConfigValidation:
             headers=_auth(token),
         )
         assert resp.status_code == 400
+
+    def test_get_telegram_config_masks_hash(self, api_client):
+        """GET 全局配置只返回脱敏 Hash，绝不回传明文"""
+        token = _login(api_client)
+        resp = api_client.get("/api/config/telegram", headers=_auth(token))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["api_hash"] == "d524****ac9c"
+        assert body["default_api_hash"] == "d524****ac9c"
+        assert body["has_api_hash"] is True
+        assert "d524b414d21f4d37f08684c1df41ac9c" not in json.dumps(body)
+
+    def test_single_sided_save_rejected(self, api_client):
+        """只提交 api_id 且无已保存 Hash 时，必须成对校验失败"""
+        token = _login(api_client)
+        resp = api_client.post(
+            "/api/config/telegram",
+            json={"api_id": "12345"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "API_CREDENTIALS_PAIR_REQUIRED"
 
     def test_valid_api_id_saved_normalized(self, api_client):
         """合法 api_id 保存成功，且保存的是去除首尾空白后的值"""

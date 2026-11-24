@@ -11,7 +11,6 @@ import asyncio
 import contextlib
 import inspect
 import logging
-import os
 import secrets
 import time
 from dataclasses import dataclass
@@ -23,7 +22,6 @@ from pyrogram.session import Session
 from pyrogram.session.auth import Auth
 
 from backend.services.config import get_config_service
-from backend.services.telegram.credentials import resolve_telegram_api_credentials
 from backend.utils.account_locks import (
     AccountLockTimeout,
     acquire_account_lock_with_timeout,
@@ -150,13 +148,19 @@ async def create_standalone_session_export(
             error=f"PROXY_VERIFICATION_FAILED: {exc}",
         )
 
-    # Resolve API credentials
+    # Resolve API credentials（账号级优先；Session 与凭据不一致时 fail-closed）
     try:
-        api_id, api_hash = resolve_telegram_api_credentials(
-            get_config_service().get_telegram_config(),
-            env_api_id=os.getenv("TG_API_ID"),
-            env_api_hash=os.getenv("TG_API_HASH"),
+        from backend.services.telegram.credentials import (
+            ensure_session_credentials_match,
+            resolve_telegram_credentials,
         )
+
+        credentials = resolve_telegram_credentials(
+            get_config_service().get_telegram_config(),
+            account_name=account_name,
+        )
+        ensure_session_credentials_match(account_name, credentials)
+        api_id, api_hash = credentials.as_tuple()
     except Exception as exc:
         return SessionExportResult(
             success=False,

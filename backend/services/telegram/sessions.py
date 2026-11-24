@@ -32,6 +32,15 @@ async def _release_login_session(value: Any) -> None:
                 await client.disconnect()
         except Exception:
             pass
+    # 未持久化的登录只清理暂存 Session，绝不删除账号原有正式 Session
+    staging_base = value.get("staging_base")
+    if staging_base and not value.get("_persisted"):
+        try:
+            from backend.utils.tg_session import cleanup_staging_session
+
+            cleanup_staging_session(staging_base)
+        except Exception:
+            pass
     # 有租约走所有权校验，避免释放他人持有的锁；无租约的旧结构按 locked() 兜底
     lease = value.get("lock_lease")
     if lease is not None:

@@ -19,6 +19,10 @@ const props = defineProps<{
   modelValue: TgFormState
   /** 密钥显隐状态（与父组件其他区块共用同一对象） */
   reveal: Pick<RevealSecrets, 'tgApiId' | 'tgApiHash'>
+  /** 服务端是否已保存 Hash（GET 只返回脱敏值） */
+  hasApiHash?: boolean
+  /** 已保存 Hash 的脱敏展示 */
+  apiHashMasked?: string
   /** 保存中 */
   loading?: boolean
 }>()
@@ -66,11 +70,14 @@ const onInput = (key: keyof TgFormState, e: Event) => {
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-api-hash">{{ t('settings.apiHash') }}</label>
         <div class="relative">
-          <input id="settings-api-hash" :value="modelValue.api_hash" @input="onInput('api_hash', $event)" :type="reveal.tgApiHash ? 'text' : 'password'" :placeholder="t('settings.apiHashPlaceholder')" class="ui-input pr-10">
+          <input id="settings-api-hash" :value="modelValue.api_hash" @input="onInput('api_hash', $event)" :type="reveal.tgApiHash ? 'text' : 'password'" :placeholder="hasApiHash ? t('accountApi.keepHashPlaceholder', { hash: apiHashMasked || '****' }) : t('settings.apiHashPlaceholder')" class="ui-input pr-10">
           <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]" :aria-label="reveal.tgApiHash ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'tgApiHash')">
             <EyeOff v-if="reveal.tgApiHash" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
           </button>
         </div>
+        <p v-if="hasApiHash && !modelValue.api_hash" class="text-[10px] text-[var(--sp-text-muted)] leading-relaxed">
+          {{ t('settings.apiHashStoredHint') }}
+        </p>
       </div>
       <div class="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
         <p>
@@ -79,7 +86,7 @@ const onInput = (key: keyof TgFormState, e: Event) => {
         </p>
       </div>
       <div class="pt-2">
-        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading || !modelValue.api_id || !modelValue.api_hash" @click="emit('save')">{{ loading ? t('common.saving') : t('settings.saveTgConfig') }}</button>
+        <button type="button" class="ui-btn-primary w-full py-2.5" :disabled="loading || !modelValue.api_id || (!modelValue.api_hash && !hasApiHash)" @click="emit('save')">{{ loading ? t('common.saving') : t('settings.saveTgConfig') }}</button>
       </div>
     </div>
   </section>

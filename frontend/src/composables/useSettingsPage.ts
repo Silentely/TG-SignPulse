@@ -116,6 +116,18 @@ export function useSettingsPage() {
     api_id: '',
     api_hash: ''
   })
+  /** 全局 API Hash 已保存（GET 仅返回脱敏值） */
+  const tgHasApiHash = ref(false)
+  const tgApiHashMasked = ref('')
+  const afterTgSaved = () => {
+    tgHasApiHash.value = true
+    tgApiHashMasked.value = ''
+    tgConfig.value.api_hash = ''
+  }
+  const afterTgReset = () => {
+    tgHasApiHash.value = false
+    tgApiHashMasked.value = ''
+  }
 
   const aiConfig = ref<AiFormState>({
     provider: 'openai',
@@ -277,6 +289,8 @@ export function useSettingsPage() {
     testAi,
   } = useSettingsSave({
     tgConfig,
+    tgHasApiHash,
+    tgApiHashMasked,
     aiConfig,
     aiKeyDecryptFailed,
     aiConfigLoaded,
@@ -288,6 +302,8 @@ export function useSettingsPage() {
     markSectionClean,
     afterBotTokenSaved,
     afterWebdavSettingsSaved,
+    afterTgSaved,
+    afterTgReset,
     loadBackupStatus,
   })
 
@@ -311,9 +327,14 @@ export function useSettingsPage() {
       // 同步面板展示时区：Settings 加载后，Dashboard/Logs 等页的时间格式跟随
       setPanelTimezone(res.timezone)
 
-      if (tgRes && tgRes.is_custom) {
-        tgConfig.value.api_id = tgRes.api_id
-        tgConfig.value.api_hash = tgRes.api_hash
+      if (tgRes) {
+        tgHasApiHash.value = !!tgRes.has_api_hash
+        tgApiHashMasked.value = tgRes.api_hash || ''
+        if (tgRes.is_custom) {
+          tgConfig.value.api_id = tgRes.api_id
+          // GET 只返回脱敏 Hash，输入框保持空白；留空保存表示保留现有值
+          tgConfig.value.api_hash = ''
+        }
       }
 
       if (aiRes && aiRes.has_config) {
@@ -405,6 +426,8 @@ export function useSettingsPage() {
     settings,
     timezoneOptions,
     tgConfig,
+    tgHasApiHash,
+    tgApiHashMasked,
     aiConfig,
     aiKeyDecryptFailed,
     loading,

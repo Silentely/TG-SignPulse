@@ -255,6 +255,7 @@ def get_account_profile(account_name: str) -> dict[str, Any]:
     entry = data.get("accounts", {}).get(account_name)
     if not isinstance(entry, dict):
         return {}
+    credentials_needs_relogin = bool(entry.get("api_credentials_needs_relogin", False))
     return {
         "remark": entry.get("remark"),
         "proxy": entry.get("proxy"),
@@ -262,13 +263,337 @@ def get_account_profile(account_name: str) -> dict[str, Any]:
         "status_message": entry.get("status_message"),
         "status_code": entry.get("status_code"),
         "status_checked_at": entry.get("status_checked_at"),
-        "needs_relogin": bool(entry.get("needs_relogin", False)),
+        "needs_relogin": bool(entry.get("needs_relogin", False))
+        or credentials_needs_relogin,
         "invalid_notified_at": entry.get("invalid_notified_at"),
         "tags": list(entry.get("tags") or []),
         "device_family": entry.get("device_family"),
         "device_profile": entry.get("device_profile"),
         "proxy_probe_policy": entry.get("proxy_probe_policy", "strict"),
+        "api_id": entry.get("api_id"),
+        "has_api_hash": bool(entry.get("api_hash")),
+        "api_credentials_needs_relogin": credentials_needs_relogin,
+        "api_credentials_updated_at": entry.get("api_credentials_updated_at"),
     }
+
+
+# ---------------------------------------------------------------------------
+# 账号级 Telegram API 凭据（加密存储）
+# ---------------------------------------------------------------------------
+
+
+def _account_entry_for_update(account_name: str) -> tuple[dict, dict]:
+    data = _load_account_store()
+    accounts = data["accounts"]
+    entry = accounts.get(account_name)
+    if not isinstance(entry, dict):
+        entry = {}
+    return data, entry
+
+
+def _decrypt_account_api_hash(account_name: str, raw: Any) -> Optional[str]:
+    if raw is None:
+        return None
+    value = raw.strip() if isinstance(raw, str) else str(raw).strip()
+    if not value:
+        return None
+    from tg_signer.security import (
+        SecretKeyError,
+        decrypt_secret,
+        is_encrypted_secret,
+    )
+
+    if is_encrypted_secret(value):
+        try:
+            return decrypt_secret(value) or None
+        except SecretKeyError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to decrypt api_hash for account {account_name}"
+            ) from exc
+    # 兼容历史上可能出现的明文（当前写入路径始终加密）
+    return value
+
+
+def get_account_credentials(account_name: str) -> dict[str, Any]:
+    """读取账号级 API 凭据（Hash 已解密）。
+
+    仅用于服务端解析；API 响应必须使用脱敏后的字段。
+    """
+    data = _load_account_store()
+    entry = data.get("accounts", {}).get(account_name)
+    if not isinstance(entry, dict):
+        return {
+            "api_id": None,
+            "api_hash": None,
+            "has_api_hash": False,
+            "has_custom_api": False,
+            "needs_relogin": False,
+            "updated_at": None,
+        }
+    raw_id = entry.get("api_id")
+    api_id: Optional[int]
+    try:
+        api_id = int(str(raw_id).strip()) if raw_id not in (None, "") else None
+    except (TypeError, ValueError):
+        api_id = None
+    api_hash = _decrypt_account_api_hash(account_name, entry.get("api_hash"))
+    has_custom = bool(raw_id not in (None, "") or entry.get("api_hash"))
+    return {
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "has_api_hash": bool(api_hash),
+        "has_custom_api": has_custom,
+        "needs_relogin": bool(entry.get("api_credentials_needs_relogin", False)),
+        "updated_at": entry.get("api_credentials_updated_at"),
+    }
+
+
+def get_account_license_credentials_for_api(account_name: str) -> dict[str, Any]:
+    """API 层脱敏视图：绝不返回明文 Hash。"""
+    from backend.services.telegram.credentials import mask_api_hash
+
+    credentials = get_account_credentials(account_name)
+    api_hash = credentials.get("api_hash")
+    return {
+        "use_custom_api": bool(credentials.get("has_custom_api")),
+        "api_id": credentials.get("api_id"),
+        "has_api_hash": bool(credentials.get("has_api_hash")),
+        "api_hash_masked": mask_api_hash(api_hash),
+        "api_credentials_source": "custom"
+        if credentials.get("has_custom_api")
+        else "global",
+        "needs_relogin": bool(credentials.get("needs_relogin")),
+    }
+
+
+def account_has_session_artifact(account_name: str) -> bool:
+    """账号是否已有可复用的登录会话（文件或存储串）。"""
+    try:
+        if get_account_session_string(account_name):
+            return True
+    except Exception:
+        pass
+    try:
+        session_dir = get_settings().resolve_session_dir()
+    except Exception:
+        return False
+    for candidate in (
+        session_dir / f"{account_name}.session",
+        session_string_file_path(session_dir, account_name),
+    ):
+        try:
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def set_account_credentials(
+    account_name: str,
+    api_id: int,
+    api_hash: str,
+    *,
+    mark_needs_relogin: Optional[bool] = None,
+) -> None:
+    """加密写入账号级凭据；是否标记需重新登录默认按是否已有会话推断。"""
+    from tg_signer.security import encrypt_secret
+
+    data, entry = _account_entry_for_update(account_name)
+    entry["api_id"] = int(api_id)
+    entry["api_hash"] = encrypt_secret(str(api_hash))
+    entry["api_credentials_updated_at"] = utc_now_iso()
+    if mark_needs_relogin is None:
+        mark_needs_relogin = account_has_session_artifact(account_name)
+    entry["api_credentials_needs_relogin"] = bool(mark_needs_relogin)
+    entry["updated_at"] = utc_now_iso()
+    data["accounts"][account_name] = entry
+    _save_account_store(data)
+
+
+def clear_account_credentials(account_name: str) -> None:
+    """清除账号级凭据，回到全局回退；同时清除凭据重登标记。"""
+    data, entry = _account_entry_for_update(account_name)
+    changed = False
+    for key in (
+        "api_id",
+        "api_hash",
+        "api_credentials_updated_at",
+        "api_credentials_needs_relogin",
+    ):
+        if key in entry:
+            entry.pop(key, None)
+            changed = True
+    if not changed:
+        return
+    entry["updated_at"] = utc_now_iso()
+    data["accounts"][account_name] = entry
+    _save_account_store(data)
+
+
+def mark_account_credentials_relogin(account_name: str) -> None:
+    data, entry = _account_entry_for_update(account_name)
+    entry["api_credentials_needs_relogin"] = True
+    entry["updated_at"] = utc_now_iso()
+    data["accounts"][account_name] = entry
+    _save_account_store(data)
+
+
+def clear_account_credentials_relogin(account_name: str) -> None:
+    data, entry = _account_entry_for_update(account_name)
+    if not entry.get("api_credentials_needs_relogin"):
+        return
+    entry["api_credentials_needs_relogin"] = False
+    entry["updated_at"] = utc_now_iso()
+    data["accounts"][account_name] = entry
+    _save_account_store(data)
+
+
+def _read_sqlite_session_api_id(session_file: Path) -> Optional[int]:
+    import sqlite3
+
+    if not Path(session_file).is_file():
+        return None
+    try:
+        # 只读打开，避免为探测凭据而创建/修改 Session 文件
+        uri = f"file:{Path(session_file).resolve()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5, check_same_thread=False)
+        try:
+            row = conn.execute("SELECT api_id FROM sessions LIMIT 1").fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        return None
+    if not row or row[0] in (None, "", 0):
+        return None
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def session_string_api_id(session_string: Optional[str]) -> Optional[int]:
+    """从 Pyrogram 新版 session_string 读取 api_id（旧格式无 api_id，返回 None）。"""
+    if not isinstance(session_string, str) or not session_string.strip():
+        return None
+    import base64
+    import struct
+
+    cleaned = session_string.strip()
+    try:
+        raw = base64.urlsafe_b64decode(cleaned + "=" * (-len(cleaned) % 4))
+    except Exception:
+        return None
+    if len(raw) != struct.calcsize(_SESSION_STRING_FORMAT):
+        return None
+    try:
+        _dc_id, api_id, _test_mode, _auth_key, _user_id, _is_bot = struct.unpack(
+            _SESSION_STRING_FORMAT, raw
+        )
+    except struct.error:
+        return None
+    try:
+        parsed = int(api_id)
+    except (TypeError, ValueError):
+        return None
+    return parsed or None
+
+
+def get_account_session_api_id(
+    account_name: str, *, session_dir: Optional[Path] = None
+) -> Optional[int]:
+    """读取账号 Session 创建时的 api_id，不修改任何 Session 数据。"""
+    if session_dir is None:
+        session_dir = get_settings().resolve_session_dir()
+    if not is_string_session_mode():
+        api_id = _read_sqlite_session_api_id(
+            Path(session_dir) / f"{account_name}.session"
+        )
+        if api_id:
+            return api_id
+    try:
+        stored = get_account_session_string(account_name)
+    except Exception:
+        stored = None
+    api_id = session_string_api_id(stored)
+    if api_id:
+        return api_id
+    # 文件模式下的回退缓存串
+    try:
+        from_file = load_session_string_file(Path(session_dir), account_name)
+    except Exception:
+        from_file = None
+    return session_string_api_id(from_file)
+
+
+def replace_session_file(
+    staging_base: Path, account_name: str, session_dir: Path
+) -> None:
+    """把登录暂存 Session 原子替换为正式 Session（保留旧文件直到成功）。"""
+    import os
+    import sqlite3
+
+    staging_base = Path(staging_base)
+    target = Path(session_dir) / f"{account_name}.session"
+    staged = (
+        staging_base.with_suffix(".session")
+        if staging_base.suffix != ".session"
+        else staging_base
+    )
+    if not staged.is_file():
+        raise FileNotFoundError(f"staging session missing: {staged}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    # 先把暂存库的 WAL 尽量合并回主库，避免替换后丢失最新写入
+    try:
+        conn = sqlite3.connect(str(staged), timeout=5)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    moved_suffixes: list[str] = []
+    os.replace(staged, target)
+    for suffix in ("-wal", "-shm", "-journal"):
+        src_aux = Path(str(staged) + suffix)
+        if not src_aux.exists():
+            continue
+        os.replace(src_aux, Path(str(target) + suffix))
+        moved_suffixes.append(suffix)
+
+    # 旧主库遗留、且新主库未携带的辅助文件必须删除，否则 SQLite 会误判
+    for suffix in ("-wal", "-shm", "-journal"):
+        if suffix in moved_suffixes:
+            continue
+        stale = Path(str(target) + suffix)
+        try:
+            stale.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def cleanup_staging_session(staging_base: Path) -> None:
+    """删除登录暂存 Session 及其 SQLite 辅助文件。"""
+    staging_base = Path(staging_base)
+    staged = (
+        staging_base.with_suffix(".session")
+        if staging_base.suffix != ".session"
+        else staging_base
+    )
+    for path in (
+        staged,
+        Path(str(staged) + "-journal"),
+        Path(str(staged) + "-wal"),
+        Path(str(staged) + "-shm"),
+    ):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def get_account_proxy(account_name: str) -> Optional[str]:

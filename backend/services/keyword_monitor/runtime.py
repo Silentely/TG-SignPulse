@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -887,7 +886,8 @@ class KeywordMonitorService:
         async with self._lock:
             from backend.services.config import get_config_service
             from backend.services.telegram.credentials import (
-                resolve_telegram_api_credentials,
+                ensure_session_credentials_match,
+                resolve_telegram_credentials,
             )
             from tg_signer.core import (
                 _CLIENT_INSTANCES,
@@ -923,16 +923,6 @@ class KeywordMonitorService:
             session_dir = settings.resolve_session_dir()
             global_settings = get_config_service().get_global_settings()
             tg_config = get_config_service().get_telegram_config()
-            try:
-                api_id, api_hash = resolve_telegram_api_credentials(
-                    tg_config,
-                    env_api_id=os.getenv("TG_API_ID"),
-                    env_api_hash=os.getenv("TG_API_HASH"),
-                )
-            except ValueError:
-                # 监控启动不强制校验凭据，缺失时由后续客户端创建报错
-                api_id = None
-                api_hash = None
 
             accounts = sorted({rule.account_name for rule in rules})
             started_accounts: set[str] = set()
@@ -941,6 +931,27 @@ class KeywordMonitorService:
                     rule for rule in rules if rule.account_name == account_name
                 ]
                 chat_ids = sorted({rule.chat_id for rule in account_rules})
+                # 每个账号独立解析凭据：单账号配置异常只影响该账号，
+                # 不得让其他账号沿用上一次解析结果（凭据交叉污染）。
+                try:
+                    credentials = resolve_telegram_credentials(
+                        tg_config, account_name=account_name
+                    )
+                    ensure_session_credentials_match(
+                        account_name, credentials, session_dir=session_dir
+                    )
+                    api_id, api_hash = credentials.as_tuple()
+                except Exception as exc:
+                    logger.warning(
+                        "关键词监听账号 %s 凭据解析失败: %s", account_name, exc
+                    )
+                    for rule in account_rules:
+                        self._append_rule_log(
+                            rule,
+                            f"关键词后台监听启动失败：API 凭据无效 ({exc})",
+                            active=False,
+                        )
+                    continue
                 proxy_value = resolve_effective_proxy(
                     account_name,
                     global_proxy=global_settings.get("global_proxy"),
@@ -1005,16 +1016,30 @@ class KeywordMonitorService:
 
                 async with account_lock_context(account_name):
                     client_key = str(session_dir.joinpath(account_name).resolve())
+                    # 凭据指纹已纳入缓存键，按键前缀匹配同账号的 file / ::memory 实例
                     existing = _CLIENT_INSTANCES.get(client_key)
-                    if (
-                        existing is not None
-                        and getattr(existing, "_tg_signpulse_no_updates", None) is True
-                    ):
-                        logger.info(
-                            "关键词监听客户端需启用消息更新，正在重建: account=%s",
-                            account_name,
-                        )
+                    if existing is not None:
+                        # 旧键（未带凭据指纹）只可能来自升级前进程，直接重建
                         await close_client_by_name(account_name, workdir=session_dir)
+                    else:
+                        for cached_key, cached in list(_CLIENT_INSTANCES.items()):
+                            if not (
+                                cached_key == client_key
+                                or cached_key.startswith(f"{client_key}::")
+                            ):
+                                continue
+                            if (
+                                getattr(cached, "_tg_signpulse_no_updates", None)
+                                is True
+                            ):
+                                logger.info(
+                                    "关键词监听客户端需启用消息更新，正在重建: account=%s",
+                                    account_name,
+                                )
+                                await close_client_by_name(
+                                    account_name, workdir=session_dir
+                                )
+                            break
 
                     client = get_client(
                         account_name,

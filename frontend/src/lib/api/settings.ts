@@ -201,7 +201,9 @@ export const runDeviceKeepalive = (token: string) =>
 
 export interface TelegramConfig {
   api_id: string;
+  /** 服务端始终返回脱敏 Hash，绝不回传明文 */
   api_hash: string;
+  has_api_hash: boolean;
   is_custom: boolean;
   default_api_id: string;
   default_api_hash: string;

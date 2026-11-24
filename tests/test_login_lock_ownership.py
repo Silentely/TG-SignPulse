@@ -330,8 +330,8 @@ async def test_start_login_releases_own_lock_on_api_error(phone_service, monkeyp
             "backend.services.config.get_config_service", return_value=config_service
         ),
         patch(
-            "backend.services.telegram.credentials.resolve_telegram_api_credentials",
-            side_effect=ValueError("no api"),
+            "backend.services.telegram.credentials.resolve_telegram_credentials",
+            side_effect=ValueError("Telegram API ID 与 API Hash 必须成对配置"),
         ),
     ):
         with pytest.raises(ValueError, match="Telegram API ID"):

@@ -50,7 +50,9 @@ class _Dummy(TelegramQrLoginMixin):
     async def _apply_migrate_auth(self, client, data):
         pass
 
-    async def _persist_client_session(self, client, account_name, proxy):
+    async def _persist_client_session(
+        self, client, account_name, proxy, *, login_session=None
+    ):
         self._persisted = (account_name, proxy)
 
     async def _finalize_qr_login_success(self, login_id, data, me):

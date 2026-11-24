@@ -24,8 +24,10 @@ from backend.utils.names import natural_sort_key, validate_storage_name
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.storage import move_storage_path
 from backend.utils.tg_session import (
+    clear_account_credentials_relogin,
     delete_account_session_string,
     delete_session_string_file,
+    get_account_license_credentials_for_api,
     get_account_profile,
     get_account_session_string,
     get_account_status,
@@ -112,6 +114,11 @@ def mark_account_connected(account_name: str) -> None:
         code="OK",
         needs_relogin=False,
     )
+    # 新会话已用当前凭据完成授权，清除「凭据变更需重登」标记
+    try:
+        clear_account_credentials_relogin(account_name)
+    except Exception as exc:
+        logger.debug("清除账号凭据重登标记失败 %s: %s", account_name, exc)
 
 
 class TelegramAccountsMixin:
@@ -200,6 +207,21 @@ class TelegramAccountsMixin:
         profile: Dict[str, Any],
     ) -> Dict[str, Any]:
         """构造账号列表条目：session 文件、profile 元数据与运行状态合并为单一 dict。"""
+        try:
+            credential_fields = get_account_license_credentials_for_api(account_name)
+        except Exception as exc:
+            # 密钥不可用等场景也不能让整个账号列表 500：明确标记为自定义但无法展示
+            logger.warning("读取账号 API 凭据失败 %s: %s", account_name, exc)
+            credential_fields = {
+                "use_custom_api": bool(profile.get("has_api_hash")),
+                "api_id": profile.get("api_id"),
+                "has_api_hash": bool(profile.get("has_api_hash")),
+                "api_hash_masked": None,
+                "api_credentials_source": "custom"
+                if profile.get("has_api_hash")
+                else "global",
+                "needs_relogin": bool(profile.get("needs_relogin", False)),
+            }
         return {
             "name": account_name,
             "session_file": str(session_file),
@@ -210,6 +232,7 @@ class TelegramAccountsMixin:
             "tags": profile.get("tags") or [],
             "device_family": profile.get("device_family"),
             "device_profile": profile.get("device_profile"),
+            **credential_fields,
         }
 
     def list_accounts(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
@@ -564,6 +587,16 @@ class TelegramAccountsMixin:
         ):
             raise RuntimeError("PROXY_REQUIRED_BLOCKED: Global policy requires proxy")
 
+        from backend.services.telegram.credentials import (
+            ensure_session_credentials_match,
+            resolve_account_credentials,
+        )
+
+        credentials = resolve_account_credentials(account_name)
+        ensure_session_credentials_match(
+            account_name, credentials, session_dir=self.session_dir
+        )
+
         client = get_client(
             account_name,
             proxy=proxy_dict,
@@ -571,6 +604,8 @@ class TelegramAccountsMixin:
             session_string=session_string,
             in_memory=in_memory,
             no_updates=no_updates,
+            api_id=credentials.api_id,
+            api_hash=credentials.api_hash,
             **device_kwargs,
         )
 
@@ -747,7 +782,17 @@ class TelegramAccountsMixin:
 
         timeout_seconds = max(1.0, min(float(timeout_seconds or 8.0), 20.0))
 
+        from backend.services.telegram.credentials import (
+            TelegramCredentialsError,
+            ensure_session_credentials_match,
+            resolve_account_credentials,
+        )
+
         try:
+            credentials = resolve_account_credentials(account_name)
+            ensure_session_credentials_match(
+                account_name, credentials, session_dir=self.session_dir
+            )
             client = get_client(
                 account_name,
                 proxy=proxy_dict,
@@ -755,8 +800,29 @@ class TelegramAccountsMixin:
                 session_string=session_string,
                 in_memory=in_memory,
                 no_updates=no_updates,
+                api_id=credentials.api_id,
+                api_hash=credentials.api_hash,
                 **device_kwargs,
             )
+        except TelegramCredentialsError as e:
+            code = getattr(e, "code", "API_CREDENTIALS_INVALID")
+            needs_relogin = code == "API_CREDENTIALS_MISMATCH"
+            set_account_status(
+                account_name,
+                status="blocked",
+                message=str(e),
+                code=code,
+                needs_relogin=needs_relogin,
+            )
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "blocked",
+                "message": str(e),
+                "code": code,
+                "checked_at": checked_at,
+                "needs_relogin": needs_relogin,
+            }
         except Exception as e:
             return {
                 "account_name": account_name,
@@ -1002,6 +1068,8 @@ class TelegramAccountsMixin:
         session_type: str = "auto",
         force: bool = False,
         proxy: Optional[str] = None,
+        api_id: Optional[int | str] = None,
+        api_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """导入外部 Telegram 会话（Telethon SQLite, Pyrogram SQLite, Pyrogram StringSession）"""
         from backend.services.telegram.session_importer import (
@@ -1015,6 +1083,8 @@ class TelegramAccountsMixin:
             force=force,
             proxy=proxy,
             target_dir=self.session_dir,
+            api_id=api_id,
+            api_hash=api_hash,
         )
         self._accounts_cache = None
         return res
@@ -1027,6 +1097,8 @@ class TelegramAccountsMixin:
         password: Optional[str] = None,
         force: bool = False,
         proxy: Optional[str] = None,
+        api_id: Optional[int | str] = None,
+        api_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """导入 Telegram Desktop (TData) 归档包。"""
         from backend.services.telegram.tdata_importer import (
@@ -1040,6 +1112,8 @@ class TelegramAccountsMixin:
             force=force,
             proxy=proxy,
             target_dir=self.session_dir,
+            api_id=api_id,
+            api_hash=api_hash,
         )
         self._accounts_cache = None
         return res

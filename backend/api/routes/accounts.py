@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -126,6 +126,8 @@ async def start_account_login(
             account_name=request.account_name,
             phone_number=request.phone_number,
             proxy=request.proxy,
+            api_id=request.api_id,
+            api_hash=request.api_hash,
         )
         rate_limiter.reset("accounts.login.start", limit_key)
 
@@ -174,6 +176,8 @@ async def verify_account_login(
             phone_code_hash=request.phone_code_hash,
             password=request.password,
             proxy=request.proxy,
+            api_id=request.api_id,
+            api_hash=request.api_hash,
         )
         rate_limiter.reset("accounts.login.verify", limit_key)
 
@@ -230,7 +234,10 @@ async def start_qr_login(
             block_seconds=900,
         )
         result = await get_telegram_service().start_qr_login(
-            account_name=request.account_name, proxy=request.proxy
+            account_name=request.account_name,
+            proxy=request.proxy,
+            api_id=request.api_id,
+            api_hash=request.api_hash,
         )
         rate_limiter.reset("accounts.qr.start", limit_key)
 
@@ -379,6 +386,8 @@ async def import_session(
     force = False
     proxy: Optional[str] = None
     tdata_password: Optional[str] = None
+    api_id: Optional[Union[int, str]] = None
+    api_hash: Optional[str] = None
     payload: bytes | str = ""
 
     if "multipart/form-data" in content_type:
@@ -393,6 +402,10 @@ async def import_session(
         proxy = str(proxy_raw).strip() if proxy_raw else None
         tdata_pwd_raw = form.get("tdata_password")
         tdata_password = str(tdata_pwd_raw).strip() if tdata_pwd_raw else None
+        api_id_raw = form.get("api_id")
+        api_id = str(api_id_raw).strip() if api_id_raw not in (None, "") else None
+        api_hash_raw = form.get("api_hash")
+        api_hash = str(api_hash_raw).strip() if api_hash_raw not in (None, "") else None
 
         file = form.get("file")
         if file and hasattr(file, "read"):
@@ -411,6 +424,8 @@ async def import_session(
             force = req.force
             proxy = req.proxy
             tdata_password = req.tdata_password.strip() if req.tdata_password else None
+            api_id = req.api_id
+            api_hash = req.api_hash
             if not session_content:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -468,6 +483,8 @@ async def import_session(
                 password=tdata_password,
                 force=force,
                 proxy=proxy,
+                api_id=api_id,
+                api_hash=api_hash,
             )
         else:
             res = await svc.import_session(
@@ -476,6 +493,8 @@ async def import_session(
                 session_type=session_type,
                 force=force,
                 proxy=proxy,
+                api_id=api_id,
+                api_hash=api_hash,
             )
         return ImportSessionResponse(
             success=True,
@@ -1078,6 +1097,30 @@ async def update_account(
 
         actual_account_name = str(current_account.get("name") or account_name).strip()
 
+        fields_set = getattr(request, "model_fields_set", None) or getattr(
+            request, "__fields_set__", set()
+        )
+        credentials_touched = bool({"api_id", "api_hash"} & set(fields_set))
+        if credentials_touched:
+            from backend.services.account_lifecycle import _assert_idle
+            from backend.services.sign_tasks import get_sign_task_service
+            from tg_signer.core import is_account_client_active
+
+            if is_account_client_active(
+                actual_account_name, getattr(service, "session_dir", None)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="ACCOUNT_BUSY",
+                )
+            try:
+                _assert_idle(get_sign_task_service(), actual_account_name)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="ACCOUNT_BUSY",
+                ) from exc
+
         device_profile_to_save = None
         device_family_to_save = None
         if request.device_family is not None or request.device_profile is not None:
@@ -1106,6 +1149,42 @@ async def update_account(
             elif request.device_family is not None:
                 device_family_to_save = request.device_family
                 device_profile_to_save = get_random_profile(request.device_family)
+
+        if credentials_touched:
+            from backend.services.telegram.credentials import (
+                ApiCredentialsInvalid,
+                ApiCredentialsPairRequired,
+                apply_account_credential_update,
+            )
+            from tg_signer.core import close_client_by_name
+
+            try:
+                apply_account_credential_update(
+                    actual_account_name,
+                    api_id=request.api_id,
+                    api_hash=request.api_hash,
+                    fields_set=set(fields_set),
+                )
+            except ApiCredentialsPairRequired as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="API_CREDENTIALS_PAIR_REQUIRED",
+                ) from exc
+            except ApiCredentialsInvalid as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="API_ID_INVALID",
+                ) from exc
+            # 凭据变更后立即逐出该账号 file 与 ::memory 两种缓存连接，
+            # 避免旧连接继续使用旧凭据。
+            try:
+                await close_client_by_name(
+                    actual_account_name, workdir=service.session_dir
+                )
+            except Exception as exc:
+                logger.warning(
+                    "账号凭据更新后关闭旧客户端失败 %s: %s", actual_account_name, exc
+                )
 
         target_account_name, renamed = resolve_account_rename_target(
             actual_account_name,

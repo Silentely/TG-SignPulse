@@ -800,12 +800,15 @@ def import_preview(
 
 class TelegramConfigRequest(BaseModel):
     api_id: str
-    api_hash: str
+    # 留空 / "KEEP" / 掩码值表示保留磁盘上已有的 Hash
+    api_hash: Optional[str] = None
 
 
 class TelegramConfigResponse(BaseModel):
     api_id: str
+    # 始终脱敏，绝不下发明文 Hash
     api_hash: str
+    has_api_hash: bool = False
     is_custom: bool
     default_api_id: str
     default_api_hash: str
@@ -819,14 +822,18 @@ class TelegramConfigSaveResponse(BaseModel):
 @router.get("/telegram", response_model=TelegramConfigResponse)
 def get_telegram_config(current_user: User = Depends(get_current_user)):
     try:
+        from backend.services.telegram.credentials import mask_api_hash
+
         config = get_config_service().get_telegram_config()
         service = get_config_service()
+        raw_hash = config.get("api_hash")
         return TelegramConfigResponse(
-            api_id=config.get("api_id", ""),
-            api_hash=config.get("api_hash", ""),
+            api_id=config.get("api_id", "") or "",
+            api_hash=mask_api_hash(raw_hash) or "",
+            has_api_hash=bool(raw_hash),
             is_custom=bool(config.get("is_custom", False)),
             default_api_id=service.DEFAULT_TG_API_ID,
-            default_api_hash=service.DEFAULT_TG_API_HASH,
+            default_api_hash=mask_api_hash(service.DEFAULT_TG_API_HASH) or "",
         )
     except Exception as e:
         logger.error("读取 Telegram 配置失败: %s", e, exc_info=True)
@@ -841,30 +848,48 @@ def save_telegram_config(
     request: TelegramConfigRequest, current_user: User = Depends(get_current_user)
 ):
     try:
-        if not request.api_id or not request.api_hash:
+        from backend.services.telegram.credentials import (
+            ApiCredentialsInvalid,
+            ApiCredentialsPairRequired,
+            parse_credential_pair,
+        )
+
+        service = get_config_service()
+        raw_id = str(request.api_id or "").strip()
+        raw_hash = str(request.api_hash or "").strip()
+
+        keep_hash = not raw_hash or raw_hash.upper() == "KEEP" or "****" in raw_hash
+        if keep_hash:
+            existing = service.get_telegram_config()
+            if existing.get("is_custom") and existing.get("configured_api_hash"):
+                raw_hash = str(existing["configured_api_hash"])
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="API_CREDENTIALS_PAIR_REQUIRED",
+                )
+
+        try:
+            pair = parse_credential_pair(raw_id, raw_hash, source="panel")
+        except ApiCredentialsPairRequired as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API_CREDENTIALS_PAIR_REQUIRED",
+            ) from exc
+        except ApiCredentialsInvalid as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API_ID_INVALID",
+            ) from exc
+        if pair is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="API_CREDENTIALS_REQUIRED",
             )
 
-        # api_id 必须是正整数，否则要到登录阶段 int() 解析时才失败，在保存处提前拦截
-        api_id = request.api_id.strip()
-        try:
-            api_id_value = int(api_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="API_ID_INVALID",
-            )
-        if api_id_value <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="API_ID_INVALID",
-            )
-
-        success = get_config_service().save_telegram_config(
-            api_id=api_id,
-            api_hash=request.api_hash,
+        success = service.save_telegram_config(
+            api_id=str(pair.api_id),
+            api_hash=pair.api_hash,
         )
         if not success:
             raise HTTPException(

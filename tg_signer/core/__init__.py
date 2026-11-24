@@ -16,6 +16,7 @@ from tg_signer.core.client import (
     _CLIENT_ASYNC_LOCKS,
     _CLIENT_INSTANCES,
     _CLIENT_REFS,
+    ApiConfigError,
     Client,
     _is_callback_confirmation_unavailable,
     _is_callback_data_invalid,
@@ -34,6 +35,7 @@ from tg_signer.core.client import (
     make_dirs,
     readable_chat,
     readable_message,
+    register_account_credential_resolver,
 )
 from tg_signer.core.monitor import UserMonitor
 from tg_signer.core.runtime import (
@@ -66,6 +68,8 @@ __all__ = [
     "invalidate_cached_client",
     "is_account_client_active",
     "get_api_config",
+    "ApiConfigError",
+    "register_account_credential_resolver",
     "get_proxy",
     "get_now",
     "get_task_timezone",

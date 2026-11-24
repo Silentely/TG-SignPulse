@@ -438,31 +438,44 @@ async def verify_imported_session(
     temp_session_path: Path,
     target_dir: Path,
     proxy: Optional[str] = None,
-    api_id: Optional[int] = None,
+    api_id: Optional[int | str] = None,
     api_hash: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Perform first-connect check with get_me(), update user_id, and atomically persist session."""
     from backend.services.config import get_config_service
+    from backend.services.telegram.credentials import (
+        parse_credential_pair,
+        resolve_telegram_credentials,
+    )
 
     config_service = get_config_service()
 
-    if api_id is None or api_hash is None:
+    provided_pair = None
+    if api_id not in (None, "") or api_hash not in (None, ""):
         try:
-            from backend.services.telegram.credentials import (
-                resolve_telegram_api_credentials,
+            provided_pair = parse_credential_pair(
+                api_id, api_hash, source="account", account_name=account_name
             )
-
-            tg_config = config_service.get_telegram_config()
-            api_id, api_hash = resolve_telegram_api_credentials(
-                tg_config,
-                env_api_id=os.getenv("TG_API_ID"),
-                env_api_hash=os.getenv("TG_API_HASH"),
-            )
-        except Exception as exc:
+        except ValueError as exc:
             _cleanup_file_and_aux(temp_session_path)
-            raise RuntimeError(
-                "CREDENTIALS_RESOLUTION_FAILED: Telegram API credentials not configured"
-            ) from exc
+            raise ValueError(str(exc)) from exc
+
+    try:
+        if provided_pair is not None:
+            resolved_credentials = provided_pair
+        else:
+            resolved_credentials = resolve_telegram_credentials(
+                config_service.get_telegram_config(),
+                account_name=account_name,
+            )
+    except Exception as exc:
+        _cleanup_file_and_aux(temp_session_path)
+        raise RuntimeError(
+            "CREDENTIALS_RESOLUTION_FAILED: Telegram API credentials not configured"
+        ) from exc
+
+    api_id = resolved_credentials.api_id
+    api_hash = resolved_credentials.api_hash
 
     # Fail-closed Proxy Gate
     require_proxy = config_service.require_proxy_for_telegram()
@@ -544,6 +557,16 @@ async def verify_imported_session(
 
     # Set account profile and mark connected
     set_account_profile(account_name, proxy=proxy)
+    if provided_pair is not None:
+        from backend.utils.tg_session import set_account_credentials
+
+        # 导入时显式填写的凭据随会话一起落盘；新会话已授权，无需再次重登
+        set_account_credentials(
+            account_name,
+            provided_pair.api_id,
+            provided_pair.api_hash,
+            mark_needs_relogin=False,
+        )
     mark_account_connected(account_name)
 
     # Cache session string
@@ -570,6 +593,8 @@ async def import_session(
     force: bool = False,
     proxy: Optional[str] = None,
     target_dir: Optional[Path] = None,
+    api_id: Optional[int | str] = None,
+    api_hash: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Validate, convert, and import an external Telegram session."""
     account_name = validate_storage_name(account_name, field_name="account_name")
@@ -645,4 +670,6 @@ async def import_session(
             temp_session_path=temp_path,
             target_dir=target_dir,
             proxy=proxy,
+            api_id=api_id,
+            api_hash=api_hash,
         )

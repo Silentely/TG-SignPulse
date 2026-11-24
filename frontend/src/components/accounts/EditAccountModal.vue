@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Modal from '../Modal.vue'
 import AccountImpactModal from './AccountImpactModal.vue'
+import AccountApiCredentials from './AccountApiCredentials.vue'
 import { previewAccountChange, applyAccountChange, type AccountChangePlan } from '../../lib/api/accounts'
 import { updateAccount } from '../../lib/api'
+import { validateAccountApiCredentials } from '../../lib/api-credentials'
 import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -29,28 +31,60 @@ const emit = defineEmits<{
 const form = ref({
   new_account_name: '',
   remark: '',
-  proxy: ''
+  proxy: '',
+  api_id: '',
+  api_hash: '',
 })
 const loading = ref(false)
 const error = ref('')
+
+const apiCredentialsRef = ref<InstanceType<typeof AccountApiCredentials> | null>(null)
+/** 打开弹窗时的 API ID 基线：用于判断用户是否真的改动了凭据 */
+const initialApiId = ref('')
+
+const hasCustomApi = computed(() => !!props.account?.raw?.use_custom_api)
+const hasApiHash = computed(() => !!props.account?.raw?.has_api_hash)
+
+const credentialsChanged = computed(
+  () =>
+    form.value.api_id.trim() !== initialApiId.value.trim() ||
+    form.value.api_hash.trim() !== '',
+)
 
 const handleClosed = () => emit('closed')
 
 watch(() => props.isOpen, (val) => {
   if (val && props.account) {
+    initialApiId.value = props.account.raw.api_id != null
+      ? String(props.account.raw.api_id)
+      : ''
     form.value = {
       new_account_name: props.account.name || '',
       remark: props.account.remark || '',
-      proxy: props.account.raw.proxy || ''
+      proxy: props.account.raw.proxy || '',
+      api_id: initialApiId.value,
+      api_hash: '',
     }
     error.value = ''
   }
-})
+}, { immediate: true })
+
+const ensureApiCredentialsValid = (): boolean => {
+  // Hash 留空 + 已保存 Hash：保留原值，仍是完整凭据对
+  const check = validateAccountApiCredentials(form.value.api_id, form.value.api_hash, {
+    canKeepExistingHash: hasApiHash.value,
+  })
+  if (check.valid) return true
+  // 错误文案由面板内联展示：避免用户补齐后顶部仍残留过期提示
+  apiCredentialsRef.value?.expand()
+  return false
+}
 
 const renamePlan = ref<AccountChangePlan | null>(null)
 const handleSave = async (confirmed = false) => {
   const token = getAuthToken()
   if (!token || !props.account) return
+  if (!ensureApiCredentialsValid()) return
 
   loading.value = true
   error.value = ''
@@ -69,7 +103,14 @@ const handleSave = async (confirmed = false) => {
     await updateAccount(token, accountName, {
       new_account_name: null,
       remark: form.value.remark || null,
-      proxy: form.value.proxy || null
+      proxy: form.value.proxy || null,
+      // 仅在用户实际改动凭据时下发；两项都为空表示清除账号级凭据
+      ...(credentialsChanged.value
+        ? {
+            api_id: form.value.api_id.trim() || null,
+            api_hash: form.value.api_hash.trim() || null,
+          }
+        : {}),
     })
     toast.success(t('editAccount.saveSuccess'))
     emit('success')
@@ -122,6 +163,18 @@ const handleSave = async (confirmed = false) => {
           class="ui-input"
         >
       </div>
+
+      <!-- 账号级 API 凭据：默认收起；留空 Hash 表示保留已保存值 -->
+      <AccountApiCredentials
+        ref="apiCredentialsRef"
+        v-model:api-id="form.api_id"
+        v-model:api-hash="form.api_hash"
+        edit-mode
+        :has-custom-api="hasCustomApi"
+        :has-api-hash="hasApiHash"
+        :api-hash-masked="account?.raw?.api_hash_masked || null"
+        :needs-relogin="!!account?.raw?.needs_relogin"
+      />
     </div>
 
     <template #footer>

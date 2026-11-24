@@ -276,7 +276,6 @@ async def _runner_resolve_credentials(
 ) -> None:
     """Phase 5: 解析 API 凭据、session 模式、代理配置。"""
     from backend.services.config import get_config_service
-    from backend.services.telegram.credentials import resolve_telegram_api_credentials
     from backend.utils.proxy import build_proxy_dict
     from backend.utils.tg_session import (
         get_session_mode,
@@ -287,13 +286,16 @@ async def _runner_resolve_credentials(
     account_name = state["account_name"]
     config_service = get_config_service()
     tg_config = config_service.get_telegram_config()
-    api_id, api_hash = resolve_telegram_api_credentials(
-        tg_config,
-        env_api_id=os.getenv("TG_API_ID"),
-        env_api_hash=os.getenv("TG_API_HASH"),
+    from backend.services.telegram.credentials import (
+        ensure_session_credentials_match,
+        resolve_telegram_credentials,
     )
 
+    credentials = resolve_telegram_credentials(tg_config, account_name=account_name)
     session_dir = state["settings"].resolve_session_dir()
+    ensure_session_credentials_match(account_name, credentials, session_dir=session_dir)
+    api_id, api_hash = credentials.as_tuple()
+
     session_mode = get_session_mode()
     session_string = load_account_session_string(
         account_name, session_dir=session_dir, session_mode=session_mode

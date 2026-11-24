@@ -22,6 +22,9 @@ import { useConfirm } from './useConfirm'
 
 export function useSettingsSave(options: {
   tgConfig: Ref<TgFormState>
+  /** 全局 API Hash 是否已保存（GET 只返回脱敏值） */
+  tgHasApiHash: Ref<boolean>
+  tgApiHashMasked: Ref<string>
   aiConfig: Ref<AiFormState>
   aiKeyDecryptFailed: Ref<boolean>
   buildGeneralPayload: () => Record<string, unknown>
@@ -32,6 +35,8 @@ export function useSettingsSave(options: {
   markSectionClean: (section: SettingsSection) => void
   afterBotTokenSaved: () => void
   afterWebdavSettingsSaved: () => void
+  afterTgSaved: () => void
+  afterTgReset: () => void
   loadBackupStatus: (token: string) => Promise<void>
   /** 服务端 AI 配置是否已成功加载；未加载时不得用空列表覆盖已保存的备用节点 */
   aiConfigLoaded?: Ref<boolean>
@@ -154,6 +159,7 @@ export function useSettingsSave(options: {
               api_id: options.tgConfig.value.api_id,
               api_hash: options.tgConfig.value.api_hash,
             })
+            options.afterTgSaved()
             options.markSectionClean('tg')
           } catch (e: unknown) {
             partial.push(t('settings.tgApi'))
@@ -241,6 +247,7 @@ export function useSettingsSave(options: {
         api_id: options.tgConfig.value.api_id,
         api_hash: options.tgConfig.value.api_hash,
       })
+      options.afterTgSaved()
       options.markSectionClean('tg')
       notifySuccess(t('settings.tgConfigSaved'))
     } catch (e: unknown) {
@@ -264,6 +271,7 @@ export function useSettingsSave(options: {
       await resetTelegramConfig(token)
       options.tgConfig.value.api_id = ''
       options.tgConfig.value.api_hash = ''
+      options.afterTgReset()
       options.markSectionClean('tg')
       notifySuccess(t('settings.resetSuccess'))
     } catch (e: unknown) {

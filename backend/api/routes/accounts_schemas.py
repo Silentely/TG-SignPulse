@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from pydantic import BaseModel, validator
 
 from backend.utils.task_logs import extract_last_target_message
 
 
-class LoginStartRequest(BaseModel):
+class AccountApiCredentialsFields(BaseModel):
+    """账号级 Telegram API 凭据输入（可选，成对填写）。"""
+
+    api_id: Optional[Union[int, str]] = None
+    api_hash: Optional[str] = None
+
+
+class LoginStartRequest(AccountApiCredentialsFields):
     """开始登录请求"""
 
     account_name: str
@@ -26,7 +33,7 @@ class LoginStartResponse(BaseModel):
     message: str = "验证码已发送到您的手机"
 
 
-class LoginVerifyRequest(BaseModel):
+class LoginVerifyRequest(AccountApiCredentialsFields):
     """验证登录请求"""
 
     account_name: str
@@ -47,7 +54,7 @@ class LoginVerifyResponse(BaseModel):
     message: str
 
 
-class QrLoginStartRequest(BaseModel):
+class QrLoginStartRequest(AccountApiCredentialsFields):
     """扫码登录请求"""
 
     account_name: str
@@ -80,6 +87,12 @@ class AccountInfo(BaseModel):
     tags: list[str] = []
     device_family: Optional[str] = None
     device_profile: Optional[Dict[str, Any]] = None
+    # 账号级 API 凭据（Hash 始终脱敏）
+    use_custom_api: bool = False
+    api_id: Optional[int] = None
+    has_api_hash: bool = False
+    api_hash_masked: Optional[str] = None
+    api_credentials_source: Literal["custom", "global"] = "global"
 
 
 class QrLoginStatusResponse(BaseModel):
@@ -140,7 +153,7 @@ class DeleteAccountResponse(BaseModel):
 
 
 class AccountUpdateRequest(BaseModel):
-    """更新账号备注/代理/标签/设备画像"""
+    """更新账号备注/代理/标签/设备画像/API 凭据"""
 
     new_account_name: Optional[str] = None
     remark: Optional[str] = None
@@ -148,6 +161,9 @@ class AccountUpdateRequest(BaseModel):
     tags: Optional[list[str]] = None
     device_family: Optional[str] = None
     device_profile: Optional[Dict[str, Any]] = None
+    # 未出现在请求中 = 不修改；显式 null/空 = 清除；api_hash="KEEP" 表示保留原 Hash
+    api_id: Optional[Union[int, str]] = None
+    api_hash: Optional[str] = None
 
     @validator("device_family")
     def validate_family(cls, v):
@@ -282,7 +298,7 @@ class ClearAccountLogsResponse(BaseModel):
     code: Optional[str] = None
 
 
-class ImportSessionRequest(BaseModel):
+class ImportSessionRequest(AccountApiCredentialsFields):
     """会话导入请求（支持 StringSession 或 base64/文件，支持 TData zip）"""
 
     account_name: str

@@ -888,6 +888,7 @@
     "apiIdPlaceholder": "e.g. 1234567",
     "apiHash": "API Hash",
     "apiHashPlaceholder": "32-char hex, obtainable at my.telegram.org",
+    "apiHashStoredHint": "The server has saved an API Hash (masked only). Leave the field blank to keep it.",
     "accountCooldownHint": "Min seconds between consecutive runs for the same account",
     "historyMaxAgeHint": "Days of history logs to keep; older entries are pruned",
     "aiVisionTimeoutHint": "Timeout in seconds for AI vision requests",
@@ -1376,6 +1377,24 @@
     "verifyFailed": "Verification failed",
     "disableFailed": "Disable failed",
     "totpCode": "Verification code"
+  },
+  "accountApi": {
+    "advanced": "Advanced settings",
+    "customBadge": "Configured",
+    "description": "Use dedicated API credentials for this account. Leave blank to inherit the global settings.",
+    "apiId": "Telegram API ID",
+    "apiIdPlaceholder": "Leave blank to use global config",
+    "apiHash": "Telegram API Hash",
+    "apiHashPlaceholder": "Leave blank to use global config",
+    "keepHashPlaceholder": "Leave blank to keep the current hash ({hash})",
+    "pairRequired": "API ID and API Hash must be filled in together, or both left blank to use the global config",
+    "idInvalid": "Telegram API ID must be a positive integer",
+    "currentHash": "Current saved hash: {hash}.",
+    "keepHashHint": "Leave blank to keep the current value.",
+    "clear": "Clear account credentials",
+    "reloginHint": "After changing the API credentials of an existing account, you need to log in to this account again for the change to take effect.",
+    "showSecret": "Show API Hash",
+    "hideSecret": "Hide API Hash"
   },
   "addAccount": {
     "codeTitle": "Code Login",

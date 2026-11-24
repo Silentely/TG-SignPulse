@@ -95,23 +95,21 @@ def test_resolve_telegram_api_credentials():
     )
     assert api_id == 123
     assert api_hash == "abc"
-    with pytest.raises(ValueError):
-        resolve_telegram_api_credentials({})
+    # 未配置面板/环境变量时回退内置默认对
+    default_id, default_hash = resolve_telegram_api_credentials({})
+    assert default_id == 611335
+    assert default_hash == "d524b414d21f4d37f08684c1df41ac9c"
 
 
 @pytest.mark.parametrize(
     ("tg_config", "env_id", "env_hash", "expected"),
     [
-        # env 优先于配置
+        # 完整 env 对优先于面板配置
         ({"api_id": "111", "api_hash": "cfg"}, "222", "env", (222, "env")),
-        # env 仅部分提供时，另一半回退配置
-        ({"api_id": "111", "api_hash": "cfg"}, "222", None, (222, "cfg")),
-        ({"api_id": "111", "api_hash": "cfg"}, None, "env", (111, "env")),
         # int 型 api_id 原样可用，返回类型统一为 (int, str)
         ({"api_id": 42, "api_hash": "h"}, None, None, (42, "h")),
-        # env 为纯空白字符串时，应平滑回退到配置
+        # env 为纯空白字符串时视为未配置，平滑回退到面板对
         ({"api_id": "111", "api_hash": "cfg"}, "   ", "   ", (111, "cfg")),
-        ({"api_id": "111", "api_hash": "cfg"}, "   ", "env", (111, "env")),
     ],
 )
 def test_resolve_telegram_api_credentials_precedence(
@@ -125,6 +123,32 @@ def test_resolve_telegram_api_credentials_precedence(
         )
         == expected
     )
+
+
+@pytest.mark.parametrize(
+    ("tg_config", "env_id", "env_hash"),
+    [
+        # 单边 env 绝不与面板配置拼接
+        ({"api_id": "111", "api_hash": "cfg"}, "222", None),
+        ({"api_id": "111", "api_hash": "cfg"}, None, "env"),
+        ({"api_id": "111", "api_hash": "cfg"}, "   ", "env"),
+        # 单边面板配置同样 fail-closed
+        ({"api_id": "111"}, None, None),
+        ({"api_hash": "cfg"}, None, None),
+    ],
+)
+def test_resolve_telegram_api_credentials_rejects_one_sided(
+    tg_config, env_id, env_hash
+):
+    from backend.services.telegram.credentials import (
+        ApiCredentialsPairRequired,
+        resolve_telegram_api_credentials,
+    )
+
+    with pytest.raises(ApiCredentialsPairRequired):
+        resolve_telegram_api_credentials(
+            tg_config, env_api_id=env_id, env_api_hash=env_hash
+        )
 
 
 @pytest.mark.parametrize(

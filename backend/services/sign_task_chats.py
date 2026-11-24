@@ -536,14 +536,13 @@ async def refresh_account_chats(
     config_service = get_config_service()
     tg_config = config_service.get_telegram_config()
     from backend.services.telegram.credentials import (
-        resolve_telegram_api_credentials,
+        ensure_session_credentials_match,
+        resolve_telegram_credentials,
     )
 
-    api_id, api_hash = resolve_telegram_api_credentials(
-        tg_config,
-        env_api_id=os.getenv("TG_API_ID"),
-        env_api_hash=os.getenv("TG_API_HASH"),
-    )
+    credentials = resolve_telegram_credentials(tg_config, account_name=account_name)
+    ensure_session_credentials_match(account_name, credentials, session_dir=session_dir)
+    api_id, api_hash = credentials.as_tuple()
 
     proxy_dict = None
     proxy_value = get_effective_proxy(account_name)
