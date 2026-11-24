@@ -23,7 +23,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'success'): void
-  (e: 'relogin', name: string): void
+  /** 携带当前表单凭据：重登弹窗可直接回显未保存的修改 */
+  (e: 'relogin', payload: { name: string; apiId: string; apiHash: string }): void
   /** 离场动画播完：显式转发，供父组件串行打开下一个弹窗 */
   (e: 'closed'): void
 }>()
@@ -173,6 +174,7 @@ const handleSave = async (confirmed = false) => {
         :has-custom-api="hasCustomApi"
         :has-api-hash="hasApiHash"
         :api-hash-masked="account?.raw?.api_hash_masked || null"
+        :keep-api-id="initialApiId"
         :needs-relogin="!!account?.raw?.needs_relogin"
       />
     </div>
@@ -182,7 +184,7 @@ const handleSave = async (confirmed = false) => {
         <button 
           type="button"
           class="ui-btn-danger !px-4 !py-2"
-          @click="$emit('relogin', account?.name)"
+          @click="$emit('relogin', { name: account?.name || '', apiId: form.api_id, apiHash: form.api_hash })"
         >
           {{ t('editAccount.relogin') }}
         </button>

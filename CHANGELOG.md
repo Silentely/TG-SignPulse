@@ -3,6 +3,8 @@
 > 记录 TG-SignPulse 各版本的更新内容与演进历史。变更记录撰写规范参见 [CLAUDE.md](./CLAUDE.md)。
 
 ## 2026-11-14 (未发布)
+- **修复**：编辑账号时在高级设置填写的账号级 API ID/Hash 会在点击「重新登录」后回显到登录弹窗，不再显示「留空使用全局配置」。API ID 保持不变时 Hash 留空即沿用已保存值，改动 API ID 则要求重新填写 Hash。
+- **优化**：系统设置「Telegram API」的 API ID 改为明文展示并移除显隐按钮，标签统一为「Telegram API ID」与「Telegram API Hash」。
 - **新增**：账号级 Telegram API 凭据。添加/编辑账号的高级设置可单独配置 `api_id` 与 `api_hash`，留空则继承全局配置；两者必须成对填写，单边配置会被前后端同时拒绝。凭据保存在 `session_dir/accounts.json`，Hash 使用 Fernet 加密落盘，接口仅返回脱敏值。
 - **修复**：全局 Telegram API Hash 的读取接口改为脱敏返回；保存时留空或回传掩码值会保留磁盘上已有的 Hash。
 - **优化**：签到、会话列表、关键词监听、Session 导入/导出与账号状态检测统一使用同一凭据解析器，按账号独立解析并校验 Session 的 `api_id`；凭据变更后要求重新登录，客户端缓存按凭据指纹隔离并同时清理文件与内存模式实例。

@@ -128,7 +128,7 @@ const {
           />
           <TelegramApiSettings
             v-model="tgConfig"
-            :reveal="{ tgApiId: revealSecrets.tgApiId, tgApiHash: revealSecrets.tgApiHash }"
+            :reveal="{ tgApiHash: revealSecrets.tgApiHash }"
             :has-api-hash="tgHasApiHash"
             :api-hash-masked="tgApiHashMasked"
             :loading="tgLoading"

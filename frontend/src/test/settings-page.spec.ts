@@ -41,7 +41,7 @@ vi.mock('../composables/useSettingsPage', () => ({
     botTestLoading: ref(false),
     pageLoading: ref(false),
     loadFailed: ref(false),
-    revealSecrets: ref({ tgApiId: false, tgApiHash: false, aiKey: false, botToken: false }),
+    revealSecrets: ref({ tgApiHash: false, aiKey: false, botToken: false }),
     isDirty: ref(false),
     dirtyLabels: ref([]),
     appVersion: ref(''),

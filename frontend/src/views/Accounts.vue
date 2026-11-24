@@ -39,8 +39,31 @@ const pageLoading = ref(true)
 const avatarCache = new AvatarUrlCache()
 // 卸载标记：在途头像请求完成后不再创建 ObjectURL，避免 blob 泄漏
 let disposed = false
+interface ReloginCredentialState {
+  apiId: string
+  apiHash: string
+  /** 已保存 Hash 所属的 API ID：用于判断 Hash 能否留空沿用 */
+  savedApiId: string
+  hasApiHash: boolean
+  hasCustomApi: boolean
+  apiHashMasked: string | null
+}
+
+const emptyReloginCredentials = (): ReloginCredentialState => ({
+  apiId: '',
+  apiHash: '',
+  savedApiId: '',
+  hasApiHash: false,
+  hasCustomApi: false,
+  apiHashMasked: null,
+})
+
 /** 待重登账号：编辑弹窗离场动画结束后据此打开添加弹窗 */
 const pendingReloginName = ref('')
+/** 待重登账号的凭据快照：登录弹窗据此回显，沿用已保存 Hash */
+const pendingReloginCredentials = ref<ReloginCredentialState>(
+  emptyReloginCredentials(),
+)
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const initialMethod = ref<'code' | 'qr'>('code')
@@ -188,11 +211,27 @@ const openOfficialMessages = (name: string) => {
   showOfficialMessagesModal.value = true
 }
 
-const handleRelogin = (name: string) => {
+const handleRelogin = (payload: {
+  name: string
+  apiId: string
+  apiHash: string
+}) => {
+  const raw = accounts.value.find((item) => item.name === payload.name)?.raw
+  pendingReloginCredentials.value = {
+    // 优先回显编辑弹窗中尚未保存的输入，其次使用账号已保存的 API ID
+    apiId:
+      payload.apiId.trim() ||
+      (raw?.api_id != null ? String(raw.api_id) : ''),
+    apiHash: payload.apiHash.trim(),
+    savedApiId: raw?.api_id != null ? String(raw.api_id) : '',
+    hasApiHash: !!raw?.has_api_hash,
+    hasCustomApi: !!raw?.use_custom_api,
+    apiHashMasked: raw?.api_hash_masked || null,
+  }
   showEditModal.value = false
   // 不立刻打开添加弹窗：等编辑弹窗离场动画结束再由 onEditModalClosed 接续，
   // 避免两层弹窗短暂重叠、焦点恢复与自动聚焦互相抢占
-  pendingReloginName.value = name
+  pendingReloginName.value = payload.name
 }
 
 const onEditModalClosed = () => {
@@ -205,6 +244,7 @@ const onEditModalClosed = () => {
 
 const openAddModal = (method: 'code' | 'qr') => {
   initialAccountName.value = ''
+  pendingReloginCredentials.value = emptyReloginCredentials()
   initialMethod.value = method
   showAddModal.value = true
 }
@@ -465,7 +505,20 @@ const goTasks = (name: string) => {
 
     <!-- Modals -->
     <AccountImpactModal :isOpen="!!changePlan" :plan="changePlan" :loading="changeLoading" :error="changeError" @close="changePlan = null" @apply="applyDelete" />
-    <AddAccountModal :isOpen="showAddModal" :initialMethod="initialMethod" :initialAccountName="initialAccountName" @close="showAddModal = false" @success="loadAccounts" />
+    <AddAccountModal
+      :isOpen="showAddModal"
+      :initialMethod="initialMethod"
+      :initialAccountName="initialAccountName"
+      :relogin-mode="!!initialAccountName"
+      :initial-api-id="pendingReloginCredentials.apiId"
+      :initial-api-hash="pendingReloginCredentials.apiHash"
+      :saved-api-id="pendingReloginCredentials.savedApiId"
+      :initial-has-api-hash="pendingReloginCredentials.hasApiHash"
+      :initial-api-hash-masked="pendingReloginCredentials.apiHashMasked"
+      :initial-has-custom-api="pendingReloginCredentials.hasCustomApi"
+      @close="showAddModal = false"
+      @success="loadAccounts"
+    />
     <EditAccountModal v-if="editingAccount" :isOpen="showEditModal" :account="editingAccount" @close="showEditModal = false" @closed="onEditModalClosed" @success="loadAccounts" @relogin="handleRelogin" />
     <DeviceManagerModal :isOpen="showDeviceModal" :accountName="deviceAccountName" @close="showDeviceModal = false" />
     <OfficialMessagesModal :isOpen="showOfficialMessagesModal" :accountName="officialMessagesAccountName" @close="showOfficialMessagesModal = false" />

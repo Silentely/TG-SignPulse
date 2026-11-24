@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { Phone, QrCode, FileDown } from 'lucide-vue-next'
 import Modal from '../Modal.vue'
 import AccountApiCredentials from './AccountApiCredentials.vue'
@@ -25,7 +25,31 @@ import { devLog } from '../../lib/devLog'
 const { t } = useI18n()
 const toast = useToast()
 
-const props = defineProps<{ isOpen: boolean, initialMethod?: 'code' | 'qr' | 'import', initialAccountName?: string }>()
+const props = withDefaults(
+  defineProps<{
+    isOpen: boolean
+    initialMethod?: 'code' | 'qr' | 'import'
+    initialAccountName?: string
+    /** 重新登录已有账号：展示并复用该账号已保存的 API 凭据 */
+    reloginMode?: boolean
+    initialApiId?: string
+    initialApiHash?: string
+    /** 已保存 Hash 所属的 API ID；留空 Hash 只在 ID 未变时表示沿用 */
+    savedApiId?: string
+    initialHasApiHash?: boolean
+    initialApiHashMasked?: string | null
+    initialHasCustomApi?: boolean
+  }>(),
+  {
+    reloginMode: false,
+    initialApiId: '',
+    initialApiHash: '',
+    savedApiId: '',
+    initialHasApiHash: false,
+    initialApiHashMasked: null,
+    initialHasCustomApi: false,
+  },
+)
 const emit = defineEmits<{ (e: 'close'): void, (e: 'success'): void }>()
 
 const loginMethod = ref<'code' | 'qr' | 'import'>('code')
@@ -49,19 +73,37 @@ const error = ref('')
 /** 高级设置（账号级 API 凭据）组件引用：提交前展开并展示校验错误 */
 const apiCredentialsRef = ref<InstanceType<typeof AccountApiCredentials> | null>(null)
 
+const savedApiId = computed(() =>
+  String(props.savedApiId || props.initialApiId || '').trim(),
+)
+
+/** 重登时沿用已保存 Hash：仅当账号已有 Hash 且 API ID 未改动 */
+const canKeepExistingHash = computed(
+  () =>
+    props.reloginMode &&
+    props.initialHasApiHash &&
+    form.value.api_id.trim() === savedApiId.value,
+)
+
 const ensureApiCredentialsValid = (): boolean => {
-  const check = validateAccountApiCredentials(form.value.api_id, form.value.api_hash)
+  const check = validateAccountApiCredentials(form.value.api_id, form.value.api_hash, {
+    canKeepExistingHash: canKeepExistingHash.value,
+  })
   if (check.valid) return true
   // 错误文案由面板内联展示：避免用户补齐后顶部仍残留过期提示
   apiCredentialsRef.value?.expand()
   return false
 }
 
-/** 成对凭据统一序列化：两项都为空时不下发，表示继承全局配置 */
-const apiCredentialPayload = () => ({
-  api_id: form.value.api_id.trim() || undefined,
-  api_hash: form.value.api_hash.trim() || undefined,
-})
+/** 成对凭据统一序列化：两项都为空时不下发，由后端按账号配置或全局解析 */
+const apiCredentialPayload = (): { api_id?: string; api_hash?: string } => {
+  const apiId = form.value.api_id.trim()
+  const apiHash = form.value.api_hash.trim()
+  if (!apiId && !apiHash) return {}
+  // 重登沿用已保存凭据：两项都不下发，避免只传 api_id 触发成对校验
+  if (canKeepExistingHash.value && !apiHash) return {}
+  return { api_id: apiId || undefined, api_hash: apiHash || undefined }
+}
 
 // Import session specific
 const importSubtype = ref<'file' | 'string'>('file')
@@ -145,8 +187,8 @@ const reset = () => {
     proxy: '',
     session_content: '',
     tdata_password: '',
-    api_id: '',
-    api_hash: '',
+    api_id: props.reloginMode ? String(props.initialApiId || '') : '',
+    api_hash: props.reloginMode ? String(props.initialApiHash || '') : '',
   }
   highlightTdataPassword.value = false
   phoneCodeHash.value = ''
@@ -371,6 +413,7 @@ const handleSave = async () => {
           error.value = t('addAccount.fileRequired')
           return
         }
+        const credentials = apiCredentialPayload()
         await importAccountSessionFile(
           token,
           form.value.account_name,
@@ -378,8 +421,8 @@ const handleSave = async () => {
           forceOverwrite.value,
           form.value.proxy || undefined,
           form.value.tdata_password || undefined,
-          form.value.api_id.trim() || undefined,
-          form.value.api_hash.trim() || undefined,
+          credentials.api_id,
+          credentials.api_hash,
         )
       } else {
         if (!form.value.session_content.trim()) {
@@ -703,6 +746,11 @@ onUnmounted(() => {
         ref="apiCredentialsRef"
         v-model:api-id="form.api_id"
         v-model:api-hash="form.api_hash"
+        :relogin-mode="reloginMode"
+        :has-custom-api="initialHasCustomApi"
+        :has-api-hash="initialHasApiHash"
+        :api-hash-masked="initialApiHashMasked"
+        :keep-api-id="savedApiId"
       />
 
       <!-- QR specific block -->

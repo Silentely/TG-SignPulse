@@ -8,7 +8,6 @@ import { useI18n } from '../../composables/useI18n'
 import type { TgFormState } from '../../lib/settings-form'
 
 interface RevealSecrets {
-  tgApiId: boolean
   tgApiHash: boolean
   aiKey: boolean
   botToken: boolean
@@ -18,7 +17,7 @@ const props = defineProps<{
   /** TG API 配置（v-model） */
   modelValue: TgFormState
   /** 密钥显隐状态（与父组件其他区块共用同一对象） */
-  reveal: Pick<RevealSecrets, 'tgApiId' | 'tgApiHash'>
+  reveal: Pick<RevealSecrets, 'tgApiHash'>
   /** 服务端是否已保存 Hash（GET 只返回脱敏值） */
   hasApiHash?: boolean
   /** 已保存 Hash 的脱敏展示 */
@@ -31,7 +30,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: TgFormState): void
   (e: 'save'): void
   (e: 'reset'): void
-  (e: 'toggle-reveal', key: 'tgApiId' | 'tgApiHash'): void
+  (e: 'toggle-reveal', key: 'tgApiHash'): void
 }>()
 
 const { t } = useI18n()
@@ -60,12 +59,8 @@ const onInput = (key: keyof TgFormState, e: Event) => {
     <div class="space-y-5">
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-api-id">{{ t('settings.apiId') }}</label>
-        <div class="relative">
-          <input id="settings-api-id" :value="modelValue.api_id" @input="onInput('api_id', $event)" :type="reveal.tgApiId ? 'text' : 'password'" :placeholder="t('settings.apiIdPlaceholder')" class="ui-input pr-10" autocomplete="off">
-          <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--sp-text-muted)] hover:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text)]" :aria-label="reveal.tgApiId ? t('settings.hideSecret') : t('settings.showSecret')" @click="emit('toggle-reveal', 'tgApiId')">
-            <EyeOff v-if="reveal.tgApiId" class="w-4 h-4" /><Eye v-else class="w-4 h-4" />
-          </button>
-        </div>
+        <!-- API ID 不是密钥，直接明文展示，无显隐按钮 -->
+        <input id="settings-api-id" :value="modelValue.api_id" @input="onInput('api_id', $event)" type="text" inputmode="numeric" :placeholder="t('settings.apiIdPlaceholder')" class="ui-input" autocomplete="off">
       </div>
       <div class="space-y-1.5">
         <label class="ui-label" for="settings-api-hash">{{ t('settings.apiHash') }}</label>

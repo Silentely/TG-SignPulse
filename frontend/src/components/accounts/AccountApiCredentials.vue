@@ -18,21 +18,27 @@ const props = withDefaults(
     apiHash: string
     /** 编辑已有账号 */
     editMode?: boolean
+    /** 重新登录已有账号：复用已保存凭据，Hash 留空表示保留 */
+    reloginMode?: boolean
     /** 账号已保存独立凭据 */
     hasCustomApi?: boolean
-    /** 账号已保存独立 Hash（编辑模式下 Hash 留空表示保留） */
+    /** 账号已保存独立 Hash（编辑/重登模式下 Hash 留空表示保留） */
     hasApiHash?: boolean
     /** 已保存 Hash 的脱敏展示 */
     apiHashMasked?: string | null
+    /** 留空 Hash 对应的已保存 API ID；ID 变化时必须重新填写 Hash */
+    keepApiId?: string
     /** 凭据变更后需要重新登录 */
     needsRelogin?: boolean
     disabled?: boolean
   }>(),
   {
     editMode: false,
+    reloginMode: false,
     hasCustomApi: false,
     hasApiHash: false,
     apiHashMasked: null,
+    keepApiId: '',
     needsRelogin: false,
     disabled: false,
   },
@@ -53,9 +59,16 @@ const panelId = `account-api-panel-${uid}`
 const expanded = ref(false)
 const revealHash = ref(false)
 
-const canKeepExistingHash = computed(
-  () => props.editMode && props.hasApiHash,
-)
+const isExistingAccount = computed(() => props.editMode || props.reloginMode)
+
+const canKeepExistingHash = computed(() => {
+  if (!isExistingAccount.value || !props.hasApiHash) return false
+  const savedApiId = String(props.keepApiId || '').trim()
+  if (!savedApiId) return true
+  // 只有沿用已保存的 API ID 时，空 Hash 才代表保留原值；
+  // 改了 ID 就必须重新填写 Hash，避免拼出新的混合凭据对。
+  return String(props.apiId || '').trim() === savedApiId
+})
 
 const validation = computed(() =>
   validateAccountApiCredentials(props.apiId, props.apiHash, {
@@ -75,11 +88,24 @@ const highlightHash = computed(() => validation.value.missing === 'api_hash')
 
 const showReloginHint = computed(
   () =>
-    props.editMode &&
+    !props.reloginMode &&
+    isExistingAccount.value &&
     (props.needsRelogin ||
       props.hasCustomApi ||
       String(props.apiId || '').trim() !== '' ||
       String(props.apiHash || '').trim() !== ''),
+)
+
+const description = computed(() =>
+  props.reloginMode
+    ? t('accountApi.reloginDescription')
+    : t('accountApi.description'),
+)
+
+const idPlaceholder = computed(() =>
+  props.reloginMode && props.hasCustomApi
+    ? t('accountApi.keepIdPlaceholder')
+    : t('accountApi.apiIdPlaceholder'),
 )
 
 const hashPlaceholder = computed(() => {
@@ -134,7 +160,7 @@ defineExpose({ expand, validate })
 
     <div v-if="expanded" :id="panelId" class="mt-3 space-y-3">
       <p class="text-[11px] leading-relaxed text-[var(--sp-text-muted)]">
-        {{ t('accountApi.description') }}
+        {{ description }}
       </p>
 
       <div class="space-y-1.5">
@@ -149,7 +175,7 @@ defineExpose({ expand, validate })
           autocomplete="off"
           class="ui-input api-id-input"
           :class="{ '!border-rose-500 !ring-1 !ring-rose-500': highlightId }"
-          :placeholder="t('accountApi.apiIdPlaceholder')"
+          :placeholder="idPlaceholder"
           :disabled="disabled"
           @input="emit('update:apiId', ($event.target as HTMLInputElement).value)"
         />
@@ -180,8 +206,11 @@ defineExpose({ expand, validate })
             <Eye v-else class="w-4 h-4" />
           </button>
         </div>
-        <p v-if="hasCustomApi" class="text-[10px] leading-relaxed text-[var(--sp-text-muted)]">
-          {{ t('accountApi.currentHash', { hash: apiHashMasked || '****' }) }}
+        <p
+          v-if="hasApiHash && apiHashMasked"
+          class="text-[10px] leading-relaxed text-[var(--sp-text-muted)]"
+        >
+          {{ t('accountApi.currentHash', { hash: apiHashMasked }) }}
           {{ t('accountApi.keepHashHint') }}
         </p>
       </div>
@@ -190,7 +219,7 @@ defineExpose({ expand, validate })
         {{ pairError }}
       </p>
 
-      <div v-if="hasCustomApi" class="flex justify-end">
+      <div v-if="hasCustomApi && !reloginMode" class="flex justify-end">
         <button
           type="button"
           class="text-[11px] text-rose-600 hover:underline disabled:opacity-50 dark:text-rose-400"

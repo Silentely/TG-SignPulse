@@ -162,7 +162,6 @@ export function useSettingsPage() {
   }
   /** 密钥字段显隐（默认隐藏） */
   const revealSecrets = ref({
-    tgApiId: false,
     tgApiHash: false,
     aiKey: false,
     botToken: false,
@@ -414,7 +413,7 @@ export function useSettingsPage() {
   })
 
 
-  const toggleReveal = (key: 'tgApiId' | 'tgApiHash' | 'aiKey' | 'botToken') => {
+  const toggleReveal = (key: 'tgApiHash' | 'aiKey' | 'botToken') => {
     revealSecrets.value = {
       ...revealSecrets.value,
       [key]: !revealSecrets.value[key],
