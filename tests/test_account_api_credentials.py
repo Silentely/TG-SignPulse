@@ -11,6 +11,7 @@ import sqlite3
 import struct
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -31,6 +32,9 @@ from backend.services.telegram.credentials import (
     resolve_telegram_credentials,
 )
 from backend.utils import tg_session
+from tests.test_api import _auth, _login  # noqa: F401 — 真实 HTTP 登录辅助
+
+pytest_plugins = ("tests.test_api",)
 
 
 @pytest.fixture
@@ -398,17 +402,34 @@ class TestSessionCredentialCompatibility:
         assert tg_session.session_string_api_id(session_string) == 123456
         assert tg_session.session_string_api_id("not-a-session") is None
 
-    def test_mismatch_raises_specific_error(self, store, monkeypatch):
-        monkeypatch.setattr(
-            tg_session, "get_account_session_api_id", lambda name, session_dir=None: 111
-        )
+    def test_mismatch_raises_specific_error(self, store):
+        session_dir = store.parent
+        session_file = session_dir / "acc.session"
+        conn = sqlite3.connect(session_file)
+        try:
+            conn.execute(
+                "CREATE TABLE sessions (dc_id INTEGER, api_id INTEGER, "
+                "test_mode INTEGER, auth_key BLOB, user_id INTEGER, is_bot INTEGER)"
+            )
+            conn.execute(
+                "INSERT INTO sessions VALUES (2, 111, 0, ?, 1, 0)",
+                (bytes(256),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        before = session_file.read_bytes()
+
         resolved = ResolvedTelegramCredentials(
             api_id=222, api_hash="hash", source="account", account_name="acc"
         )
         with pytest.raises(ApiCredentialsMismatch) as exc:
-            ensure_session_credentials_match("acc", resolved)
+            ensure_session_credentials_match("acc", resolved, session_dir=session_dir)
         assert exc.value.code == "API_CREDENTIALS_MISMATCH"
         assert "重新登录" in str(exc.value)
+        # 不匹配只要求重新登录，Session 文件必须原样保留，供用户换回凭据后继续使用
+        assert session_file.exists()
+        assert session_file.read_bytes() == before
 
     def test_match_returns_session_api_id(self, store, monkeypatch):
         monkeypatch.setattr(
@@ -781,3 +802,123 @@ class TestClientCacheIsolation:
             for key in list(_CLIENT_INSTANCES):
                 if key not in keys_before:
                     _CLIENT_INSTANCES.pop(key, None)
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/accounts/{name} 路由级凭据语义（真实 HTTP 请求）
+# ---------------------------------------------------------------------------
+
+
+def _route_account(name: str) -> dict:
+    return {
+        "name": name,
+        "session_file": f"{name}.session",
+        "exists": True,
+        "size": 1024,
+        "remark": None,
+        "proxy": None,
+        "status": "connected",
+        "status_message": None,
+        "status_code": None,
+        "status_checked_at": None,
+        "needs_relogin": False,
+    }
+
+
+class TestAccountCredentialsPatchRoute:
+    """凭据更新必须经过路由层：真实请求、真实状态码与落盘结果。"""
+
+    @staticmethod
+    def _patch(
+        api_client,
+        monkeypatch,
+        payload: dict,
+        *,
+        name: str = "route_acc",
+        session_dir=None,
+        client_active: bool = False,
+    ):
+        token = _login(api_client)
+        service = SimpleNamespace(
+            list_accounts=lambda force_refresh=True: [_route_account(name)],
+            session_dir=session_dir,
+            rename_account=AsyncMock(side_effect=lambda old, new: new),
+        )
+        idle_tasks = SimpleNamespace(
+            _active_tasks={}, _background_run_tasks={}, _run_statuses={}
+        )
+        monitor = SimpleNamespace(restart_from_tasks=AsyncMock())
+        monkeypatch.setattr(
+            "tg_signer.core.is_account_client_active", lambda *a, **k: client_active
+        )
+        monkeypatch.setattr("tg_signer.core.close_client_by_name", AsyncMock())
+        with (
+            patch(
+                "backend.api.routes.accounts.get_telegram_service",
+                return_value=service,
+            ),
+            patch(
+                "backend.services.sign_tasks.get_sign_task_service",
+                return_value=idle_tasks,
+            ),
+            patch(
+                "backend.services.keyword_monitor.get_keyword_monitor_service",
+                return_value=monitor,
+            ),
+            patch("backend.utils.tg_session.set_account_profile"),
+        ):
+            return api_client.patch(
+                f"/api/accounts/{name}", json=payload, headers=_auth(token)
+            )
+
+    def test_patch_api_id_only_keeps_existing_hash(self, api_client, monkeypatch):
+        tg_session.set_account_credentials(
+            "route_acc", 111, "original-hash", mark_needs_relogin=False
+        )
+
+        resp = self._patch(api_client, monkeypatch, {"api_id": 222})
+
+        assert resp.status_code == 200, resp.text
+        credentials = tg_session.get_account_credentials("route_acc")
+        assert credentials["api_id"] == 222
+        assert credentials["api_hash"] == "original-hash"
+
+    def test_patch_both_null_clears_and_falls_back_to_global(
+        self, api_client, monkeypatch
+    ):
+        tg_session.set_account_credentials(
+            "route_acc", 111, "original-hash", mark_needs_relogin=False
+        )
+
+        resp = self._patch(api_client, monkeypatch, {"api_id": None, "api_hash": None})
+
+        assert resp.status_code == 200, resp.text
+        credentials = tg_session.get_account_credentials("route_acc")
+        assert credentials["api_id"] is None
+        assert credentials["api_hash"] is None
+        assert credentials["has_custom_api"] is False
+        resolved = resolve_account_credentials("route_acc")
+        assert resolved.source == "env"
+        assert resolved.api_id == 12345
+
+    def test_patch_one_sided_returns_400_pair_required(self, api_client, monkeypatch):
+        resp = self._patch(api_client, monkeypatch, {"api_id": 222})
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == "API_CREDENTIALS_PAIR_REQUIRED"
+        credentials = tg_session.get_account_credentials("route_acc")
+        assert credentials["api_id"] is None
+        assert credentials["api_hash"] is None
+
+    def test_patch_busy_account_returns_409(self, api_client, monkeypatch):
+        tg_session.set_account_credentials(
+            "route_acc", 111, "original-hash", mark_needs_relogin=False
+        )
+
+        resp = self._patch(api_client, monkeypatch, {"api_id": 222}, client_active=True)
+
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == "ACCOUNT_BUSY"
+        credentials = tg_session.get_account_credentials("route_acc")
+        assert credentials["api_id"] == 111
+        assert credentials["api_hash"] == "original-hash"

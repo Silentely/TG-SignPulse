@@ -312,7 +312,12 @@ def _decrypt_account_api_hash(account_name: str, raw: Any) -> Optional[str]:
             raise RuntimeError(
                 f"Failed to decrypt api_hash for account {account_name}"
             ) from exc
-    # 兼容历史上可能出现的明文（当前写入路径始终加密）
+    # 兼容历史明文 Hash：accounts.json 是可人工编辑的明文 JSON，早期构建或
+    # 用户手工写入的 api_hash 可能没有 Fernet 前缀。放行读取可保证这类账号
+    # 不会因凭据不可解析而直接不可用；下次通过 set_account_credentials 写入
+    # 同一账号时，会自动改写为密文。读取路径必须保持只读，故不在此处改写。
+    # 移除条件：确认所有部署的 accounts.json 中都不存在无密文前缀的 api_hash
+    # （例如启动审计统计此类条目，数量归零后删除本分支）。
     return value
 
 
