@@ -37,7 +37,11 @@ test.describe('Logs Center & System Settings', () => {
       await expect(page.getByText(/(通用|General|Telegram API|数据|备份)/i).first()).toBeVisible();
     });
 
-    await test.step('Verify sensitive secret toggle functionality', async () => {
+    await test.step('Verify API ID is plaintext and API Hash remains masked by default', async () => {
+      const apiIdInput = page.locator('#settings-api-id');
+      await expect(apiIdInput).toBeVisible();
+      await expect(apiIdInput).toHaveAttribute('type', 'text');
+
       const apiHashInput = page.locator('#settings-api-hash');
       if (await apiHashInput.isVisible()) {
         await expect(apiHashInput).toHaveAttribute('type', 'password');

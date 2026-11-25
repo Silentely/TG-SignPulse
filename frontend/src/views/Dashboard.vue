@@ -79,6 +79,9 @@ const retryAccounts = computed(() => {
 /** 健康卡展示的异常账号 */
 const invalidAccounts = computed(() => [...reloginAccounts.value, ...retryAccounts.value])
 
+/** 没有账号时不展示「全部健康」，避免给出误导性结论 */
+const hasAccounts = computed(() => (accountsStore.accounts || []).length > 0)
+
 /** 统计当前健康正常连接账号数量（检测中仍视为正常） */
 const connectedCount = computed(() => {
   const list = accountsStore?.accounts || []
@@ -507,7 +510,10 @@ const loadRunbookDiagnosis = async () => {
           </span>
         </div>
 
-        <div v-if="invalidAccounts.length === 0" class="ui-empty !py-6 flex flex-col items-center gap-1.5">
+        <div v-if="!hasAccounts" class="ui-empty !py-6">
+          <p class="ui-empty-desc">{{ t('accounts.empty') }}</p>
+        </div>
+        <div v-else-if="invalidAccounts.length === 0" class="ui-empty !py-6 flex flex-col items-center gap-1.5">
           <CheckCircle2 class="w-6 h-6 text-emerald-500" />
           <p class="ui-empty-desc text-emerald-600 dark:text-emerald-400 font-medium">
             {{ t('dashboard.allAccountsHealthy') }}

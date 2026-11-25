@@ -86,6 +86,16 @@ http://127.0.0.1:7890
 
 通用设置中的「强制 Telegram 连接使用代理」是全局硬性策略：开启后，未配置代理的账号在登录与执行时都会被拒绝，并返回 `PROXY_REQUIRED_BLOCKED`。适合对 IP 泄漏零容忍的部署；关闭时允许未配置代理的账号直连。
 
+## 账号级 API 凭据
+
+默认情况下，所有账号使用系统设置中的全局 Telegram API ID 与 API Hash。添加或编辑账号时，可在高级设置中为该账号单独填写凭据，适用于多套开发者应用分别承载不同账号的场景。
+
+- 优先级为账号级凭据 > 环境变量 > 面板全局配置 > 内置默认值。
+- API ID 与 API Hash 必须成对填写；只填一项返回 `API_CREDENTIALS_PAIR_REQUIRED`（HTTP 400）。
+- 重新登录时，保持 API ID 不变并留空 Hash 会沿用已保存的 Hash；改动 API ID 必须同时填写新的 Hash，否则返回 `API_CREDENTIALS_MIXED_PAIR`。
+- 账号存在运行中的任务或缓存连接时，修改凭据会返回 `ACCOUNT_BUSY`（HTTP 409），需先停止该账号的任务。
+- API Hash 在 `sessions/accounts.json` 中加密保存，接口只返回脱敏值。
+
 ## 会话模式与存储
 
 每个账号支持两种会话模式：

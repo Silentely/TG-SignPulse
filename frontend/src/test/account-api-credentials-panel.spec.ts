@@ -49,13 +49,13 @@ describe('AccountApiCredentials 重新登录回显', () => {
     const wrapper = mountPanel({})
     await expandPanel(wrapper)
 
-    expect(wrapper.text()).not.toContain('accountApi.pairRequired')
+    expect(wrapper.text()).not.toContain('accountApi.reloginPairRequired')
 
     await wrapper.setProps({ apiId: '999999' })
-    expect(wrapper.text()).toContain('accountApi.pairRequired')
+    expect(wrapper.text()).toContain('accountApi.reloginPairRequired')
 
     await wrapper.setProps({ apiId: '123456' })
-    expect(wrapper.text()).not.toContain('accountApi.pairRequired')
+    expect(wrapper.text()).not.toContain('accountApi.reloginPairRequired')
   })
 
   it('账号未配置专属凭据时保留默认提示', async () => {

@@ -76,9 +76,9 @@ const error = ref('')
 /** 高级设置（账号级 API 凭据）组件引用：提交前展开并展示校验错误 */
 const apiCredentialsRef = ref<InstanceType<typeof AccountApiCredentials> | null>(null)
 
-const savedApiId = computed(() =>
-  String(props.savedApiId || props.initialApiId || '').trim(),
-)
+// 只认后端已保存的 API ID；initialApiId 可能只是编辑弹窗里的草稿，
+// 用它兜底会把「新 ID + 旧 Hash」误判为可沿用。
+const savedApiId = computed(() => String(props.savedApiId || '').trim())
 
 /** 重登时沿用已保存 Hash：仅当账号已有 Hash 且 API ID 未改动 */
 const canKeepExistingHash = computed(() =>

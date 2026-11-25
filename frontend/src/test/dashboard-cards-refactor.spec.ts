@@ -139,6 +139,13 @@ describe('Dashboard Refactored Core Cards', () => {
     expect(wrapper.text()).toContain('dashboard.healthyCount:2')
   })
 
+  it('Card 4: does not report all healthy when there are no accounts', () => {
+    const wrapper = mount(Dashboard)
+    expect(wrapper.text()).not.toContain('dashboard.allAccountsHealthy')
+    expect(wrapper.text()).toContain('accounts.empty')
+    expect(wrapper.text()).toContain('dashboard.healthyCount:0')
+  })
+
   it('Card 4: displays warning alert when accounts need re-login', async () => {
     const accountsStore = useAccountsStore()
     accountsStore.accounts = [

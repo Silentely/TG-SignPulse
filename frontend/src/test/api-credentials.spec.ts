@@ -51,6 +51,12 @@ describe('validateAccountApiCredentials', () => {
       })
     }
   })
+
+  it('validates the api_id format before allowing a saved hash to be kept', () => {
+    expect(
+      validateAccountApiCredentials('abc', '', { canKeepExistingHash: true }),
+    ).toEqual({ valid: false, missing: 'api_id', error: 'id' })
+  })
 })
 
 describe('canKeepExistingHash', () => {

@@ -79,8 +79,9 @@ const validation = computed(() =>
 
 const pairError = computed(() => {
   if (validation.value.valid) return ''
-  return validation.value.error === 'id'
-    ? t('accountApi.idInvalid')
+  if (validation.value.error === 'id') return t('accountApi.idInvalid')
+  return props.reloginMode
+    ? t('accountApi.reloginPairRequired')
     : t('accountApi.pairRequired')
 })
 

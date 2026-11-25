@@ -12,6 +12,7 @@ import {
 import type { AccountInfo, AccountLog, ScheduledJob } from '../lib/api'
 import type { DashboardLog } from '../lib/types'
 import { getSemanticConfig, type JevDashboardStatus } from '../lib/api/semantic'
+import { classifyAccountHealth } from '../lib/account-list-map'
 import { getAuthToken } from '../lib/api/core'
 import { notifyApiError } from '../lib/notify'
 import { useActiveRunsStore } from '../stores/activeRuns'
@@ -263,7 +264,10 @@ export function useDashboardData() {
     }
 
     const activeAccs = accRes.accounts
-      ? accRes.accounts.filter((a: AccountInfo) => a.status === 'connected' || a.status === 'checking').length
+      ? accRes.accounts.filter((a: AccountInfo) => {
+          const health = classifyAccountHealth(a)
+          return health === 'healthy' || health === 'checking'
+        }).length
       : 0
 
     const today = new Date().toISOString().split('T')[0]

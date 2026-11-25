@@ -1386,6 +1386,7 @@
     "description": "针对此账号使用专属 API 凭据；留空则默认继承系统全局设置。",
     "reloginDescription": "重新登录会沿用该账号当前的 API 凭据；如需更换，请成对填写新的 API ID 与 API Hash。",
     "keepIdPlaceholder": "留空沿用已保存的凭据",
+    "reloginPairRequired": "改动 API ID 时必须同时填写 API Hash；两者均留空则沿用已保存凭据。",
     "apiId": "Telegram API ID",
     "apiIdPlaceholder": "留空使用全局配置",
     "apiHash": "Telegram API Hash",

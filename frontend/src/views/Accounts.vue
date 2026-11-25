@@ -210,6 +210,10 @@ const applyAccountQuery = () => {
   const q = route.query.account
   const name = typeof q === 'string' ? q.trim() : ''
   if (!name) return
+  // 一次性深链：消费掉 query，避免之后每次回到账号页都重新弹出编辑框
+  const restQuery = { ...route.query }
+  delete restQuery.account
+  void router.replace({ query: restQuery })
   searchQuery.value = name
   const target = accounts.value.find((item) => item.name === name)
   if (target) openEdit(target)

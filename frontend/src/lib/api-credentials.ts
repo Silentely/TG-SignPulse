@@ -58,6 +58,10 @@ export function validateAccountApiCredentials(
   const id = String(apiId ?? '').trim()
   const hash = String(apiHash ?? '').trim()
 
+  if (id && !/^[1-9]\d*$/.test(id)) {
+    return { valid: false, missing: 'api_id', error: 'id' }
+  }
+
   if (id && !hash) {
     if (options.canKeepExistingHash) {
       return { valid: true, missing: null, error: null }
@@ -67,10 +71,6 @@ export function validateAccountApiCredentials(
 
   if (!id && hash) {
     return { valid: false, missing: 'api_id', error: 'pair' }
-  }
-
-  if (id && !/^[1-9]\d*$/.test(id)) {
-    return { valid: false, missing: 'api_id', error: 'id' }
   }
 
   return { valid: true, missing: null, error: null }
