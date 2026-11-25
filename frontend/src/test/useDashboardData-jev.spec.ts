@@ -12,8 +12,6 @@ vi.mock('../lib/api', () => ({
   listSignTasks: vi.fn().mockResolvedValue([]),
   getRecentAccountLogs: vi.fn().mockResolvedValue([]),
   listScheduledJobs: vi.fn().mockResolvedValue([]),
-  listKeywordHits: vi.fn().mockResolvedValue([]),
-  listAccountStatusCheckJobs: vi.fn().mockResolvedValue([]),
   issueStreamTicket: vi.fn().mockResolvedValue({ ticket: 'test-ticket' }),
   STREAM_TICKET_PURPOSE: { signHistorySse: 'sign_history_sse' },
 }))

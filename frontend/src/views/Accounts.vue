@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { Play, FileText, Edit2, Trash2, Plus, QrCode, Phone, Zap, MonitorSmartphone, MessageCircle, CheckCircle2, Search, RefreshCw, XCircle, X, Users } from 'lucide-vue-next'
 import {
   fetchAccountAvatar,
@@ -30,6 +30,7 @@ import {
 } from '../lib/account-list-map'
 
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 const toast = useToast()
 const accountsStore = useAccountsStore()
@@ -142,9 +143,12 @@ const loadAvatars = async (list: AccountUiItem[]) => {
 
 onMounted(async () => {
   await loadAccounts()
+  applyAccountQuery()
   // 刷新页面后恢复未完成的批量检测
   void resumeActiveBatchJob()
 })
+
+watch(() => route.query.account, () => applyAccountQuery())
 
 onUnmounted(() => {
   disposed = true
@@ -199,6 +203,16 @@ const {
 const openEdit = (acc: AccountUiItem) => {
   editingAccount.value = acc
   showEditModal.value = true
+}
+
+/** 仪表盘健康卡深链：定位到指定账号并直接打开编辑弹窗（内含重新登录入口） */
+const applyAccountQuery = () => {
+  const q = route.query.account
+  const name = typeof q === 'string' ? q.trim() : ''
+  if (!name) return
+  searchQuery.value = name
+  const target = accounts.value.find((item) => item.name === name)
+  if (target) openEdit(target)
 }
 
 const openDevices = (name: string) => {

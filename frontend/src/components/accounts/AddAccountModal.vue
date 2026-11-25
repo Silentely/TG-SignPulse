@@ -14,7 +14,10 @@ import {
   importAccountSession,
   importAccountSessionFile,
 } from '../../lib/api'
-import { validateAccountApiCredentials } from '../../lib/api-credentials'
+import {
+  canKeepExistingHash as resolveCanKeepExistingHash,
+  validateAccountApiCredentials,
+} from '../../lib/api-credentials'
 import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -78,11 +81,13 @@ const savedApiId = computed(() =>
 )
 
 /** 重登时沿用已保存 Hash：仅当账号已有 Hash 且 API ID 未改动 */
-const canKeepExistingHash = computed(
-  () =>
-    props.reloginMode &&
-    props.initialHasApiHash &&
-    form.value.api_id.trim() === savedApiId.value,
+const canKeepExistingHash = computed(() =>
+  resolveCanKeepExistingHash({
+    isExistingAccount: props.reloginMode,
+    hasExistingHash: props.initialHasApiHash,
+    apiId: form.value.api_id,
+    savedApiId: savedApiId.value,
+  }),
 )
 
 const ensureApiCredentialsValid = (): boolean => {

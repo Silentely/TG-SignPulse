@@ -20,6 +20,7 @@ import type {
 import { useI18n } from '../composables/useI18n'
 import { useDashboardData } from '../composables/useDashboardData'
 import { useAccountsStore } from '../stores/accounts'
+import { classifyAccountHealth } from '../lib/account-list-map'
 import type { DashboardLog } from '../lib/types'
 import Modal from '../components/Modal.vue'
 import DashboardTrendsChart from '../components/dashboard/DashboardTrendsChart.vue'
@@ -63,20 +64,28 @@ const {
   reload: reloadData,
 } = useDashboardData()
 
-/** 统计失效/需要重新登录的账号 */
-const invalidAccounts = computed(() => {
+/** 按账号列表现有口径分类后，需要重新登录的账号 */
+const reloginAccounts = computed(() => {
   const list = accountsStore?.accounts || []
-  return list.filter(
-    (a) => a.needs_relogin || a.status === 'invalid' || a.status === 'error',
-  )
+  return list.filter((a) => classifyAccountHealth(a) === 'relogin')
 })
 
-/** 统计当前健康正常连接账号数量 */
+/** 代理拦截、网络等临时失败：稍后重试，不引导重新登录 */
+const retryAccounts = computed(() => {
+  const list = accountsStore?.accounts || []
+  return list.filter((a) => classifyAccountHealth(a) === 'retry')
+})
+
+/** 健康卡展示的异常账号 */
+const invalidAccounts = computed(() => [...reloginAccounts.value, ...retryAccounts.value])
+
+/** 统计当前健康正常连接账号数量（检测中仍视为正常） */
 const connectedCount = computed(() => {
   const list = accountsStore?.accounts || []
-  return list.filter(
-    (a) => a.status === 'connected' || a.status === 'checking',
-  ).length
+  return list.filter((a) => {
+    const health = classifyAccountHealth(a)
+    return health === 'healthy' || health === 'checking'
+  }).length
 })
 
 /** 跳转到日志页并按账号筛选，附带任务/时间/失败分类以便自动打开详情 */
@@ -486,12 +495,15 @@ const loadRunbookDiagnosis = async () => {
           </button>
         </div>
 
-        <div class="flex items-center gap-2 mb-3 text-xs">
+        <div class="flex items-center gap-2 mb-3 text-xs flex-wrap">
           <span class="ui-badge ui-badge-success !text-[11px]">
             {{ t('dashboard.healthyCount', { count: connectedCount }) }}
           </span>
-          <span v-if="invalidAccounts.length > 0" class="ui-badge ui-badge-error !text-[11px]">
-            {{ t('dashboard.invalidCount', { count: invalidAccounts.length }) }}
+          <span v-if="reloginAccounts.length > 0" class="ui-badge ui-badge-error !text-[11px]">
+            {{ t('dashboard.invalidCount', { count: reloginAccounts.length }) }}
+          </span>
+          <span v-if="retryAccounts.length > 0" class="ui-badge ui-badge-warn !text-[11px]">
+            {{ t('dashboard.retryCount', { count: retryAccounts.length }) }}
           </span>
         </div>
 
@@ -501,29 +513,58 @@ const loadRunbookDiagnosis = async () => {
             {{ t('dashboard.allAccountsHealthy') }}
           </p>
         </div>
-        <div v-else class="space-y-1.5">
-          <div class="text-[11px] font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mb-1">
-            <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
-            <span>{{ t('dashboard.accountsNeedingRelogin') }}</span>
-          </div>
-          <div
-            v-for="acc in invalidAccounts.slice(0, 3)"
-            :key="acc.name"
-            class="ui-list-row flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 rounded-[var(--sp-radius-sm)] border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20"
-          >
-            <div class="flex items-center gap-2 truncate">
-              <span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
-              <span class="font-medium text-[var(--sp-text)] truncate" :title="acc.name">{{ acc.name }}</span>
-              <span v-if="acc.remark" class="text-[10px] text-[var(--sp-text-muted)] truncate">({{ acc.remark }})</span>
+        <div v-else class="space-y-2">
+          <template v-if="reloginAccounts.length > 0">
+            <div class="text-[11px] font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mb-1">
+              <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+              <span>{{ t('dashboard.accountsNeedingRelogin') }}</span>
             </div>
-            <button
-              type="button"
-              class="text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:underline shrink-0 cursor-pointer"
-              @click="router.push({ name: 'accounts' })"
+            <div
+              v-for="acc in reloginAccounts.slice(0, 3)"
+              :key="acc.name"
+              data-testid="account-health-relogin"
+              class="ui-list-row flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 rounded-[var(--sp-radius-sm)] border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20"
             >
-              {{ t('dashboard.reloginAction') }}
-            </button>
-          </div>
+              <div class="flex items-center gap-2 truncate">
+                <span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                <span class="font-medium text-[var(--sp-text)] truncate" :title="acc.name">{{ acc.name }}</span>
+                <span v-if="acc.remark" class="text-[10px] text-[var(--sp-text-muted)] truncate">({{ acc.remark }})</span>
+              </div>
+              <button
+                type="button"
+                class="text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:underline shrink-0 cursor-pointer"
+                @click="router.push({ name: 'accounts', query: { account: acc.name } })"
+              >
+                {{ t('dashboard.reloginAction') }}
+              </button>
+            </div>
+          </template>
+
+          <template v-if="retryAccounts.length > 0">
+            <div class="text-[11px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1.5 mb-1">
+              <Clock class="w-3.5 h-3.5 shrink-0" />
+              <span>{{ t('dashboard.accountsNeedingRetry') }}</span>
+            </div>
+            <div
+              v-for="acc in retryAccounts.slice(0, 3)"
+              :key="acc.name"
+              data-testid="account-health-retry"
+              class="ui-list-row flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 rounded-[var(--sp-radius-sm)] border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/20"
+            >
+              <div class="flex items-center gap-2 truncate">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                <span class="font-medium text-[var(--sp-text)] truncate" :title="acc.name">{{ acc.name }}</span>
+                <span v-if="acc.status_message" class="text-[10px] text-[var(--sp-text-muted)] truncate" :title="acc.status_message">({{ acc.status_message }})</span>
+              </div>
+              <button
+                type="button"
+                class="text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:underline shrink-0 cursor-pointer"
+                @click="router.push({ name: 'accounts', query: { account: acc.name } })"
+              >
+                {{ t('dashboard.retryAction') }}
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </div>

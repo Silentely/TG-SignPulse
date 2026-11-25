@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  classifyAccountHealth,
   compareAccountNames,
   filterAccountsByQuery,
   mapAccountInfoToUiItem,
@@ -23,6 +24,37 @@ describe('account-list-map', () => {
     )
     expect(checking.status).toBe('empty')
     expect(checking.message).toBe('检测中')
+  })
+
+  it('classifies blocked and not_found as abnormal', () => {
+    expect(classifyAccountHealth({ status: 'connected' } as AccountInfo)).toBe('healthy')
+    expect(classifyAccountHealth({ status: 'checking' } as AccountInfo)).toBe('checking')
+    expect(
+      classifyAccountHealth({ status: 'blocked', needs_relogin: false } as AccountInfo),
+    ).toBe('retry')
+    expect(classifyAccountHealth({ status: 'error' } as AccountInfo)).toBe('retry')
+    expect(classifyAccountHealth({ status: 'not_found' } as AccountInfo)).toBe('relogin')
+    expect(
+      classifyAccountHealth({ status: 'invalid', needs_relogin: true } as AccountInfo),
+    ).toBe('relogin')
+    // 代理拦截但凭据不匹配：重登优先于重试
+    expect(
+      classifyAccountHealth({ status: 'blocked', needs_relogin: true } as AccountInfo),
+    ).toBe('relogin')
+  })
+
+  it('maps blocked accounts to the error state with their message', () => {
+    const blocked = mapAccountInfoToUiItem(
+      {
+        name: 'c',
+        status: 'blocked',
+        status_message: 'PROXY_BLOCKED',
+        needs_relogin: false,
+      } as AccountInfo,
+      labels,
+    )
+    expect(blocked.status).toBe('error')
+    expect(blocked.message).toBe('PROXY_BLOCKED')
   })
 
   it('filters by name remark message', () => {

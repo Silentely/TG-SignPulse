@@ -9,21 +9,49 @@ export type AccountMapLabels = {
   checking: string
 }
 
+export type AccountHealthState =
+  | 'healthy'
+  | 'checking'
+  | 'relogin'
+  | 'retry'
+  | 'unknown'
+
+/**
+ * 账号健康分类：仪表盘健康卡与账号列表共用同一套判定。
+ *
+ * - relogin：会话/凭据失效，需要重新登录
+ * - retry：代理拦截、网络或临时错误，稍后重试即可，不引导重登
+ */
+export function classifyAccountHealth(
+  acc: Pick<AccountInfo, 'status' | 'needs_relogin'>,
+): AccountHealthState {
+  if (acc.needs_relogin || acc.status === 'invalid' || acc.status === 'not_found') {
+    return 'relogin'
+  }
+  if (acc.status === 'blocked' || acc.status === 'error') {
+    return 'retry'
+  }
+  if (acc.status === 'connected') return 'healthy'
+  if (acc.status === 'checking') return 'checking'
+  return 'unknown'
+}
+
 /** 服务端账号 → 列表行字段（不含头像 blob） */
 export function mapAccountInfoToUiItem(
   acc: AccountInfo,
   labels: AccountMapLabels,
 ): AccountUiItem {
+  const health = classifyAccountHealth(acc)
   let uiStatus = 'active'
   let message = ''
 
-  if (acc.needs_relogin || acc.status === 'invalid') {
+  if (health === 'relogin') {
     uiStatus = 'error'
     message = labels.loginExpired
-  } else if (acc.status === 'error') {
+  } else if (health === 'retry') {
     uiStatus = 'error'
     message = acc.status_message || ''
-  } else if (acc.status === 'checking') {
+  } else if (health === 'checking') {
     uiStatus = 'empty'
     message = labels.checking
   } else if (

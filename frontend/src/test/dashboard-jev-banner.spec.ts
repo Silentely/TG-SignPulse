@@ -40,8 +40,6 @@ vi.mock('../composables/useDashboardData', () => ({
     upcomingJobs: ref([]),
     activeRuns: ref([]),
     failureBreakdown: ref([]),
-    recentHits: ref([]),
-    statusJobs: ref([]),
     jevStatus: mockJevStatus,
     formatTime: vi.fn(),
     reload: vi.fn(),

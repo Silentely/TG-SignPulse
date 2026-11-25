@@ -23,6 +23,30 @@ export interface ValidateApiCredentialsOptions {
   canKeepExistingHash?: boolean
 }
 
+export interface KeepExistingHashOptions {
+  /** 编辑/重登已有账号 */
+  isExistingAccount: boolean
+  /** 账号已保存专属 Hash */
+  hasExistingHash: boolean
+  /** 表单当前的 API ID */
+  apiId: string | number | null | undefined
+  /** 已保存 Hash 所属的 API ID */
+  savedApiId: string | number | null | undefined
+}
+
+/**
+ * 空 Hash 能否沿用已保存值。
+ *
+ * 只有 API ID 与已保存值一致时才允许：改了 ID 再留空 Hash 会拼出
+ * 新的混合凭据对，必须让用户重新填写 Hash。
+ */
+export function canKeepExistingHash(options: KeepExistingHashOptions): boolean {
+  if (!options.isExistingAccount || !options.hasExistingHash) return false
+  const savedApiId = String(options.savedApiId ?? '').trim()
+  if (!savedApiId) return true
+  return String(options.apiId ?? '').trim() === savedApiId
+}
+
 export function validateAccountApiCredentials(
   apiId: string | number | null | undefined,
   apiHash: string | null | undefined,

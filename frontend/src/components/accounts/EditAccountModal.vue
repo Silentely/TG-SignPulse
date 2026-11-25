@@ -5,7 +5,7 @@ import AccountImpactModal from './AccountImpactModal.vue'
 import AccountApiCredentials from './AccountApiCredentials.vue'
 import { previewAccountChange, applyAccountChange, type AccountChangePlan } from '../../lib/api/accounts'
 import { updateAccount } from '../../lib/api'
-import { validateAccountApiCredentials } from '../../lib/api-credentials'
+import { canKeepExistingHash, validateAccountApiCredentials } from '../../lib/api-credentials'
 import { getAuthToken } from '../../lib/api/core'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -71,9 +71,14 @@ watch(() => props.isOpen, (val) => {
 }, { immediate: true })
 
 const ensureApiCredentialsValid = (): boolean => {
-  // Hash 留空 + 已保存 Hash：保留原值，仍是完整凭据对
+  // 与面板共用同一判定：只有 API ID 未改动时，空 Hash 才代表沿用已保存值
   const check = validateAccountApiCredentials(form.value.api_id, form.value.api_hash, {
-    canKeepExistingHash: hasApiHash.value,
+    canKeepExistingHash: canKeepExistingHash({
+      isExistingAccount: true,
+      hasExistingHash: hasApiHash.value,
+      apiId: form.value.api_id,
+      savedApiId: initialApiId.value,
+    }),
   })
   if (check.valid) return true
   // 错误文案由面板内联展示：避免用户补齐后顶部仍残留过期提示

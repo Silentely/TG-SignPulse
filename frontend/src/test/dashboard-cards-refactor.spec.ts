@@ -36,8 +36,6 @@ vi.mock('../composables/useDashboardData', () => ({
     upcomingJobs: mockUpcomingJobs,
     activeRuns: mockActiveRuns,
     failureBreakdown: mockFailureBreakdown,
-    recentHits: ref([]),
-    statusJobs: ref([]),
     jevStatus: ref({
       enabled: false,
       hasApiKey: false,
@@ -108,10 +106,9 @@ describe('Dashboard Refactored Core Cards', () => {
 
     // Click session_invalid button
     const sessionInvalidBtn = failureBadges.find((b) => b.text().includes('session_invalid') || b.text().includes('会话失效'))
-    if (sessionInvalidBtn) {
-      await sessionInvalidBtn.trigger('click')
-      expect(mockPush).toHaveBeenCalledWith({ name: 'accounts' })
-    }
+    expect(sessionInvalidBtn).toBeDefined()
+    await sessionInvalidBtn!.trigger('click')
+    expect(mockPush).toHaveBeenCalledWith({ name: 'accounts' })
   })
 
   it('Card 3: displays upcoming sign jobs', () => {
@@ -155,11 +152,68 @@ describe('Dashboard Refactored Core Cards', () => {
     expect(wrapper.text()).toContain('acc_expired')
     expect(wrapper.text()).toContain('dashboard.invalidCount:1')
 
-    // Click relogin button navigates to accounts
-    const reloginBtn = wrapper.find('button.text-rose-600, button.text-rose-400')
-    if (reloginBtn.exists()) {
-      await reloginBtn.trigger('click')
-      expect(mockPush).toHaveBeenCalledWith({ name: 'accounts' })
-    }
+    // Click relogin button navigates to accounts with the account name
+    const reloginBtn = wrapper.find('[data-testid="account-health-relogin"] button')
+    expect(reloginBtn.exists()).toBe(true)
+    await reloginBtn.trigger('click')
+    expect(mockPush).toHaveBeenCalledWith({
+      name: 'accounts',
+      query: { account: 'acc_expired' },
+    })
+  })
+
+  it('Card 4: treats a proxy-blocked account as unhealthy', () => {
+    const accountsStore = useAccountsStore()
+    accountsStore.accounts = [
+      { name: 'acc_ok', status: 'connected', exists: true, session_file: 'acc_ok.session', size: 100 },
+      {
+        name: 'acc_blocked',
+        status: 'blocked',
+        status_message: 'PROXY_BLOCKED',
+        needs_relogin: false,
+        exists: true,
+        session_file: 'acc_blocked.session',
+        size: 100,
+      },
+    ]
+
+    const wrapper = mount(Dashboard)
+    expect(wrapper.text()).not.toContain('dashboard.allAccountsHealthy')
+    expect(wrapper.text()).toContain('dashboard.healthyCount:1')
+    expect(wrapper.text()).toContain('dashboard.retryCount:1')
+    expect(wrapper.text()).toContain('dashboard.accountsNeedingRetry')
+    expect(wrapper.text()).toContain('acc_blocked')
+    expect(wrapper.text()).not.toContain('dashboard.accountsNeedingRelogin')
+  })
+
+  it('Card 4: treats a missing account as needing re-login', () => {
+    const accountsStore = useAccountsStore()
+    accountsStore.accounts = [
+      { name: 'acc_gone', status: 'not_found', exists: false, session_file: '', size: 0 },
+    ]
+
+    const wrapper = mount(Dashboard)
+    expect(wrapper.text()).not.toContain('dashboard.allAccountsHealthy')
+    expect(wrapper.text()).toContain('dashboard.accountsNeedingRelogin')
+    expect(wrapper.text()).toContain('dashboard.invalidCount:1')
+  })
+
+  it('Card 4: routes temporary errors to retry instead of re-login', async () => {
+    const accountsStore = useAccountsStore()
+    accountsStore.accounts = [
+      { name: 'acc_flaky', status: 'error', status_message: 'timeout', exists: true, session_file: 'acc_flaky.session', size: 100 },
+    ]
+
+    const wrapper = mount(Dashboard)
+    expect(wrapper.text()).toContain('dashboard.accountsNeedingRetry')
+    expect(wrapper.text()).not.toContain('dashboard.accountsNeedingRelogin')
+
+    const retryBtn = wrapper.find('[data-testid="account-health-retry"] button')
+    expect(retryBtn.exists()).toBe(true)
+    await retryBtn.trigger('click')
+    expect(mockPush).toHaveBeenCalledWith({
+      name: 'accounts',
+      query: { account: 'acc_flaky' },
+    })
   })
 })

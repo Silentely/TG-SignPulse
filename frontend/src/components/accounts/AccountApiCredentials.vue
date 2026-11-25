@@ -9,6 +9,7 @@ import { computed, ref } from 'vue'
 import { ChevronDown, Eye, EyeOff } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import {
+  canKeepExistingHash as resolveCanKeepExistingHash,
   validateAccountApiCredentials,
 } from '../../lib/api-credentials'
 
@@ -61,14 +62,14 @@ const revealHash = ref(false)
 
 const isExistingAccount = computed(() => props.editMode || props.reloginMode)
 
-const canKeepExistingHash = computed(() => {
-  if (!isExistingAccount.value || !props.hasApiHash) return false
-  const savedApiId = String(props.keepApiId || '').trim()
-  if (!savedApiId) return true
-  // 只有沿用已保存的 API ID 时，空 Hash 才代表保留原值；
-  // 改了 ID 就必须重新填写 Hash，避免拼出新的混合凭据对。
-  return String(props.apiId || '').trim() === savedApiId
-})
+const canKeepExistingHash = computed(() =>
+  resolveCanKeepExistingHash({
+    isExistingAccount: isExistingAccount.value,
+    hasExistingHash: !!props.hasApiHash,
+    apiId: props.apiId,
+    savedApiId: props.keepApiId,
+  }),
+)
 
 const validation = computed(() =>
   validateAccountApiCredentials(props.apiId, props.apiHash, {
@@ -168,12 +169,10 @@ defineExpose({ expand, validate })
         <input
           :id="idInputId"
           :value="apiId"
-          type="number"
+          type="text"
           inputmode="numeric"
-          min="1"
-          step="1"
           autocomplete="off"
-          class="ui-input api-id-input"
+          class="ui-input"
           :class="{ '!border-rose-500 !ring-1 !ring-rose-500': highlightId }"
           :placeholder="idPlaceholder"
           :disabled="disabled"
@@ -239,17 +238,3 @@ defineExpose({ expand, validate })
     </div>
   </div>
 </template>
-
-<style scoped>
-/* 隐藏数字输入框的原生上下调节箭头，避免误触加减 API ID */
-.api-id-input {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.api-id-input::-webkit-outer-spin-button,
-.api-id-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-</style>

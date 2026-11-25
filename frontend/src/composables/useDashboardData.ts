@@ -6,18 +6,10 @@ import {
   listSignTasks,
   getRecentAccountLogs,
   listScheduledJobs,
-  listKeywordHits,
-  listAccountStatusCheckJobs,
   issueStreamTicket,
   STREAM_TICKET_PURPOSE,
 } from '../lib/api'
-import type {
-  AccountInfo,
-  AccountLog,
-  ScheduledJob,
-  KeywordHitRecord,
-  AccountStatusJob,
-} from '../lib/api'
+import type { AccountInfo, AccountLog, ScheduledJob } from '../lib/api'
 import type { DashboardLog } from '../lib/types'
 import { getSemanticConfig, type JevDashboardStatus } from '../lib/api/semantic'
 import { getAuthToken } from '../lib/api/core'
@@ -59,8 +51,6 @@ export function useDashboardData() {
   const logs = ref<DashboardLog[]>([])
   const upcomingJobs = ref<ScheduledJob[]>([])
   const failureBreakdown = ref<Array<{ category: string; count: number }>>([])
-  const recentHits = ref<KeywordHitRecord[]>([])
-  const statusJobs = ref<AccountStatusJob[]>([])
   let loadSeq = 0
   const jevStatus = ref<JevDashboardStatus>({
     enabled: false,
@@ -179,8 +169,6 @@ export function useDashboardData() {
     let tasksRes: Awaited<ReturnType<typeof listSignTasks>> = []
     let logsRes: AccountLog[] = []
     let jobsRes: Awaited<ReturnType<typeof listScheduledJobs>> | null = null
-    let hitsRes: Awaited<ReturnType<typeof listKeywordHits>> | null = null
-    let statusJobsRes: Awaited<ReturnType<typeof listAccountStatusCheckJobs>> | null = null
 
     let loadError: unknown = null
     let hasLoadFailure = false
@@ -199,11 +187,9 @@ export function useDashboardData() {
       getRecentAccountLogs(token, 50),
       listScheduledJobs(token),
       refreshActiveRunsIfIdle(),
-      listKeywordHits(token, { limit: 8, offset: 0 }),
-      listAccountStatusCheckJobs(token, 5),
       getSemanticConfig(token),
     ])
-    const [accResult, tasksResult, logsResult, jobsResult, runsResult, hitsResult, statusJobsResult, semanticResult] = results
+    const [accResult, tasksResult, logsResult, jobsResult, runsResult, semanticResult] = results
     if (disposed || currentSeq !== loadSeq) return
 
     if (accResult.status === 'fulfilled') {
@@ -239,13 +225,6 @@ export function useDashboardData() {
     } else if (runsResult.value === false) {
       hasLoadFailure = true
     }
-    if (hitsResult.status === 'fulfilled') {
-      hitsRes = hitsResult.value
-    } else {
-      hasLoadFailure = true
-      loadError = hitsResult.reason
-      devLog.error('Failed to load keyword hits', hitsResult.reason)
-    }
     if (semanticResult.status === 'fulfilled') {
       const cfg = semanticResult.value
       const st = cfg?.stats
@@ -271,14 +250,6 @@ export function useDashboardData() {
         breakerState: 'unknown',
       }
     }
-    if (statusJobsResult.status === 'fulfilled') {
-      statusJobsRes = statusJobsResult.value
-    } else {
-      hasLoadFailure = true
-      loadError = statusJobsResult.reason
-      devLog.error('Failed to load status jobs', statusJobsResult.reason)
-    }
-
     // 卸载后在途 tick：不再写入状态或触发共享轮询
     if (disposed) {
       refreshing.value = false
@@ -344,17 +315,11 @@ export function useDashboardData() {
           }))
         : [],
     )
-    recentHits.value = hitsRes?.items || []
-    const allStatusJobs = statusJobsRes?.jobs || []
-    const activeStatus = allStatusJobs.filter(
-      (j) => j.status === 'running' || j.status === 'canceling',
-    )
-    statusJobs.value = (activeStatus.length ? activeStatus : allStatusJobs).slice(0, 3)
     refreshing.value = false
   }
 
   // 页面隐藏时暂停 30s 轮询，回到前台立即刷新并恢复：
-  // 后台标签页继续高频拉 7 个接口意义有限，徒增资源消耗；SSE 由浏览器节流自行兜底
+  // 后台标签页继续高频拉 6 个接口意义有限，徒增资源消耗；SSE 由浏览器节流自行兜底
   const handleVisibilityChange = () => {
     if (disposed) return
     if (document.hidden) {
@@ -410,8 +375,6 @@ export function useDashboardData() {
     upcomingJobs,
     activeRuns,
     failureBreakdown,
-    recentHits,
-    statusJobs,
     jevStatus,
     formatTime,
     loadDashboardData,

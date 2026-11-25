@@ -20,8 +20,6 @@ const api = vi.hoisted(() => ({
   getRecentAccountLogs: vi.fn(),
   listScheduledJobs: vi.fn(),
   listActiveSignTaskRuns: vi.fn(),
-  listKeywordHits: vi.fn(),
-  listAccountStatusCheckJobs: vi.fn(),
   issueStreamTicket: vi.fn(),
 }))
 
@@ -164,10 +162,6 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     api.listActiveSignTaskRuns.mockResolvedValue({
       runs: [{ task_name: 't1', state: 'running' }],
     })
-    api.listKeywordHits.mockResolvedValue({ items: [{ id: 1, keyword: 'k' }] })
-    api.listAccountStatusCheckJobs.mockResolvedValue({
-      jobs: [{ job_id: 'job1', status: 'running', progress: { done: 1, total: 2 } }],
-    })
   })
 
   afterEach(() => {
@@ -197,8 +191,6 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     expect(result.upcomingJobs.value[0].id).toBe('j1')
     expect(result.activeRuns.value).toHaveLength(1)
     expect(result.failureBreakdown.value.some((x) => x.category === 'timeout')).toBe(true)
-    expect(result.recentHits.value).toHaveLength(1)
-    expect(result.statusJobs.value[0].job_id).toBe('job1')
 
     expect(startChainPoll).toHaveBeenCalled()
     expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(1)
