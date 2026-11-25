@@ -43,6 +43,7 @@
     "TG_CONFIG_SAVE_FAILED": "保存 Telegram 配置失败",
     "TG_CONFIG_RESET_FAILED": "重置 Telegram 配置失败",
     "API_CREDENTIALS_REQUIRED": "请填写 api_id 与 api_hash",
+    "API_CREDENTIALS_MIXED_PAIR": "改动 API ID 时必须重新填写 API Hash，不能沿用已保存的 Hash",
     "API_ID_INVALID": "api_id 必须是正整数",
     "DATA_DIR_NOT_WRITABLE": "数据目录不可写",
     "LEGACY_TASKS_READONLY": "旧版 /api/tasks 已移除，请使用 /api/sign-tasks",

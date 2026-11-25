@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateAccountApiCredentials } from '../lib/api-credentials'
+import { canKeepExistingHash, validateAccountApiCredentials } from '../lib/api-credentials'
 
 describe('validateAccountApiCredentials', () => {
   it('accepts both fields blank (inherit global config)', () => {
@@ -50,5 +50,33 @@ describe('validateAccountApiCredentials', () => {
         error: 'id',
       })
     }
+  })
+})
+
+describe('canKeepExistingHash', () => {
+  const base = {
+    isExistingAccount: true,
+    hasExistingHash: true,
+    apiId: '111',
+    savedApiId: '111',
+  }
+
+  it('allows reuse only when the api id is unchanged', () => {
+    expect(canKeepExistingHash(base)).toBe(true)
+    expect(canKeepExistingHash({ ...base, apiId: ' 111 ' })).toBe(true)
+  })
+
+  it('blocks reuse when the api id changed', () => {
+    expect(canKeepExistingHash({ ...base, apiId: '222' })).toBe(false)
+  })
+
+  it('blocks reuse for a hash-only saved record without an api id', () => {
+    expect(canKeepExistingHash({ ...base, savedApiId: '' })).toBe(false)
+    expect(canKeepExistingHash({ ...base, savedApiId: undefined })).toBe(false)
+  })
+
+  it('blocks reuse when not an existing account or no saved hash', () => {
+    expect(canKeepExistingHash({ ...base, isExistingAccount: false })).toBe(false)
+    expect(canKeepExistingHash({ ...base, hasExistingHash: false })).toBe(false)
   })
 })

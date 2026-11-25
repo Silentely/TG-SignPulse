@@ -26,6 +26,7 @@ DEFAULT_API_ID = "611335"
 DEFAULT_API_HASH = "d524b414d21f4d37f08684c1df41ac9c"
 
 _PAIR_REQUIRED_MESSAGE = "API ID 与 API Hash 必须成对填写，或均留空使用全局配置"
+_MIXED_PAIR_MESSAGE = "改动 API ID 时必须重新填写 API Hash，不能沿用已保存的 Hash"
 _INVALID_MESSAGE = "Telegram API ID 必须是正整数，API Hash 必须为非空字符串"
 
 
@@ -39,6 +40,16 @@ class ApiCredentialsPairRequired(TelegramCredentialsError):
     """只配置了 api_id 或 api_hash 中的一项。"""
 
     code = "API_CREDENTIALS_PAIR_REQUIRED"
+
+
+class ApiCredentialsMixedPair(TelegramCredentialsError):
+    """改动的 api_id 与已保存 api_hash 不属于同一来源。
+
+    凭据对必须同源：API ID 变更后，已保存的 Hash 无法继续与它配对，
+    调用方必须重新填写完整的 API ID 与 API Hash。
+    """
+
+    code = "API_CREDENTIALS_MIXED_PAIR"
 
 
 class ApiCredentialsInvalid(TelegramCredentialsError):
@@ -383,6 +394,10 @@ def apply_account_credential_update(
         if not existing_hash:
             raise ApiCredentialsPairRequired(_PAIR_REQUIRED_MESSAGE)
         final_id = parse_api_id(api_id)
+        # 已保存的 Hash 只能与它原本配对的 API ID 沿用；ID 变了就必须重填 Hash，
+        # 否则会写出跨来源拼出来的混合凭据对（外部调用同样受此约束）。
+        if existing_id is None or int(existing_id) != final_id:
+            raise ApiCredentialsMixedPair(_MIXED_PAIR_MESSAGE)
         final_hash = parse_api_hash(existing_hash)
     elif not id_present and not hash_keep:
         if not existing_id:

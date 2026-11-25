@@ -20,6 +20,7 @@ from backend.services.telegram.credentials import (
     DEFAULT_API_ID,
     ApiCredentialsInvalid,
     ApiCredentialsMismatch,
+    ApiCredentialsMixedPair,
     ApiCredentialsPairRequired,
     ResolvedTelegramCredentials,
     apply_account_credential_update,
@@ -296,29 +297,64 @@ class TestCredentialUpdateSemantics:
         )
         assert tg_session.get_account_credentials("acc")["api_id"] is None
 
-    def test_new_id_with_keep_marker_keeps_hash(self, store):
+    def test_same_id_with_keep_marker_keeps_hash(self, store):
         tg_session.set_account_credentials(
             "acc", 111, "kept-hash", mark_needs_relogin=False
         )
         assert (
             apply_account_credential_update(
-                "acc", api_id="222", api_hash="KEEP", fields_set={"api_id", "api_hash"}
+                "acc", api_id="111", api_hash="KEEP", fields_set={"api_id", "api_hash"}
             )
             == "saved"
         )
         creds = tg_session.get_account_credentials("acc")
-        assert creds["api_id"] == 222
+        assert creds["api_id"] == 111
         assert creds["api_hash"] == "kept-hash"
 
-    def test_id_only_keeps_existing_hash(self, store):
+    def test_new_id_with_keep_marker_is_rejected(self, store):
+        tg_session.set_account_credentials(
+            "acc", 111, "kept-hash", mark_needs_relogin=False
+        )
+        with pytest.raises(ApiCredentialsMixedPair):
+            apply_account_credential_update(
+                "acc", api_id="222", api_hash="KEEP", fields_set={"api_id", "api_hash"}
+            )
+        creds = tg_session.get_account_credentials("acc")
+        assert (creds["api_id"], creds["api_hash"]) == (111, "kept-hash")
+
+    def test_same_id_only_keeps_existing_hash(self, store):
         tg_session.set_account_credentials(
             "acc", 111, "kept-hash", mark_needs_relogin=False
         )
         apply_account_credential_update(
-            "acc", api_id="222", api_hash=None, fields_set={"api_id"}
+            "acc", api_id="111", api_hash=None, fields_set={"api_id"}
         )
         creds = tg_session.get_account_credentials("acc")
-        assert (creds["api_id"], creds["api_hash"]) == (222, "kept-hash")
+        assert (creds["api_id"], creds["api_hash"]) == (111, "kept-hash")
+
+    def test_new_id_only_is_rejected(self, store):
+        tg_session.set_account_credentials(
+            "acc", 111, "kept-hash", mark_needs_relogin=False
+        )
+        with pytest.raises(ApiCredentialsMixedPair):
+            apply_account_credential_update(
+                "acc", api_id="222", api_hash=None, fields_set={"api_id"}
+            )
+        creds = tg_session.get_account_credentials("acc")
+        assert (creds["api_id"], creds["api_hash"]) == (111, "kept-hash")
+
+    def test_id_only_on_hash_only_legacy_entry_is_rejected(self, store):
+        tg_session.set_account_credentials(
+            "acc", 111, "kept-hash", mark_needs_relogin=False
+        )
+        data = json.loads(store.read_text(encoding="utf-8"))
+        data["accounts"]["acc"].pop("api_id", None)
+        store.write_text(json.dumps(data), encoding="utf-8")
+
+        with pytest.raises(ApiCredentialsMixedPair):
+            apply_account_credential_update(
+                "acc", api_id="222", api_hash=None, fields_set={"api_id"}
+            )
 
     def test_hash_only_keeps_existing_id(self, store):
         tg_session.set_account_credentials(
@@ -919,17 +955,47 @@ class TestAccountCredentialsPatchRoute:
                 f"/api/accounts/{name}", json=payload, headers=_auth(token)
             )
 
-    def test_patch_api_id_only_keeps_existing_hash(self, api_client, monkeypatch):
+    def test_patch_new_id_only_returns_400_mixed_pair(self, api_client, monkeypatch):
         tg_session.set_account_credentials(
             "route_acc", 111, "original-hash", mark_needs_relogin=False
         )
 
         resp = self._patch(api_client, monkeypatch, {"api_id": 222})
 
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == "API_CREDENTIALS_MIXED_PAIR"
+        credentials = tg_session.get_account_credentials("route_acc")
+        assert credentials["api_id"] == 111
+        assert credentials["api_hash"] == "original-hash"
+
+    def test_patch_same_id_only_keeps_existing_hash(self, api_client, monkeypatch):
+        tg_session.set_account_credentials(
+            "route_acc", 111, "original-hash", mark_needs_relogin=False
+        )
+
+        resp = self._patch(api_client, monkeypatch, {"api_id": 111})
+
         assert resp.status_code == 200, resp.text
         credentials = tg_session.get_account_credentials("route_acc")
-        assert credentials["api_id"] == 222
+        assert credentials["api_id"] == 111
         assert credentials["api_hash"] == "original-hash"
+
+    def test_patch_new_id_with_keep_marker_returns_400_mixed_pair(
+        self, api_client, monkeypatch
+    ):
+        tg_session.set_account_credentials(
+            "route_acc", 111, "original-hash", mark_needs_relogin=False
+        )
+
+        resp = self._patch(api_client, monkeypatch, {"api_id": 222, "api_hash": "KEEP"})
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == "API_CREDENTIALS_MIXED_PAIR"
+        credentials = tg_session.get_account_credentials("route_acc")
+        assert (credentials["api_id"], credentials["api_hash"]) == (
+            111,
+            "original-hash",
+        )
 
     def test_patch_both_null_clears_and_falls_back_to_global(
         self, api_client, monkeypatch

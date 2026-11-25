@@ -39,11 +39,14 @@ export interface KeepExistingHashOptions {
  *
  * 只有 API ID 与已保存值一致时才允许：改了 ID 再留空 Hash 会拼出
  * 新的混合凭据对，必须让用户重新填写 Hash。
+ *
+ * 已保存记录缺少 API ID（只有 Hash 的遗留数据）时一律不放行：无法证明
+ * 该 Hash 与当前 ID 同源，按 fail-closed 要求重新填写完整凭据对。
  */
 export function canKeepExistingHash(options: KeepExistingHashOptions): boolean {
   if (!options.isExistingAccount || !options.hasExistingHash) return false
   const savedApiId = String(options.savedApiId ?? '').trim()
-  if (!savedApiId) return true
+  if (!savedApiId) return false
   return String(options.apiId ?? '').trim() === savedApiId
 }
 

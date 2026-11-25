@@ -250,6 +250,7 @@ const API_ERROR_CODE_MESSAGES: Record<string, string> = {
   TG_CONFIG_SAVE_FAILED: 'Failed to save Telegram config',
   TG_CONFIG_RESET_FAILED: 'Failed to reset Telegram config',
   API_CREDENTIALS_REQUIRED: 'api_id and api_hash are required',
+  API_CREDENTIALS_MIXED_PAIR: 'Changing the API ID requires re-entering the API Hash',
   API_ID_INVALID: 'api_id must be a positive integer',
   DATA_DIR_NOT_WRITABLE: 'Data directory is not writable',
   TDATA_CONVERTER_UNAVAILABLE: 'TData converter is not available on server (opentele is required)',

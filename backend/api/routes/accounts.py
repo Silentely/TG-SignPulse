@@ -1153,6 +1153,7 @@ async def update_account(
         if credentials_touched:
             from backend.services.telegram.credentials import (
                 ApiCredentialsInvalid,
+                ApiCredentialsMixedPair,
                 ApiCredentialsPairRequired,
                 apply_account_credential_update,
             )
@@ -1169,6 +1170,11 @@ async def update_account(
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="API_CREDENTIALS_PAIR_REQUIRED",
+                ) from exc
+            except ApiCredentialsMixedPair as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="API_CREDENTIALS_MIXED_PAIR",
                 ) from exc
             except ApiCredentialsInvalid as exc:
                 raise HTTPException(
