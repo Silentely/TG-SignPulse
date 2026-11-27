@@ -91,6 +91,11 @@ def test_prefer_compares_rank_then_time():
     older = dict(stale, rank=2, at="2025-12-31T00:00:00+08:00")
     newer = dict(stale, rank=2, at="2026-01-05T00:00:00+08:00")
     assert prefer(cand(older), cand(newer)).at == newer["at"]
+    # 跨不同时区格式（如 Z 与 +08:00），以实际时间点晚者为准
+    utc_older = dict(stale, rank=1, at="2026-03-01T04:00:00Z")
+    tz_newer = dict(stale, rank=1, at="2026-03-01T13:00:00+08:00")
+    assert prefer(cand(utc_older), cand(tz_newer)).at == tz_newer["at"]
+    assert prefer(cand(tz_newer), cand(utc_older)).at == tz_newer["at"]
 
 
 def test_same_key_conflict_resolved_by_rank_and_time():

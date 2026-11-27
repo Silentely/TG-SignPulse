@@ -28,6 +28,7 @@ TEMPLATE_PRIVATE_FIELDS = frozenset(
         "name",
         "account_name",
         "account_names",
+        "last_run_account_name",
         "task_group_id",
         "enabled",
         "last_run",

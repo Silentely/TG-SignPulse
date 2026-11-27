@@ -211,3 +211,64 @@ def test_template_routes_registered():
     assert "/task-templates" in paths
     assert "/task-templates/{template_id}" in paths
     assert "/task-templates/{template_id}/tasks" in paths
+
+
+def test_template_sync_result_has_warnings_field():
+    from backend.api.routes.task_templates import TemplateOut, TemplateSyncResult
+
+    tpl = TemplateOut(id="1", name="t")
+    res = TemplateSyncResult(template=tpl, synced_tasks=[], warnings=["warn1"])
+    assert res.warnings == ["warn1"]
+    assert res.dict()["warnings"] == ["warn1"]
+
+
+def test_update_template_validation_status_code(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend.core.auth import get_current_user
+    from backend.main import app
+
+    app.dependency_overrides[get_current_user] = lambda: {"username": "admin"}
+    try:
+        store = TaskTemplateStore(tmp_path)
+        created = store.create_template(name="t1")
+
+        monkeypatch.setattr(
+            "backend.api.routes.task_templates._get_store",
+            lambda: TaskTemplateStore(tmp_path),
+        )
+
+        client = TestClient(app)
+        # 模板不存在 -> 404
+        r_not_found = client.put(
+            "/api/task-templates/non_existent", json={"name": "new"}
+        )
+        assert r_not_found.status_code == 404
+        assert "模板不存在" in r_not_found.text
+
+        # 名称为空 -> 422
+        r_invalid = client.put(
+            f"/api/task-templates/{created['id']}", json={"name": "   "}
+        )
+        assert r_invalid.status_code == 422
+        assert "模板名称不能为空" in r_invalid.text
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_template_private_fields_preserves_last_run_account_name(tmp_path):
+    _write_task(
+        tmp_path,
+        "acc1",
+        "task_a",
+        template_id="tpl1",
+        last_run_account_name="acc1",
+    )
+    svc = _FakeSvc(tmp_path, [_read_task(tmp_path, "acc1", "task_a")])
+    template = {
+        "id": "tpl1",
+        "fields": {"sign_at": "12:00", "last_run_account_name": "other"},
+    }
+    sync_template_to_tasks(svc, template)
+    task = _read_task(tmp_path, "acc1", "task_a")
+    assert task["last_run_account_name"] == "acc1"

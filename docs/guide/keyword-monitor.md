@@ -268,6 +268,19 @@ API（需登录）：
 | `GET /api/keyword-hits/export` | CSV 导出 |
 | `DELETE /api/keyword-hits` | 清空（可按账号/任务过滤） |
 
+## 规则运行状态与防抖保护
+
+对于频繁推送或不稳定的消息源，监听规则（`action`）支持持久化运行状态控制：
+
+| 配置字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `state_cooldown_seconds` / `state_cooldown_minutes` | 0 | 冷却时间（秒/分钟）。触发后在窗口期内的命中直接跳过，防止高频刷屏 |
+| `state_failure_threshold` | 0 | 连续失败阈值。后续动作处理连续失败达到此阈值时，自动转入静默状态 |
+| `state_silence_seconds` / `state_silence_minutes` | 0 | 静默保护时长（秒/分钟）。静默到期后自动恢复正常监听 |
+| `state_catch_up_on_start` | `false` | 重启补触发。服务重启后，若规则冷却时间已过，放行一次补触发机会 |
+
+状态持久化保存在 `keyword_monitor/rule_state.json` 中，进程重启后状态不丢失。
+
 ## 设计建议
 
 - 监听规则尽量按聊天拆分，避免一个任务承载太多不同语义

@@ -229,3 +229,62 @@ async def test_on_message_gate_blocks_and_records_trigger(tmp_path, monkeypatch)
 
     await service._on_message("acc", None, _Msg2())
     assert len(dispatched) == 1
+
+
+@pytest.mark.asyncio
+async def test_restart_from_tasks_plans_rule_state_catch_up(tmp_path, monkeypatch):
+    import backend.services.keyword_monitor.runtime as runtime_mod
+    from backend.services.keyword_monitor.rules import KeywordMonitorRule
+
+    monkeypatch.setattr(
+        runtime_mod,
+        "settings",
+        type(
+            "S",
+            (),
+            {
+                "resolve_workdir": staticmethod(lambda: tmp_path),
+                "resolve_session_dir": staticmethod(lambda: tmp_path / "sessions"),
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "backend.services.config.get_config_service",
+        lambda: type(
+            "C",
+            (),
+            {
+                "get_global_settings": lambda self: {},
+                "get_telegram_config": lambda self: {},
+            },
+        )(),
+    )
+
+    service = runtime_mod.KeywordMonitorService()
+    rule = KeywordMonitorRule(
+        account_name="acc",
+        task_name="task",
+        chat_id=100,
+        chat_name="chat",
+        message_thread_id=None,
+        sender_filter=None,
+        action={
+            "action": 8,
+            "keywords": ["签到"],
+            "push_channel": "telegram",
+            "state_cooldown_seconds": 3600,
+            "state_catch_up_on_start": True,
+        },
+    )
+    monkeypatch.setattr(service, "_load_rules", lambda: [rule])
+    monkeypatch.setattr(
+        "backend.services.telegram.credentials.resolve_telegram_credentials",
+        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("mock skip")),
+    )
+
+    await service.restart_from_tasks()
+
+    store = service._get_rule_state_store()
+    rule_id, trigger_id = service._rule_state_ids(rule)
+    state = store.get(rule_id, trigger_id)
+    assert state.get("catch_up_pending") is True

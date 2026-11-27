@@ -60,6 +60,11 @@ def test_last_scheduled_fire_time():
     assert _last_scheduled_fire_time("0 9 * * 1", now=NOW) is None
     # 非法表达式静默跳过
     assert _last_scheduled_fire_time("not-a-cron", now=NOW) is None
+    # offset-naive now 兼容带时区 trigger，不会抛出 TypeError
+    naive_now = datetime(2026, 9, 21, 10, 0, 0)
+    res = _last_scheduled_fire_time("09:00", now=naive_now)
+    assert res is not None
+    assert res.hour == 9 and res.minute == 0
 
 
 def test_compute_catch_up_tasks_selects_only_missed_fixed_tasks():

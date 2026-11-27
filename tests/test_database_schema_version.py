@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 
 import backend.core.database as database
+import backend.models  # noqa: F401
 
 
 def _fresh_engine(tmp_path, name="fresh.db"):

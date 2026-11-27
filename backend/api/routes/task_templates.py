@@ -55,6 +55,7 @@ class TemplateOut(BaseModel):
 class TemplateSyncResult(BaseModel):
     template: TemplateOut
     synced_tasks: List[Dict[str, Any]] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
 
 
 @router.get("", response_model=List[TemplateOut])
@@ -91,9 +92,12 @@ def update_template(
             fields=payload.fields,
         )
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if str(exc) == "模板不存在"
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
     warnings: List[str] = []
     synced: List[Dict[str, Any]] = []

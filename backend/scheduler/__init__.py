@@ -268,10 +268,17 @@ def _compute_range_task_compensation(
 
 def _last_scheduled_fire_time(sign_at: str, *, now: datetime) -> datetime | None:
     """返回 sign_at 今天已经过去的最近一次计划时刻；今天无计划返回 None。"""
+    tz_str = str(now.tzinfo) if now.tzinfo is not None else ""
     try:
-        trigger = create_cron_trigger(str(sign_at))
+        trigger = create_cron_trigger(str(sign_at), timezone=tz_str)
     except Exception:
         return None
+
+    trigger_tz = getattr(trigger, "timezone", None)
+    if trigger_tz is not None and now.tzinfo is None:
+        now = now.astimezone(trigger_tz)
+    elif trigger_tz is None and now.tzinfo is not None:
+        now = now.replace(tzinfo=None)
 
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     latest: datetime | None = None

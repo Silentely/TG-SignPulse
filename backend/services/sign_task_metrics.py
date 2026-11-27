@@ -20,8 +20,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from backend.utils.time import utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.sign_task_metrics")
 
@@ -130,21 +132,27 @@ def normalize_metric_rules(raw: Any) -> List[Dict[str, Any]]:
     return cleaned or [dict(rule) for rule in DEFAULT_METRIC_RULES]
 
 
+def _parse_time_sort_key(raw: Any) -> Tuple[int, Any]:
+    if not raw:
+        return (0, "")
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (1, dt)
+    except Exception:
+        return (0, str(raw))
+
+
 def prefer(
     current: Optional[MetricCandidate], candidate: MetricCandidate
 ) -> MetricCandidate:
     """更权威且更新的候选胜出：先比 rank，再比时间（与上游 prefer 一致）。"""
     if current is None:
         return candidate
-    return (
-        candidate
-        if (candidate.rank, candidate.at)
-        > (
-            current.rank,
-            current.at,
-        )
-        else current
-    )
+    candidate_key = (candidate.rank, _parse_time_sort_key(candidate.at))
+    current_key = (current.rank, _parse_time_sort_key(current.at))
+    return candidate if candidate_key > current_key else current
 
 
 def extract_metrics(
@@ -161,7 +169,7 @@ def extract_metrics(
     if not text:
         return {}
     body = str(text)[:MAX_METRIC_TEXT_CHARS]
-    timestamp = at or datetime.now().astimezone().isoformat()
+    timestamp = at or utc_now_iso_z_seconds()
     normalized_rules = normalize_metric_rules(rules)
 
     winners: Dict[str, MetricCandidate] = {}

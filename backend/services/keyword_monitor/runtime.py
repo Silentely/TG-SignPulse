@@ -1023,6 +1023,7 @@ class KeywordMonitorService:
 
             # 重启后加载已处理水位，跳过补投的旧消息
             self._load_seen_state()
+            self._plan_rule_state_catch_up(rules)
 
             session_dir = settings.resolve_session_dir()
             global_settings = get_config_service().get_global_settings()
