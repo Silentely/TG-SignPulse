@@ -33,6 +33,7 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "next_task_on_success": "",
     "next_task_delay_seconds": 2,
     "execution_engine": None,
+    "template_id": "",
 }
 
 MAX_TASK_TAGS = 20
@@ -100,6 +101,7 @@ def build_sign_task_config(
     next_task_on_success: Optional[str] = None,
     next_task_delay_seconds: Optional[float] = None,
     execution_engine: Optional[str] = None,
+    template_id: str = "",
     last_run: Any = None,
     version: int = 4,
 ) -> Dict[str, Any]:
@@ -131,6 +133,7 @@ def build_sign_task_config(
         if next_task_delay_seconds is not None
         else 2.0,
         "execution_engine": _normalize_execution_engine(execution_engine),
+        "template_id": str(template_id or "").strip(),
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -160,6 +163,7 @@ def resolve_update_field_values(
     next_task_on_success: Optional[str] = None,
     next_task_delay_seconds: Optional[float] = None,
     execution_engine: Optional[str] = None,
+    template_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
     return {
@@ -261,6 +265,11 @@ def resolve_update_field_values(
             if execution_engine is not None
             else _normalize_execution_engine(existing.get("execution_engine"))
         ),
+        "template_id": str(
+            template_id
+            if template_id is not None
+            else existing.get("template_id", _DEFAULT_TASK_FIELDS["template_id"])
+        ).strip(),
     }
 
 
