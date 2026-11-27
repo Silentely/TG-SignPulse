@@ -869,9 +869,10 @@ async def dispatch_matrix_notification(
         if not url:
             if strict:
                 logger.warning(
-                    "通知渠道 %s(%s)未配置 Webhook,已跳过该渠道",
+                    "通知渠道 %s(%s)未配置 Webhook,已跳过该渠道 (可在系统设置中配置 %s)",
                     channel_id,
                     channel.label,
+                    channel.settings_key,
                 )
             continue
         try:

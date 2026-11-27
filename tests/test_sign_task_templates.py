@@ -272,3 +272,53 @@ def test_template_private_fields_preserves_last_run_account_name(tmp_path):
     sync_template_to_tasks(svc, template)
     task = _read_task(tmp_path, "acc1", "task_a")
     assert task["last_run_account_name"] == "acc1"
+
+
+def test_sync_template_skips_reschedule_when_schedule_unchanged(tmp_path, monkeypatch):
+    _write_task(
+        tmp_path,
+        "acc1",
+        "task_a",
+        template_id="tpl1",
+        sign_at="08:00",
+        chats=[{"chat_id": 1}],
+    )
+    svc = _FakeSvc(tmp_path, [_read_task(tmp_path, "acc1", "task_a")])
+    rescheduled = []
+    monkeypatch.setattr(
+        "backend.services.sign_task_templates._reschedule_task",
+        lambda *args: rescheduled.append(args),
+    )
+
+    # 仅更新 chats，sign_at 保持一致
+    template = {"id": "tpl1", "fields": {"chats": [{"chat_id": 999}]}}
+    synced = sync_template_to_tasks(svc, template)
+    assert synced == [{"name": "task_a", "account_name": "acc1"}]
+    # 调度未变，未触发 reschedule
+    assert rescheduled == []
+
+    # 当 sign_at 变更时，触发 reschedule
+    template_time = {"id": "tpl1", "fields": {"sign_at": "11:00"}}
+    sync_template_to_tasks(svc, template_time)
+    assert len(rescheduled) == 1
+
+
+def test_sync_template_error_isolation(tmp_path):
+    _write_task(tmp_path, "acc1", "task_ok", template_id="tpl1")
+    _write_task(tmp_path, "acc2", "task_bad", template_id="tpl1")
+    # 破坏 task_bad 的 config.json
+    (tmp_path / "signs" / "acc2" / "task_bad" / "config.json").write_text(
+        "{bad json", encoding="utf-8"
+    )
+
+    svc = _FakeSvc(
+        tmp_path,
+        [
+            _read_task(tmp_path, "acc1", "task_ok"),
+            {"name": "task_bad", "account_name": "acc2", "template_id": "tpl1"},
+        ],
+    )
+    # 单个任务损坏不阻断正常任务的同步
+    synced = sync_template_to_tasks(svc, {"id": "tpl1", "fields": {"sign_at": "15:00"}})
+    assert synced == [{"name": "task_ok", "account_name": "acc1"}]
+    assert _read_task(tmp_path, "acc1", "task_ok")["sign_at"] == "15:00"

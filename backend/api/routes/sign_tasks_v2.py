@@ -270,6 +270,13 @@ class SignTaskOut(BaseModel):
     metric_rules: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class NotifyChannelOut(BaseModel):
+    id: str
+    label: str
+    configured: bool
+    settings_key: str
+
+
 class ChatOut(BaseModel):
     id: int
     title: Optional[str] = None
@@ -405,6 +412,18 @@ def list_active_sign_task_runs(
     """当前内存中进行中的签到运行（供 Dashboard / 列表短轮询）。"""
     runs = get_sign_task_service().list_active_runs()
     return ActiveRunsResponse(runs=runs)
+
+
+@router.get("/notify-channels", response_model=List[NotifyChannelOut])
+def get_notify_channels(
+    current_user=Depends(get_current_user),
+):
+    """返回支持的外部通知渠道列表及其 Webhook 配置状态。"""
+    from backend.services.config import get_config_service
+    from backend.services.notification_channels import list_available_channels
+
+    settings = get_config_service().get_global_settings()
+    return list_available_channels(settings)
 
 
 @router.post("", response_model=SignTaskOut, status_code=status.HTTP_201_CREATED)

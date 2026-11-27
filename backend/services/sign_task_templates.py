@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,8 @@ from backend.utils.atomic_io import (
     write_json_atomic,
 )
 from backend.utils.time import utc_now_iso_z_seconds
+
+logger = logging.getLogger("backend.sign_task_templates")
 
 TEMPLATE_FILE_NAME = "task_templates.json"
 _TEMPLATE_FILE_VERSION = 1
@@ -169,6 +172,9 @@ def sync_template_to_tasks(svc: Any, template: Dict[str, Any]) -> List[Dict[str,
         return []
 
     synced: List[Dict[str, Any]] = []
+    processed_paths: set[Path] = set()
+    schedule_keys = ("execution_mode", "sign_at", "range_start", "jitter_seconds")
+
     for task in svc.list_tasks(force_refresh=True):
         if not isinstance(task, dict):
             continue
@@ -179,30 +185,41 @@ def sync_template_to_tasks(svc: Any, template: Dict[str, Any]) -> List[Dict[str,
         task_dir = svc._resolve_task_dir(task_name, account_name)
         if task_dir is None:
             continue
-        config_file = Path(task_dir) / "config.json"
-        if not config_file.exists():
+        config_file = (Path(task_dir) / "config.json").resolve()
+        if not config_file.exists() or config_file in processed_paths:
             continue
+        processed_paths.add(config_file)
 
-        with path_write_lock(config_file):
-            config = read_json_safe(config_file, default=None)
-            if not isinstance(config, dict):
-                continue
-            merged = dict(config)
-            for key, value in template_fields.items():
-                if key in TEMPLATE_PRIVATE_FIELDS:
+        try:
+            with path_write_lock(config_file):
+                config = read_json_safe(config_file, default=None)
+                if not isinstance(config, dict):
                     continue
-                merged[key] = value
-            # 私有字段以任务自身为准(模板中即使误带也不会覆盖)
-            for key in TEMPLATE_PRIVATE_FIELDS:
-                if key in config:
-                    merged[key] = config[key]
-            merged["template_id"] = template_id
-            if merged == config:
-                continue
-            write_json_atomic(config_file, merged)
+                merged = dict(config)
+                for key, value in template_fields.items():
+                    if key in TEMPLATE_PRIVATE_FIELDS:
+                        continue
+                    merged[key] = value
+                # 私有字段以任务自身为准(模板中即使误带也不会覆盖)
+                for key in TEMPLATE_PRIVATE_FIELDS:
+                    if key in config:
+                        merged[key] = config[key]
+                merged["template_id"] = template_id
+                if merged == config:
+                    continue
+                write_json_atomic(config_file, merged)
 
-        synced.append({"name": task_name, "account_name": account_name})
-        _reschedule_task(merged, account_name, task_name)
+            synced.append({"name": task_name, "account_name": account_name})
+            if any(config.get(k) != merged.get(k) for k in schedule_keys):
+                _reschedule_task(merged, account_name, task_name)
+        except Exception as task_exc:
+            logger.warning(
+                "模板 %s 同步到任务 %s/%s 失败(忽略并继续): %s",
+                template_id,
+                account_name,
+                task_name,
+                task_exc,
+            )
 
     if synced and hasattr(svc, "_refresh_tasks_cache_after_write"):
         svc._refresh_tasks_cache_after_write()

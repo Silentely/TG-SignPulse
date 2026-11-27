@@ -50,3 +50,19 @@ def resolve_channel_webhook(settings: Dict[str, Any], channel_id: str) -> Option
         return None
     url = str(settings.get(channel.settings_key) or "").strip()
     return url or None
+
+
+def list_available_channels(settings: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """返回支持的外部通知渠道列表及其配置状态（不泄漏真实 Webhook 地址）。"""
+    out: List[Dict[str, Any]] = []
+    for cid, channel in NOTIFY_CHANNELS.items():
+        webhook_url = resolve_channel_webhook(settings, cid)
+        out.append(
+            {
+                "id": channel.id,
+                "label": channel.label,
+                "configured": bool(webhook_url),
+                "settings_key": channel.settings_key,
+            }
+        )
+    return out

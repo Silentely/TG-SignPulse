@@ -220,3 +220,43 @@ def test_task_config_persists_channel_ids():
     assert resolve_update_field_values({"notify_channel_ids": ["wecom"]})[
         "notify_channel_ids"
     ] == ["wecom"]
+
+
+def test_list_available_channels_returns_metadata_and_configured_flag():
+    from backend.services.notification_channels import list_available_channels
+
+    settings = {
+        "wecom_webhook_url": "https://wecom.example.com",
+        "feishu_webhook_url": "",
+    }
+    channels = list_available_channels(settings)
+    by_id = {c["id"]: c for c in channels}
+    assert by_id["wecom"]["configured"] is True
+    assert by_id["wecom"]["label"] == "企业微信"
+    assert by_id["wecom"]["settings_key"] == "wecom_webhook_url"
+    assert by_id["feishu"]["configured"] is False
+    # 绝不能泄露真实 webhook url
+    for c in channels:
+        assert "url" not in c
+
+
+def test_get_notify_channels_endpoint(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend.core.auth import get_current_user
+    from backend.main import app
+
+    app.dependency_overrides[get_current_user] = lambda: {"username": "admin"}
+    try:
+        client = TestClient(app)
+        res = client.get("/api/sign-tasks/notify-channels")
+        assert res.status_code == 200
+        data = res.json()
+        assert isinstance(data, list)
+        ids = [item["id"] for item in data]
+        assert "wecom" in ids
+        assert "feishu" in ids
+        assert "dingtalk" in ids
+        assert "discord" in ids
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
