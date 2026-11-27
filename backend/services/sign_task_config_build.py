@@ -34,6 +34,7 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "next_task_delay_seconds": 2,
     "execution_engine": None,
     "template_id": "",
+    "metric_rules": [],
 }
 
 MAX_TASK_TAGS = 20
@@ -50,6 +51,30 @@ def _normalize_execution_engine(value: Optional[str]) -> Optional[str]:
 
 MAX_TASK_TAG_LENGTH = 50
 MAX_TASK_TAGS_TOTAL_LENGTH = 500
+
+
+def _normalize_metric_rules(raw: Any) -> List[Dict[str, Any]]:
+    """数值抽取规则：空配置表示使用内置通用规则（运行时再展开）。"""
+    if not isinstance(raw, list) or not raw:
+        return []
+    cleaned: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        pattern = str(item.get("pattern") or "").strip()
+        if not key or not pattern:
+            continue
+        cleaned.append(
+            {
+                "key": key,
+                "pattern": pattern,
+                "unit": str(item.get("unit") or "").strip(),
+                "source": str(item.get("source") or "reply").strip() or "reply",
+                "rank": int(item.get("rank") or 0),
+            }
+        )
+    return cleaned
 
 
 def normalize_task_tags(tags: Optional[List[str]]) -> List[str]:
@@ -102,6 +127,7 @@ def build_sign_task_config(
     next_task_delay_seconds: Optional[float] = None,
     execution_engine: Optional[str] = None,
     template_id: str = "",
+    metric_rules: Optional[List[Dict[str, Any]]] = None,
     last_run: Any = None,
     version: int = 4,
 ) -> Dict[str, Any]:
@@ -134,6 +160,7 @@ def build_sign_task_config(
         else 2.0,
         "execution_engine": _normalize_execution_engine(execution_engine),
         "template_id": str(template_id or "").strip(),
+        "metric_rules": _normalize_metric_rules(metric_rules),
     }
     if last_run is not None:
         config["last_run"] = last_run
@@ -164,6 +191,7 @@ def resolve_update_field_values(
     next_task_delay_seconds: Optional[float] = None,
     execution_engine: Optional[str] = None,
     template_id: Optional[str] = None,
+    metric_rules: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """合并更新入参与既有配置，返回下一版字段值。"""
     return {
@@ -270,6 +298,11 @@ def resolve_update_field_values(
             if template_id is not None
             else existing.get("template_id", _DEFAULT_TASK_FIELDS["template_id"])
         ).strip(),
+        "metric_rules": _normalize_metric_rules(
+            metric_rules
+            if metric_rules is not None
+            else existing.get("metric_rules", _DEFAULT_TASK_FIELDS["metric_rules"])
+        ),
     }
 
 

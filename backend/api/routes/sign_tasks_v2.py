@@ -144,6 +144,9 @@ class SignTaskCreate(BaseModel):
         None, description="Execution engine override for this task"
     )
     template_id: Optional[str] = Field(None, description="Referenced task template id")
+    metric_rules: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Numeric extraction rules"
+    )
 
     @validator("name", allow_reuse=True)
     def name_must_be_valid_filename(cls, v: str) -> str:
@@ -206,6 +209,9 @@ class SignTaskUpdate(BaseModel):
     template_id: Optional[str] = Field(
         None, description="Referenced task template id; empty string unbinds"
     )
+    metric_rules: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Numeric extraction rules"
+    )
 
 
 class LastRunInfo(BaseModel):
@@ -261,6 +267,7 @@ class SignTaskOut(BaseModel):
     active_run: Optional[ActiveRunSummary] = None
     execution_engine: Optional[str] = None
     template_id: str = ""
+    metric_rules: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatOut(BaseModel):
@@ -432,6 +439,7 @@ def create_sign_task(
             next_task_delay_seconds=payload.next_task_delay_seconds,
             execution_engine=payload.execution_engine,
             template_id=payload.template_id or "",
+            metric_rules=payload.metric_rules,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应
@@ -543,6 +551,7 @@ def update_sign_task(
             next_task_delay_seconds=payload.next_task_delay_seconds,
             execution_engine=payload.execution_engine,
             template_id=payload.template_id,
+            metric_rules=payload.metric_rules,
         )
 
         # 调度同步和监控重启放到后台执行，避免阻塞 HTTP 响应

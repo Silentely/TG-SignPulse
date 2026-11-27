@@ -174,6 +174,7 @@ class SignTaskHistoryStore:
             failure_category=failure_category,
             repair=self.repair,
             workflow_path=workflow_path,
+            metrics=entry.get("metrics"),
         )
         run_entry["created_at"] = created_at
         run_entry["task_name"] = task
@@ -183,6 +184,8 @@ class SignTaskHistoryStore:
         for field_name in ("targets", "unknown_side_effects"):
             if field_name in entry:
                 run_entry[field_name] = entry[field_name]
+        if isinstance(entry.get("metrics"), dict) and entry["metrics"]:
+            run_entry["metrics"] = entry["metrics"]
 
         # 若存在旧编码历史文件，先合并迁移到当前规范路径
         migrate_legacy_history_file(
@@ -212,6 +215,7 @@ class SignTaskHistoryStore:
             message=message,
             failure_category=failure_category,
             workflow_path=workflow_path,
+            metrics=run_entry.get("metrics"),
         )
         try:
             append_index_entry(

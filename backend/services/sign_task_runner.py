@@ -833,6 +833,18 @@ async def _runner_save_run_info(state: TaskExecutionContext | Dict[str, Any]) ->
     last_target = state.get("last_target_message") or state.get("last_reply")
     if last_target:
         details["last_target_message"] = str(last_target).strip()
+    # 机器人回复里的余额/积分等数值:抽取失败不影响历史写入
+    try:
+        from backend.services.sign_task_metrics import extract_metrics_safe
+
+        metrics = extract_metrics_safe(
+            last_target,
+            (state.get("task_cfg") or {}).get("metric_rules"),
+        )
+        if metrics:
+            details["metrics"] = metrics
+    except Exception as metric_exc:
+        _service_logger.warning("数值抽取失败(忽略): %s", metric_exc)
     try:
         svc._save_run_info(
             state["task_name"],

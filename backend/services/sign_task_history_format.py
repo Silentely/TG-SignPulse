@@ -59,6 +59,9 @@ def build_history_list_item(
     if "workflow_path" in item:
         res["workflow_path"] = item.get("workflow_path")
     res["aggregate_status"] = item.get("aggregate_status", "legacy_aggregate")
+    res["metrics"] = (
+        item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
+    )
     for field_name in ("targets", "unknown_side_effects"):
         if field_name in item:
             res[field_name] = item[field_name]
@@ -122,6 +125,7 @@ def build_history_run_entry(
     failure_category: str,
     repair: Callable[[str], str],
     workflow_path: Optional[List[str]] = None,
+    metrics: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """构造写入 history 文件的单条执行记录。"""
     entry = {
@@ -137,6 +141,8 @@ def build_history_run_entry(
     }
     if workflow_path is not None:
         entry["workflow_path"] = list(workflow_path)
+    if metrics:
+        entry["metrics"] = metrics
     return entry
 
 

@@ -430,6 +430,7 @@ class SignTaskCrudMixin:
         next_task_delay_seconds: Optional[float] = None,
         execution_engine: Optional[str] = None,
         template_id: str = "",
+        metric_rules: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Create a sign task that can be shared by multiple accounts."""
         from backend.services.config import get_config_service
@@ -507,6 +508,7 @@ class SignTaskCrudMixin:
                 next_task_delay_seconds=next_task_delay_seconds,
                 execution_engine=execution_engine,
                 template_id=template_id,
+                metric_rules=metric_rules,
             )
 
             # 同一任务配置的创建/更新/删除必须串行，否则并发写会互相覆盖字段
@@ -707,6 +709,7 @@ class SignTaskCrudMixin:
         next_task_delay_seconds: Optional[float] = None,
         execution_engine: Optional[str] = None,
         template_id: Optional[str] = None,
+        metric_rules: Optional[List[Dict[str, Any]]] = None,
         _field_mask: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Update one task and fan out the config to all linked accounts."""
@@ -798,6 +801,7 @@ class SignTaskCrudMixin:
             next_task_delay_seconds=next_task_delay_seconds,
             execution_engine=execution_engine,
             template_id=template_id,
+            metric_rules=metric_rules,
         )
         if _field_mask:
             if "next_task_on_success" in _field_mask and next_task_on_success is None:
@@ -830,6 +834,7 @@ class SignTaskCrudMixin:
         next_next_task_delay_seconds = fields.get("next_task_delay_seconds", 2.0)
         next_execution_engine = fields.get("execution_engine")
         next_template_id = fields.get("template_id", "")
+        next_metric_rules = fields.get("metric_rules") or []
         # 校验最终合并后的 chats 与 execution_engine，确保沿用已有 chats 但将引擎改回 v3 时被前置拦截
         _validate_chats_workflow(next_chats, task_engine=next_execution_engine)
         schedule_plan = resolve_schedule_plan(
@@ -882,6 +887,7 @@ class SignTaskCrudMixin:
                 next_task_delay_seconds=next_next_task_delay_seconds,
                 execution_engine=next_execution_engine,
                 template_id=next_template_id,
+                metric_rules=next_metric_rules,
                 last_run=existing_last_run_map.get(current_account),
             )
 
