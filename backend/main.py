@@ -44,6 +44,7 @@ from backend.core.database import (  # noqa: E402
 from backend.core.rate_limit_middleware import RateLimitMiddleware  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     init_scheduler,
+    run_startup_catch_up,
     shutdown_scheduler,
     sync_jobs,
 )
@@ -501,6 +502,13 @@ async def on_startup() -> None:
                 from backend.services.chatops_bot import get_chatops_worker
 
                 get_chatops_worker().start()
+
+                # 启动补跑:单独后台任务,不阻塞就绪探针
+                app.state.catch_up_task = create_logged_task(
+                    run_startup_catch_up(),
+                    logger=logging.getLogger("backend.scheduler"),
+                    description="sign task startup catch-up",
+                )
             else:
                 logging.getLogger("backend.startup").info(
                     "当前实例为只读/副本实例（未持有调度锁），跳过关键词监控和 ChatOps 机器人长轮询启动"

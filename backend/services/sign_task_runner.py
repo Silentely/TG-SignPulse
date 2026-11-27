@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from backend.services.sign_task_context import TaskExecutionContext, TaskPhase
+from backend.services.sign_task_daily import task_succeeded_today
 from backend.services.sign_task_failure import FailureCategory, classify_failure
 from backend.services.sign_task_run_status import (
     PHASE_CHECKING_ACCOUNT,
@@ -84,47 +85,6 @@ def _set_ctx(ctx: Any, key: str, value: Any) -> None:
 # ========== Phase helpers ==========
 
 
-def _parse_run_timestamp(raw_time: Any) -> Optional[datetime]:
-    """解析执行记录中的时间戳;无法解析时返回 None。"""
-    if not raw_time:
-        return None
-    try:
-        ran_at = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-    if ran_at.tzinfo is not None:
-        # 历史时间以 UTC 保存,换算到进程本地时区后再比较“今天”
-        ran_at = ran_at.astimezone()
-    return ran_at
-
-
-def _last_run_succeeded_today(last_run: Any) -> bool:
-    """最近一次执行记录是否为当天成功(复用任务配置已有的 last_run)。"""
-    if not isinstance(last_run, dict) or last_run.get("success") is not True:
-        return False
-    ran_at = _parse_run_timestamp(last_run.get("time") or last_run.get("created_at"))
-    return ran_at is not None and ran_at.date() == datetime.now().date()
-
-
-def _history_succeeded_today(svc: Any, task_name: str, account_name: str) -> bool:
-    """历史记录中当天是否已有成功条目(覆盖“成功后又失败重试”的情况)。"""
-    getter = getattr(svc, "get_task_history", None)
-    if not callable(getter):
-        return False
-    try:
-        entries = getter(task_name, account_name=account_name, limit=200)
-    except Exception:
-        return False
-    today = datetime.now().date()
-    for entry in entries or []:
-        if not isinstance(entry, dict) or entry.get("success") is not True:
-            continue
-        ran_at = _parse_run_timestamp(entry.get("time") or entry.get("created_at"))
-        if ran_at is not None and ran_at.date() == today:
-            return True
-    return False
-
-
 async def _runner_skip_succeeded_today(
     state: TaskExecutionContext | Dict[str, Any],
 ) -> None:
@@ -140,10 +100,7 @@ async def _runner_skip_succeeded_today(
     account_name = state["account_name"]
     task_name = state["task_name"]
     raw_task_cfg = state.get("raw_task_cfg") or {}
-    if not (
-        _last_run_succeeded_today(raw_task_cfg.get("last_run"))
-        or _history_succeeded_today(svc, task_name, account_name)
-    ):
+    if not task_succeeded_today(svc, raw_task_cfg, task_name, account_name):
         return
 
     _set_ctx(state, "skipped_today", True)
@@ -815,7 +772,7 @@ async def _runner_adaptive_reschedule(
     except (ValueError, TypeError):
         padding_sec = 30
 
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta, timezone
 
     from backend.scheduler import _resolve_scheduler_timezone
 

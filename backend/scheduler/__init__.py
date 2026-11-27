@@ -14,6 +14,9 @@ from apscheduler.triggers.date import DateTrigger
 scheduler: AsyncIOScheduler | None = None
 _ADAPTIVE_NEXT_RUNS: dict[str, datetime] = {}
 _RANGE_COMPENSATION_RUNS: dict[str, datetime] = {}
+# 启动补跑:等待调度器/账号就绪后再检查,且每个进程只做一次
+STARTUP_CATCH_UP_DELAY_SECONDS = 10.0
+_CATCH_UP_STARTED = False
 
 
 def _parse_clock_time(value: str):
@@ -261,6 +264,137 @@ def _compute_range_task_compensation(
         delay_seconds = random.uniform(5.0, max_delay)
 
     return now + timedelta(seconds=delay_seconds)
+
+
+def _last_scheduled_fire_time(sign_at: str, *, now: datetime) -> datetime | None:
+    """返回 sign_at 今天已经过去的最近一次计划时刻；今天无计划返回 None。"""
+    try:
+        trigger = create_cron_trigger(str(sign_at))
+    except Exception:
+        return None
+
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    latest: datetime | None = None
+    try:
+        next_fire = trigger.get_next_fire_time(None, start_of_day)
+        # 逐次推进到当前时刻；上限防御每分钟级 cron 造成的过长循环
+        for _ in range(10000):
+            if next_fire is None or next_fire > now:
+                break
+            latest = next_fire
+            next_fire = trigger.get_next_fire_time(
+                next_fire, next_fire + timedelta(seconds=1)
+            )
+    except Exception:
+        return None
+    return latest
+
+
+def _compute_catch_up_tasks(
+    svc: Any,
+    task_configs: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """挑出「今天本该执行但今天还没有成功记录」的固定定时任务。
+
+    只处理 fixed(cron) 模式；range/listen 的既有补偿与常驻监听不受影响。
+    """
+    if now is None:
+        tz = _resolve_scheduler_timezone() or getattr(scheduler, "timezone", None)
+        now = datetime.now(tz) if tz is not None else datetime.now()
+
+    from backend.services.sign_task_daily import task_succeeded_today
+
+    candidates: list[dict[str, Any]] = []
+    for task in task_configs or []:
+        if not isinstance(task, dict) or not task.get("enabled", True):
+            continue
+        if str(task.get("execution_mode") or "fixed") in {"range", "listen"}:
+            continue
+        task_name = str(task.get("name") or "").strip()
+        account_name = str(task.get("account_name") or "").strip()
+        sign_at = str(task.get("sign_at") or "").strip()
+        if not task_name or not account_name or not sign_at:
+            continue
+
+        scheduled_at = _last_scheduled_fire_time(sign_at, now=now)
+        # 今天没有已过去的计划时刻 → 不是漏跑
+        if scheduled_at is None:
+            continue
+        # 当日已成功 → 补跑不执行（与 BP-2 执行器去重门同口径）
+        if task_succeeded_today(svc, task, task_name, account_name, now=now):
+            continue
+        candidates.append(
+            {
+                "name": task_name,
+                "account_name": account_name,
+                "scheduled_at": scheduled_at.isoformat(),
+            }
+        )
+    return candidates
+
+
+async def run_startup_catch_up(
+    *,
+    delay_seconds: float = STARTUP_CATCH_UP_DELAY_SECONDS,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """启动补跑：延迟后补跑今天本该执行但尚未成功的固定定时任务。
+
+    补跑统一走 ``_job_run_sign_task`` → ``run_task_with_logs(force=False)``，
+    因此必然经过 BP-2 的当日去重门，不会向已成功的账号重复签到。
+    """
+    global _CATCH_UP_STARTED
+
+    logger = logging.getLogger("backend.scheduler")
+    if _CATCH_UP_STARTED:
+        return []
+    _CATCH_UP_STARTED = True
+
+    if delay_seconds and delay_seconds > 0:
+        await asyncio.sleep(delay_seconds)
+
+    from backend.scheduler.instance_lock import has_scheduler_lock
+
+    if not has_scheduler_lock():
+        logger.info("Scheduler: 当前实例未持有调度锁，跳过启动补跑")
+        return []
+
+    from backend.services.sign_tasks import get_sign_task_service
+
+    svc = get_sign_task_service()
+    try:
+        tasks = svc.list_tasks(force_refresh=True)
+    except Exception:
+        logger.exception("Scheduler: 读取签到任务失败，跳过启动补跑")
+        return []
+
+    candidates = _compute_catch_up_tasks(svc, tasks, now=now)
+    if not candidates:
+        logger.info("Scheduler: 启动补跑检查完成，无需补跑")
+        return []
+
+    ran: list[dict[str, Any]] = []
+    for item in candidates:
+        logger.info(
+            "Scheduler: 启动补跑任务 %s (账号=%s)，依据：今日计划时刻 %s 已过且今日无成功记录",
+            item["name"],
+            item["account_name"],
+            item["scheduled_at"],
+        )
+        try:
+            await _job_run_sign_task(item["account_name"], item["name"])
+            ran.append(item)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Scheduler: 启动补跑任务 %s (账号=%s) 失败",
+                item["name"],
+                item["account_name"],
+            )
+    return ran
 
 
 async def _job_run_sign_task(
