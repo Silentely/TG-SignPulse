@@ -822,10 +822,21 @@ async def dispatch_matrix_notification(
     title: str,
     fields: list[tuple[str, str]],
     footer: str = "",
+    channel_ids: Optional[list[str]] = None,
 ) -> None:
-    """统一向外部 Webhook 矩阵（企业微信、飞书、钉钉、Discord）分发通知。"""
+    """统一向外部 Webhook 矩阵(企业微信、飞书、钉钉、Discord)分发通知。
+
+    ``channel_ids`` 为 None 时保持原行为(向所有已配置的渠道发送);
+    传入列表时只发送任务选中的渠道,缺失或未知的渠道记日志后跳过,绝不整体失败。
+    """
     if is_in_quiet_hours(settings):
         return
+
+    from backend.services.notification_channels import (
+        NOTIFY_CHANNELS,
+        normalize_channel_ids,
+        resolve_channel_webhook,
+    )
 
     md_lines = []
     for label, val in fields:
@@ -835,30 +846,37 @@ async def dispatch_matrix_notification(
         md_lines.append(f"\n{footer}")
     body_text = "\n".join(md_lines)
 
-    wecom_url = (settings.get("wecom_webhook_url") or "").strip()
-    if wecom_url:
-        try:
-            await send_wecom_message(wecom_url, title, body_text)
-        except Exception as exc:
-            logger.warning("企业微信通知发送失败: %s", sanitize_push_error(exc))
+    senders = {
+        "wecom": send_wecom_message,
+        "feishu": send_feishu_message,
+        "dingtalk": send_dingtalk_message,
+        "discord": send_discord_message,
+    }
 
-    feishu_url = (settings.get("feishu_webhook_url") or "").strip()
-    if feishu_url:
-        try:
-            await send_feishu_message(feishu_url, title, body_text)
-        except Exception as exc:
-            logger.warning("飞书通知发送失败: %s", sanitize_push_error(exc))
+    if channel_ids is None:
+        selected = list(NOTIFY_CHANNELS)
+        strict = False
+    else:
+        selected = normalize_channel_ids(channel_ids)
+        strict = True
 
-    dingtalk_url = (settings.get("dingtalk_webhook_url") or "").strip()
-    if dingtalk_url:
+    for channel_id in selected:
+        channel = NOTIFY_CHANNELS.get(channel_id)
+        if channel is None:
+            logger.warning("通知渠道 %s 不存在,已跳过该渠道", channel_id)
+            continue
+        url = resolve_channel_webhook(settings, channel_id)
+        if not url:
+            if strict:
+                logger.warning(
+                    "通知渠道 %s(%s)未配置 Webhook,已跳过该渠道",
+                    channel_id,
+                    channel.label,
+                )
+            continue
         try:
-            await send_dingtalk_message(dingtalk_url, title, body_text)
+            await senders[channel_id](url, title, body_text)
         except Exception as exc:
-            logger.warning("钉钉通知发送失败: %s", sanitize_push_error(exc))
-
-    discord_url = (settings.get("discord_webhook_url") or "").strip()
-    if discord_url:
-        try:
-            await send_discord_message(discord_url, title, body_text)
-        except Exception as exc:
-            logger.warning("Discord 通知发送失败: %s", sanitize_push_error(exc))
+            logger.warning(
+                "%s通知发送失败: %s", channel.label, sanitize_push_error(exc)
+            )

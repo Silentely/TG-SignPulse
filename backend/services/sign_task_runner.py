@@ -866,6 +866,7 @@ async def _runner_send_notifications(
         send_success_notification,
     )
 
+    channel_ids = (state.get("task_cfg") or {}).get("notify_channel_ids") or []
     success = state.get("success", False)
     if (
         not success
@@ -896,6 +897,7 @@ async def _runner_send_notifications(
             or None,
             flow_logs=state.get("final_logs", []),
             failure_category=failure_category,
+            channel_ids=channel_ids,
         )
     elif success and state.get("task_notify_on_success", True):
         await send_success_notification(
@@ -904,6 +906,7 @@ async def _runner_send_notifications(
             account_name=state["account_name"],
             task_name=state["task_name"],
             message=str(state.get("last_reply", "") or ""),
+            channel_ids=channel_ids,
         )
 
 

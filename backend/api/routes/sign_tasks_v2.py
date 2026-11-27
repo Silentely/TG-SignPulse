@@ -114,6 +114,10 @@ class SignTaskCreate(BaseModel):
     range_end: Optional[str] = Field(None, description="Range end")
     notify_on_failure: bool = Field(True, description="Failure notification switch")
     notify_on_success: bool = Field(True, description="Success notification switch")
+    notify_channel_ids: List[str] = Field(
+        default_factory=list,
+        description="External notification channel ids (wecom/feishu/dingtalk/discord)",
+    )
     retry_count: Optional[int] = Field(
         None, ge=0, le=99, description="Retry count per task, default 3"
     )
@@ -169,6 +173,9 @@ class SignTaskUpdate(BaseModel):
     )
     notify_on_success: Optional[bool] = Field(
         None, description="Success notification switch"
+    )
+    notify_channel_ids: Optional[List[str]] = Field(
+        None, description="External notification channel ids"
     )
     retry_count: Optional[int] = Field(
         None, ge=0, le=99, description="Retry count per task"
@@ -237,6 +244,7 @@ class SignTaskOut(BaseModel):
     range_end: Optional[str] = None
     notify_on_failure: bool = True
     notify_on_success: bool = True
+    notify_channel_ids: List[str] = Field(default_factory=list)
     task_group_id: str = ""
     last_run_account_name: str = ""
     retry_count: int = 3
@@ -409,6 +417,7 @@ def create_sign_task(
             range_end=payload.range_end or "",
             notify_on_failure=payload.notify_on_failure,
             notify_on_success=payload.notify_on_success,
+            notify_channel_ids=payload.notify_channel_ids,
             retry_count=payload.retry_count,
             tags=payload.tags,
             adaptive_schedule_enabled=payload.adaptive_schedule_enabled,
@@ -518,6 +527,7 @@ def update_sign_task(
             range_end=payload.range_end,
             notify_on_failure=payload.notify_on_failure,
             notify_on_success=payload.notify_on_success,
+            notify_channel_ids=payload.notify_channel_ids,
             retry_count=payload.retry_count,
             tags=payload.tags,
             adaptive_schedule_enabled=payload.adaptive_schedule_enabled,

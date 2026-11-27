@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, MutableMapping, Optional
 
+from backend.services.notification_channels import normalize_channel_ids
+
 # 共享默认值：build_sign_task_config 与 resolve_update_field_values 统一引用，
 # 避免两处默认值漂移。
 _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
@@ -19,6 +21,7 @@ _DEFAULT_TASK_FIELDS: Dict[str, Any] = {
     "range_end": "",
     "notify_on_failure": True,
     "notify_on_success": True,
+    "notify_channel_ids": [],
     "retry_count": 3,
     "enabled": True,
     "sign_at": "08:00",
@@ -85,6 +88,7 @@ def build_sign_task_config(
     range_end: str = _DEFAULT_TASK_FIELDS["range_end"],
     notify_on_failure: bool = _DEFAULT_TASK_FIELDS["notify_on_failure"],
     notify_on_success: bool = _DEFAULT_TASK_FIELDS["notify_on_success"],
+    notify_channel_ids: Optional[List[str]] = None,
     retry_count: int = _DEFAULT_TASK_FIELDS["retry_count"],
     enabled: bool = _DEFAULT_TASK_FIELDS["enabled"],
     tags: Optional[List[str]] = None,
@@ -115,6 +119,7 @@ def build_sign_task_config(
         "range_end": range_end,
         "notify_on_failure": notify_on_failure,
         "notify_on_success": notify_on_success,
+        "notify_channel_ids": normalize_channel_ids(notify_channel_ids),
         "retry_count": retry_count,
         "enabled": enabled,
         "tags": normalize_task_tags(tags),
@@ -145,6 +150,7 @@ def resolve_update_field_values(
     range_end: Optional[str] = None,
     notify_on_failure: Optional[bool] = None,
     notify_on_success: Optional[bool] = None,
+    notify_channel_ids: Optional[List[str]] = None,
     retry_count: Optional[int] = None,
     enabled: Optional[bool] = None,
     tags: Optional[List[str]] = None,
@@ -196,6 +202,13 @@ def resolve_update_field_values(
         if notify_on_success is not None
         else bool(
             existing.get("notify_on_success", _DEFAULT_TASK_FIELDS["notify_on_success"])
+        ),
+        "notify_channel_ids": normalize_channel_ids(
+            notify_channel_ids
+            if notify_channel_ids is not None
+            else existing.get(
+                "notify_channel_ids", _DEFAULT_TASK_FIELDS["notify_channel_ids"]
+            )
         ),
         "enabled": enabled
         if enabled is not None

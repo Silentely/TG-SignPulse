@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from backend.services.sign_task_failure import failure_category_label_by_value
 from backend.utils.tg_session import get_account_status, set_account_status
@@ -226,6 +226,60 @@ def clean_flow_logs_for_notification(
     return cleaned[-max_lines:], truncated
 
 
+async def dispatch_task_channels(
+    settings: Dict[str, Any],
+    *,
+    channel_ids: Optional[List[str]],
+    success: bool,
+    account_name: str,
+    task_name: str,
+    message: str = "",
+    failure_category: Optional[str] = None,
+) -> bool:
+    """按任务选择的渠道分发通知。
+
+    返回 True 表示任务显式指定了渠道(调用方不再走 TG Bot 回落);
+    返回 False 表示未指定渠道，由调用方保持原有 Bot 行为。
+    渠道分发失败只记日志，绝不影响任务执行结果。
+    """
+    from backend.services.notification_channels import normalize_channel_ids
+
+    selected = normalize_channel_ids(channel_ids)
+    if not selected:
+        return False
+
+    try:
+        from backend.services.push_notifications import dispatch_matrix_notification
+
+        fields: List[tuple[str, str]] = [
+            ("时间 (UTC)", utc_now_iso_z_seconds()),
+            ("账号", account_name),
+            ("任务", task_name),
+        ]
+        if success:
+            title = f"✅ {account_name} · {task_name} 执行成功"
+            summary = str(message or "").strip()
+            fields.append(("摘要", summary[:500] if summary else "已完成"))
+        else:
+            title = f"❌ {account_name} · {task_name} 执行失败"
+            category = _failure_category_label(failure_category)
+            if category:
+                fields.append(("失败分类", category))
+            reason = friendly_error_message(message)[:400]
+            fields.append(("错误", reason or "未捕获到错误明细,请查看任务日志"))
+        await dispatch_matrix_notification(
+            settings, title=title, fields=fields, channel_ids=selected
+        )
+    except Exception as exc:
+        logger.warning(
+            "任务通知渠道分发失败 (账号=%s, 任务=%s): %s",
+            account_name,
+            task_name,
+            exc,
+        )
+    return True
+
+
 async def send_failure_notification(
     *,
     account_name: str,
@@ -236,11 +290,22 @@ async def send_failure_notification(
     failure_category: Optional[str] = None,
     run_id: str | None = None,
     aggregate_status: str = "failure",
+    channel_ids: Optional[List[str]] = None,
 ) -> None:
     try:
         from backend.services.config import get_config_service
 
         cfg = get_config_service().get_global_settings()
+        if await dispatch_task_channels(
+            cfg,
+            channel_ids=channel_ids,
+            success=False,
+            account_name=account_name,
+            task_name=task_name,
+            message=message,
+            failure_category=failure_category,
+        ):
+            return
         if not cfg.get("telegram_bot_notify_enabled"):
             return
         if not cfg.get("telegram_bot_task_failure_enabled", True):
@@ -411,15 +476,26 @@ async def send_success_notification(
     message: str = "",
     run_id: str | None = None,
     aggregate_status: str = "success",
+    channel_ids: Optional[List[str]] = None,
 ) -> None:
     try:
         from backend.services.config import get_config_service
+
+        cfg = get_config_service().get_global_settings()
+        if await dispatch_task_channels(
+            cfg,
+            channel_ids=channel_ids,
+            success=True,
+            account_name=account_name,
+            task_name=task_name,
+            message=message,
+        ):
+            return
         from backend.services.push_notifications import (
             sanitize_push_error,
             send_task_success_notification,
         )
 
-        cfg = get_config_service().get_global_settings()
         await send_task_success_notification(
             cfg,
             account_name=account_name,

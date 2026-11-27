@@ -420,6 +420,7 @@ class SignTaskCrudMixin:
         range_end: str = "",
         notify_on_failure: bool = True,
         notify_on_success: bool = True,
+        notify_channel_ids: Optional[List[str]] = None,
         retry_count: Optional[int] = None,
         tags: Optional[List[str]] = None,
         adaptive_schedule_enabled: bool = False,
@@ -494,6 +495,7 @@ class SignTaskCrudMixin:
                 range_end=range_end,
                 notify_on_failure=notify_on_failure,
                 notify_on_success=notify_on_success,
+                notify_channel_ids=notify_channel_ids,
                 retry_count=retry_count if retry_count is not None else 3,
                 enabled=True,
                 tags=tags,
@@ -692,6 +694,7 @@ class SignTaskCrudMixin:
         range_end: Optional[str] = None,
         notify_on_failure: Optional[bool] = None,
         notify_on_success: Optional[bool] = None,
+        notify_channel_ids: Optional[List[str]] = None,
         retry_count: Optional[int] = None,
         enabled: Optional[bool] = None,
         tags: Optional[List[str]] = None,
@@ -781,6 +784,7 @@ class SignTaskCrudMixin:
             range_end=range_end,
             notify_on_failure=notify_on_failure,
             notify_on_success=notify_on_success,
+            notify_channel_ids=notify_channel_ids,
             retry_count=retry_count,
             enabled=enabled,
             tags=tags,
@@ -809,6 +813,7 @@ class SignTaskCrudMixin:
         next_range_end = fields["range_end"]
         next_notify_on_failure = fields["notify_on_failure"]
         next_notify_on_success = fields["notify_on_success"]
+        next_notify_channel_ids = fields["notify_channel_ids"]
         next_enabled = fields["enabled"]
         next_retry_count = fields["retry_count"]
         next_tags = fields["tags"]
@@ -861,6 +866,7 @@ class SignTaskCrudMixin:
                 range_end=next_range_end,
                 notify_on_failure=next_notify_on_failure,
                 notify_on_success=next_notify_on_success,
+                notify_channel_ids=next_notify_channel_ids,
                 retry_count=next_retry_count,
                 enabled=next_enabled,
                 tags=next_tags,
