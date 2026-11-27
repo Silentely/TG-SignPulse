@@ -67,6 +67,8 @@ LOG_THROTTLE_KEYWORD_MISS_SECONDS = 60.0
 # 服务重启/重连后 Telegram 补投的旧消息据此跳过，避免重复命中与推送
 _SEEN_STATE_FILENAME = "seen.json"
 _SEEN_PERSIST_INTERVAL = 30.0
+# 规则/触发器级持久状态文件名(冷却 / 静默 / 补触发)
+_RULE_STATE_FILENAME = "rule_state.json"
 
 
 class KeywordMonitorService:
@@ -86,6 +88,7 @@ class KeywordMonitorService:
         self._seen_window: dict[str, set[int]] = {}
         self._seen_dirty = False
         self._last_seen_persist = 0.0
+        self._rule_state_store: Optional[Any] = None
 
     async def _ensure_client_ready(self, client: Any) -> None:
         if getattr(client, "is_connected", False):
@@ -266,6 +269,85 @@ class KeywordMonitorService:
                 for rule in rules
             ]
         )
+
+    # ---- 规则/触发器级持久状态(冷却 / 连续失败静默 / 重启补触发) ----
+
+    def _rule_state_file(self) -> str:
+        return str(
+            settings.resolve_workdir() / "keyword_monitor" / _RULE_STATE_FILENAME
+        )
+
+    def _get_rule_state_store(self):
+        if self._rule_state_store is None:
+            from backend.services.keyword_monitor.rule_state import RuleStateStore
+
+            self._rule_state_store = RuleStateStore(self._rule_state_file())
+        return self._rule_state_store
+
+    def _rule_state_ids(self, rule: KeywordMonitorRule) -> tuple[str, str]:
+        """规则标识:优先 action.rule_id,否则按账号/任务/会话/话题派生。"""
+        override = str(rule.action.get("rule_id") or "").strip()
+        thread = rule.message_thread_id
+        rule_id = override or (
+            f"{rule.account_name}:{rule.task_name}:{rule.chat_id}:"
+            f"{thread if thread is not None else '-'}"
+        )
+        trigger_id = (
+            str(rule.action.get("trigger_id") or "keyword").strip() or "keyword"
+        )
+        return rule_id, trigger_id
+
+    def _rule_state_policy(self, rule: KeywordMonitorRule):
+        from backend.services.keyword_monitor.rule_state import RulePolicy
+
+        return RulePolicy.from_action(rule.action)
+
+    def _rule_state_gate(self, rule: KeywordMonitorRule) -> tuple[bool, str]:
+        from backend.services.keyword_monitor.rule_state import evaluate_trigger
+
+        try:
+            rule_id, trigger_id = self._rule_state_ids(rule)
+            state = self._get_rule_state_store().get(rule_id, trigger_id)
+            return evaluate_trigger(state, self._rule_state_policy(rule))
+        except Exception as exc:
+            # 状态异常不得阻断监听:按允许触发处理
+            logger.warning("规则状态判定失败,按允许触发处理: %s", exc)
+            return True, "ok"
+
+    def _rule_state_record(self, rule: KeywordMonitorRule, kind: str) -> None:
+        try:
+            store = self._get_rule_state_store()
+            rule_id, trigger_id = self._rule_state_ids(rule)
+            if kind == "trigger":
+                store.record_trigger(rule_id, trigger_id)
+            elif kind == "success":
+                store.record_success(rule_id, trigger_id)
+            elif kind == "failure":
+                store.record_failure(rule_id, trigger_id, self._rule_state_policy(rule))
+        except Exception as exc:
+            logger.warning("规则状态写入失败(忽略): %s", exc)
+
+    def _plan_rule_state_catch_up(self, rules: List[Any]) -> None:
+        """重启后按配置放行一次补触发(不绕过冷却)。"""
+        try:
+            entries = []
+            for rule in rules:
+                policy = self._rule_state_policy(rule)
+                if not policy.catch_up_on_start:
+                    continue
+                rule_id, trigger_id = self._rule_state_ids(rule)
+                entries.append((rule_id, trigger_id, policy))
+            if not entries:
+                return
+            planned = self._get_rule_state_store().plan_startup_catch_up(entries)
+            for item in planned:
+                logger.info(
+                    "关键词规则重启补触发已放行: rule=%s trigger=%s",
+                    item["rule_id"],
+                    item["trigger_id"],
+                )
+        except Exception as exc:
+            logger.warning("规则重启补触发规划失败(忽略): %s", exc)
 
     def _handlers_are_active_for(self, rules: list[KeywordMonitorRule]) -> bool:
         expected_accounts = {rule.account_name for rule in rules}
@@ -611,6 +693,15 @@ class KeywordMonitorService:
                             active=True,
                         )
                     continue
+                state_allowed, state_reason = self._rule_state_gate(rule)
+                if not state_allowed:
+                    self._append_rule_log(
+                        rule,
+                        f"规则状态跳过本次触发:{state_reason}",
+                        active=True,
+                    )
+                    continue
+                self._rule_state_record(rule, "trigger")
                 text_preview = text.replace("\n", " ").strip()
                 if len(text_preview) > 160:
                     text_preview = text_preview[:157] + "..."
@@ -681,35 +772,45 @@ class KeywordMonitorService:
                     rule.action.get("push_channel") or "telegram"
                 ).strip()
                 # 分派：转发 / 继续动作 / 推送三者互斥，按配置通道分发到对应 handler
-                if push_channel == "forward":
-                    await self._handle_forward(
-                        rule,
-                        client,
-                        message,
-                        forward_text=forward_text,
-                        url=url,
-                    )
-                elif push_channel == "continue":
-                    await self._handle_continue(
-                        rule,
-                        client,
-                        message,
-                        account_name=account_name,
-                        variables=variables,
-                    )
+                try:
+                    handler_ok = True
+                    if push_channel == "forward":
+                        handler_ok = await self._handle_forward(
+                            rule,
+                            client,
+                            message,
+                            forward_text=forward_text,
+                            url=url,
+                        )
+                    elif push_channel == "continue":
+                        await self._handle_continue(
+                            rule,
+                            client,
+                            message,
+                            account_name=account_name,
+                            variables=variables,
+                        )
+                    else:
+                        handler_ok = await self._handle_push(
+                            rule,
+                            account_name,
+                            message,
+                            forward_text=forward_text,
+                            text=text,
+                            matched=matched,
+                            url=url,
+                            sender=sender,
+                            chat_title=chat_title,
+                            push_channel=push_channel,
+                            global_settings=global_settings,
+                        )
+                except Exception:
+                    # 连续失败计数用于触发静默,异常照旧向上传播
+                    self._rule_state_record(rule, "failure")
+                    raise
                 else:
-                    await self._handle_push(
-                        rule,
-                        account_name,
-                        message,
-                        forward_text=forward_text,
-                        text=text,
-                        matched=matched,
-                        url=url,
-                        sender=sender,
-                        chat_title=chat_title,
-                        push_channel=push_channel,
-                        global_settings=global_settings,
+                    self._rule_state_record(
+                        rule, "success" if handler_ok else "failure"
                     )
         except Exception as exc:
             logger.warning("关键词监听处理失败: %s", exc, exc_info=True)
@@ -722,11 +823,11 @@ class KeywordMonitorService:
         *,
         forward_text: str,
         url: str,
-    ) -> None:
+    ) -> bool:
         """转发通道：把命中消息文本转发到配置的目标 Chat。"""
         forward_chat_id = _parse_forward_chat_id(rule.action.get("forward_chat_id"))
         if forward_chat_id is None:
-            return
+            return True
         try:
             forward_kwargs: dict[str, Any] = {}
             forward_thread_id = _as_int_or_none(
@@ -757,6 +858,7 @@ class KeywordMonitorService:
                     else ""
                 ),
             )
+            return True
         except Exception as exc:
             logger.warning(
                 "关键词命中消息转发失败 %r: %s",
@@ -767,6 +869,7 @@ class KeywordMonitorService:
                 rule,
                 f"关键词命中消息转发失败：目标 Chat={forward_chat_id}，原因：{safe_exception_summary(exc, 120)}",
             )
+            return False
 
     async def _handle_push(
         self,
@@ -782,7 +885,7 @@ class KeywordMonitorService:
         chat_title: str,
         push_channel: str,
         global_settings: dict[str, Any],
-    ) -> None:
+    ) -> bool:
         """推送通道：按规则配置的通道（telegram/bark/custom_url/server_chan）发送通知。"""
         push_settings = dict(global_settings)
         push_settings["keyword_monitor_push_channel"] = push_channel
@@ -831,11 +934,12 @@ class KeywordMonitorService:
                 rule,
                 f"关键词命中通知推送失败：推送方式={push_channel}，原因：{safe_reason[:120]}",
             )
-            return
+            return False
         self._append_rule_log(
             rule,
             f"关键词命中通知已处理：推送方式={push_channel}",
         )
+        return True
 
     async def _handle_continue(
         self,
