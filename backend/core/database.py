@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from backend.core.config import get_settings
+from backend.utils.time import utc_now_iso_z_seconds
 
 logger = logging.getLogger("backend.database")
 
 Base = declarative_base()
+
+# 当前代码期望的数据库 schema 版本。新增结构变更时递增版本号并追加迁移函数。
+SCHEMA_VERSION = 1
 
 _engine: Optional[Engine] = None
 _SessionLocal: Optional[sessionmaker] = None
@@ -65,33 +69,81 @@ def init_engine() -> None:
     _SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+def _migrate_to_v1(conn: Connection) -> None:
+    """v1：收编历史上基于列存在性判断的 users 列补齐。
+
+    全新库在 Base.metadata.create_all 后已包含这些列，本步骤为空操作；
+    旧库则就地补列，已有数据保持不变。
+    """
+    inspector = inspect(conn)
+    if "users" not in set(inspector.get_table_names()):
+        return
+    columns = {col["name"] for col in inspector.get_columns("users")}
+    if "totp_secret" not in columns:
+        logger.info("数据库迁移 v1：补齐 users.totp_secret 列")
+        conn.execute(text("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)"))
+    if "token_epoch" not in columns:
+        logger.info("数据库迁移 v1：补齐 users.token_epoch 列")
+        conn.execute(
+            text("ALTER TABLE users ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 1")
+        )
+
+
+# 版本号 -> 迁移函数。必须连续覆盖 1..SCHEMA_VERSION，缺失时启动报错。
+MIGRATIONS: dict[int, Callable[[Connection], None]] = {
+    1: _migrate_to_v1,
+}
+
+_SCHEMA_VERSION_DDL = """
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at VARCHAR(64) NOT NULL
+)
+"""
+
+
+def _applied_schema_versions(conn: Connection) -> set[int]:
+    rows = conn.execute(text("SELECT version FROM schema_version")).fetchall()
+    return {int(row[0]) for row in rows}
+
+
 def run_migrations(engine: Optional[Engine] = None) -> None:
-    """轻量级数据库架构迁移，确保旧版本数据库平滑升级到当前模型结构。"""
+    """按版本号账本执行未完成的数据库迁移。
+
+    旧库无需人工干预即可从 v0 升级到当前版本；同一库重复执行为空操作。
+    缺失迁移函数或数据库版本高于程序时直接抛错，避免静默跳过。
+    """
     if engine is None:
         engine = get_engine()
 
     try:
-        inspector = inspect(engine)
-        existing_tables = set(inspector.get_table_names())
+        with engine.begin() as conn:
+            conn.execute(text(_SCHEMA_VERSION_DDL))
+            applied = _applied_schema_versions(conn)
+            current_version = max(applied, default=0)
+            if current_version > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"数据库 schema 版本 v{current_version} 高于当前程序支持的 "
+                    f"v{SCHEMA_VERSION}，请升级程序版本后再启动"
+                )
 
-        # users 表列补齐迁移
-        if "users" in existing_tables:
-            columns = {col["name"] for col in inspector.get_columns("users")}
-            with engine.begin() as conn:
-                if "totp_secret" not in columns:
-                    logger.info("数据库迁移：补齐 users.totp_secret 列")
-                    conn.execute(
-                        text("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)")
-                    )
-                if "token_epoch" not in columns:
-                    logger.info("数据库迁移：补齐 users.token_epoch 列")
-                    conn.execute(
-                        text(
-                            "ALTER TABLE users ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 1"
-                        )
-                    )
+            for version in range(1, SCHEMA_VERSION + 1):
+                if version in applied:
+                    continue
+                migrate = MIGRATIONS.get(version)
+                if migrate is None:
+                    raise RuntimeError(f"Missing schema migration for v{version}")
+                migrate(conn)
+                conn.execute(
+                    text(
+                        "INSERT INTO schema_version (version, applied_at) "
+                        "VALUES (:version, :applied_at)"
+                    ),
+                    {"version": version, "applied_at": utc_now_iso_z_seconds()},
+                )
+                logger.info("数据库迁移：已应用 v%s", version)
     except Exception as exc:
-        logger.error("数据库轻量迁移检查失败: %s", exc, exc_info=True)
+        logger.error("数据库迁移失败: %s", exc, exc_info=True)
         raise
 
 
