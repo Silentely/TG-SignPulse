@@ -73,8 +73,7 @@ class TaskTemplateStore:
 
     def _save(self, payload: Dict[str, Any]) -> None:
         self.workdir.mkdir(parents=True, exist_ok=True)
-        with path_write_lock(self.path):
-            write_json_atomic(self.path, payload)
+        write_json_atomic(self.path, payload)
 
     def list_templates(self) -> List[Dict[str, Any]]:
         templates = self._load().get("templates") or {}
@@ -105,9 +104,10 @@ class TaskTemplateStore:
             "created_at": now,
             "updated_at": now,
         }
-        payload = self._load()
-        payload.setdefault("templates", {})[template["id"]] = template
-        self._save(payload)
+        with path_write_lock(self.path):
+            payload = self._load()
+            payload.setdefault("templates", {})[template["id"]] = template
+            self._save(payload)
         return dict(template)
 
     def update_template(
@@ -119,26 +119,27 @@ class TaskTemplateStore:
         fields: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         template_id = _clean_template_id(template_id)
-        payload = self._load()
-        templates = payload.setdefault("templates", {})
-        existing = templates.get(template_id)
-        if not isinstance(existing, dict):
-            raise ValueError("模板不存在")
+        with path_write_lock(self.path):
+            payload = self._load()
+            templates = payload.setdefault("templates", {})
+            existing = templates.get(template_id)
+            if not isinstance(existing, dict):
+                raise ValueError("模板不存在")
 
-        updated = dict(existing)
-        if name is not None:
-            clean_name = str(name).strip()
-            if not clean_name:
-                raise ValueError("模板名称不能为空")
-            updated["name"] = clean_name
-        if description is not None:
-            updated["description"] = str(description).strip()
-        if fields is not None:
-            updated["fields"] = _normalize_template_fields(fields)
-        updated["updated_at"] = utc_now_iso_z_seconds()
+            updated = dict(existing)
+            if name is not None:
+                clean_name = str(name).strip()
+                if not clean_name:
+                    raise ValueError("模板名称不能为空")
+                updated["name"] = clean_name
+            if description is not None:
+                updated["description"] = str(description).strip()
+            if fields is not None:
+                updated["fields"] = _normalize_template_fields(fields)
+            updated["updated_at"] = utc_now_iso_z_seconds()
 
-        templates[template_id] = updated
-        self._save(payload)
+            templates[template_id] = updated
+            self._save(payload)
         return dict(updated)
 
 
@@ -164,7 +165,12 @@ def list_tasks_using_template(svc: Any, template_id: str) -> List[Dict[str, Any]
     return out
 
 
-def sync_template_to_tasks(svc: Any, template: Dict[str, Any]) -> List[Dict[str, Any]]:
+def sync_template_to_tasks(
+    svc: Any,
+    template: Dict[str, Any],
+    *,
+    warnings: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """把模板公共字段覆盖到所有引用它的任务,保留任务私有字段。"""
     template_id = _clean_template_id(template.get("id"))
     template_fields = _normalize_template_fields(template.get("fields"))
@@ -211,7 +217,13 @@ def sync_template_to_tasks(svc: Any, template: Dict[str, Any]) -> List[Dict[str,
 
             synced.append({"name": task_name, "account_name": account_name})
             if any(config.get(k) != merged.get(k) for k in schedule_keys):
-                _reschedule_task(merged, account_name, task_name)
+                if (
+                    not _reschedule_task(merged, account_name, task_name)
+                    and warnings is not None
+                ):
+                    warnings.append(
+                        f"任务 {account_name}/{task_name} 已更新配置，但调度重排失败"
+                    )
         except Exception as task_exc:
             logger.warning(
                 "模板 %s 同步到任务 %s/%s 失败(忽略并继续): %s",
@@ -220,13 +232,15 @@ def sync_template_to_tasks(svc: Any, template: Dict[str, Any]) -> List[Dict[str,
                 task_name,
                 task_exc,
             )
+            if warnings is not None:
+                warnings.append(f"任务 {account_name}/{task_name} 同步失败")
 
     if synced and hasattr(svc, "_refresh_tasks_cache_after_write"):
         svc._refresh_tasks_cache_after_write()
     return synced
 
 
-def _reschedule_task(config: Dict[str, Any], account_name: str, task_name: str) -> None:
+def _reschedule_task(config: Dict[str, Any], account_name: str, task_name: str) -> bool:
     """模板可能改变 sign_at/模式,尽力同步调度;失败不影响配置写入。"""
     try:
         from backend.scheduler import add_or_update_sign_task_job, remove_sign_task_job
@@ -247,5 +261,7 @@ def _reschedule_task(config: Dict[str, Any], account_name: str, task_name: str) 
             )
         else:
             remove_sign_task_job(account_name, task_name)
+        return True
     except Exception:
-        pass
+        logger.exception("模板更新后的任务重排失败: %s/%s", account_name, task_name)
+        return False

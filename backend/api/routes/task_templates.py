@@ -102,7 +102,9 @@ def update_template(
     warnings: List[str] = []
     synced: List[Dict[str, Any]] = []
     try:
-        synced = sync_template_to_tasks(get_sign_task_service(), template)
+        synced = sync_template_to_tasks(
+            get_sign_task_service(), template, warnings=warnings
+        )
     except Exception as exc:
         # 配置已保存;同步失败不能整体 500,返回警告供前端提示
         logger.error("模板 %s 同步任务失败: %s", template_id, exc, exc_info=True)

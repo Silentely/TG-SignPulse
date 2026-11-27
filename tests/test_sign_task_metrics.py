@@ -136,6 +136,11 @@ def test_invalid_pattern_and_rules_are_safe():
     assert extract_metrics_safe("余额: 10", object()) != {}
 
 
+def test_unsafe_custom_pattern_is_skipped():
+    rules = [{"key": "balance", "pattern": r"^(a+)+$"}]
+    assert extract_metrics("a" * 100 + "!", rules) == {}
+
+
 def test_history_entry_persists_metrics(tmp_path):
     store = SignTaskHistoryStore(tmp_path)
     metrics = {
@@ -201,6 +206,17 @@ def test_task_config_metric_rules_roundtrip():
         ]
         == []
     )
+
+
+def test_invalid_metric_rank_defaults_to_zero():
+    cfg = build_sign_task_config(
+        account_name="acc",
+        account_names=["acc"],
+        sign_at="09:00",
+        chats=[],
+        metric_rules=[{"key": "balance", "pattern": r"(\d+)", "rank": "bad"}],
+    )
+    assert cfg["metric_rules"][0]["rank"] == 0
 
 
 @pytest.mark.asyncio

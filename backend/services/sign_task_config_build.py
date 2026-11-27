@@ -65,13 +65,17 @@ def _normalize_metric_rules(raw: Any) -> List[Dict[str, Any]]:
         pattern = str(item.get("pattern") or "").strip()
         if not key or not pattern:
             continue
+        try:
+            rank = int(item.get("rank") or 0)
+        except (TypeError, ValueError, OverflowError):
+            rank = 0
         cleaned.append(
             {
                 "key": key,
                 "pattern": pattern,
                 "unit": str(item.get("unit") or "").strip(),
                 "source": str(item.get("source") or "reply").strip() or "reply",
-                "rank": int(item.get("rank") or 0),
+                "rank": rank,
             }
         )
     return cleaned

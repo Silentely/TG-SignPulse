@@ -256,6 +256,30 @@ def test_update_template_validation_status_code(tmp_path, monkeypatch):
         app.dependency_overrides.pop(get_current_user, None)
 
 
+def test_template_sync_reports_reschedule_failure(tmp_path, monkeypatch):
+    _write_task(
+        tmp_path,
+        "acc1",
+        "task_a",
+        template_id="tpl1",
+        sign_at="08:00",
+    )
+    svc = _FakeSvc(tmp_path, [_read_task(tmp_path, "acc1", "task_a")])
+    monkeypatch.setattr(
+        "backend.services.sign_task_templates._reschedule_task", lambda *args: False
+    )
+    warnings = []
+
+    synced = sync_template_to_tasks(
+        svc,
+        {"id": "tpl1", "fields": {"sign_at": "11:00"}},
+        warnings=warnings,
+    )
+
+    assert synced == [{"name": "task_a", "account_name": "acc1"}]
+    assert warnings == ["任务 acc1/task_a 已更新配置，但调度重排失败"]
+
+
 def test_template_private_fields_preserves_last_run_account_name(tmp_path):
     _write_task(
         tmp_path,
@@ -322,3 +346,13 @@ def test_sync_template_error_isolation(tmp_path):
     synced = sync_template_to_tasks(svc, {"id": "tpl1", "fields": {"sign_at": "15:00"}})
     assert synced == [{"name": "task_ok", "account_name": "acc1"}]
     assert _read_task(tmp_path, "acc1", "task_ok")["sign_at"] == "15:00"
+
+
+def test_concurrent_template_creates_preserve_all_entries(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    store = TaskTemplateStore(tmp_path)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda index: store.create_template(name=f"t{index}"), range(32)))
+
+    assert len(store.list_templates()) == 32

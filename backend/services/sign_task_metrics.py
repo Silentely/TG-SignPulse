@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from backend.utils.time import utc_now_iso_z_seconds
+from tg_signer.utils import is_unsafe_keyword_regex
 
 logger = logging.getLogger("backend.sign_task_metrics")
 
@@ -178,6 +179,9 @@ def extract_metrics(
             compiled = re.compile(rule["pattern"])
         except re.error as exc:
             logger.warning("跳过非法数值抽取正则 %r: %s", rule.get("key"), exc)
+            continue
+        if is_unsafe_keyword_regex(rule["pattern"]):
+            logger.warning("跳过存在灾难性回溯风险的数值抽取正则 %r", rule.get("key"))
             continue
         try:
             matches = list(compiled.finditer(body))
