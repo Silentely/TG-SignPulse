@@ -73,6 +73,9 @@ class TaskExecutionContext:
     timed_out: bool = False
     lock_acquired: bool = False
     cancelled: bool = False
+    # 手动触发(force=True)无视当日记录;定时/重试触发允许跳过当天已成功的账号
+    force: bool = True
+    skipped_today: bool = False
     task_timeout: float = DEFAULT_TASK_EXECUTION_TIMEOUT_SECONDS
     failure_category: Optional[str] = None
 

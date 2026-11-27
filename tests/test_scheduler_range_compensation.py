@@ -161,7 +161,9 @@ async def test_job_run_sign_task_cross_midnight_delay_stays_in_window():
     delay_seconds = mock_sleep.await_args.args[0]
     # 剩余窗口只有 2.5 小时（03:30 → 06:00），延迟不得越过它
     assert 0 <= delay_seconds <= (6 * 3600) - (3.5 * 3600) + 1
-    mock_service.run_task_with_logs.assert_awaited_once_with("acc1", "night_task")
+    mock_service.run_task_with_logs.assert_awaited_once_with(
+        "acc1", "night_task", force=False
+    )
 
 
 @pytest.mark.asyncio
@@ -191,7 +193,9 @@ async def test_job_run_sign_task_bypasses_sleep_on_compensation():
             # asyncio.sleep should NOT be called!
             mock_sleep.assert_not_called()
             # Task was executed
-            mock_service.run_task_with_logs.assert_awaited_once_with("acc1", "task1")
+            mock_service.run_task_with_logs.assert_awaited_once_with(
+                "acc1", "task1", force=False
+            )
 
 
 @pytest.mark.asyncio

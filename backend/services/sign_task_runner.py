@@ -13,6 +13,7 @@ import logging
 import os
 import time
 import traceback
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from backend.services.sign_task_context import TaskExecutionContext, TaskPhase
@@ -81,6 +82,79 @@ def _set_ctx(ctx: Any, key: str, value: Any) -> None:
 
 
 # ========== Phase helpers ==========
+
+
+def _parse_run_timestamp(raw_time: Any) -> Optional[datetime]:
+    """解析执行记录中的时间戳;无法解析时返回 None。"""
+    if not raw_time:
+        return None
+    try:
+        ran_at = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if ran_at.tzinfo is not None:
+        # 历史时间以 UTC 保存,换算到进程本地时区后再比较“今天”
+        ran_at = ran_at.astimezone()
+    return ran_at
+
+
+def _last_run_succeeded_today(last_run: Any) -> bool:
+    """最近一次执行记录是否为当天成功(复用任务配置已有的 last_run)。"""
+    if not isinstance(last_run, dict) or last_run.get("success") is not True:
+        return False
+    ran_at = _parse_run_timestamp(last_run.get("time") or last_run.get("created_at"))
+    return ran_at is not None and ran_at.date() == datetime.now().date()
+
+
+def _history_succeeded_today(svc: Any, task_name: str, account_name: str) -> bool:
+    """历史记录中当天是否已有成功条目(覆盖“成功后又失败重试”的情况)。"""
+    getter = getattr(svc, "get_task_history", None)
+    if not callable(getter):
+        return False
+    try:
+        entries = getter(task_name, account_name=account_name, limit=200)
+    except Exception:
+        return False
+    today = datetime.now().date()
+    for entry in entries or []:
+        if not isinstance(entry, dict) or entry.get("success") is not True:
+            continue
+        ran_at = _parse_run_timestamp(entry.get("time") or entry.get("created_at"))
+        if ran_at is not None and ran_at.date() == today:
+            return True
+    return False
+
+
+async def _runner_skip_succeeded_today(
+    state: TaskExecutionContext | Dict[str, Any],
+) -> None:
+    """Phase 1.5: 非手动触发时跳过当天已成功的账号。
+
+    判定复用项目已有的执行记录(last_run 与历史文件),不新增状态存储;
+    手动触发(force=True)保持原行为,一个都不跳。
+    """
+    if state.get("force", True):
+        return
+
+    svc: SignTaskService = state["svc"]
+    account_name = state["account_name"]
+    task_name = state["task_name"]
+    raw_task_cfg = state.get("raw_task_cfg") or {}
+    if not (
+        _last_run_succeeded_today(raw_task_cfg.get("last_run"))
+        or _history_succeeded_today(svc, task_name, account_name)
+    ):
+        return
+
+    _set_ctx(state, "skipped_today", True)
+    _set_ctx(state, "success", True)
+    task_key = state.get("task_key") or svc._task_key(account_name, task_name)
+    message = (
+        f"账号 {account_name} 今日已成功执行任务 {task_name}，"
+        "跳过本次非手动触发（当日已成功）"
+    )
+    svc._append_active_log(task_key, message)
+    _service_logger.info(message)
 
 
 async def _runner_load_config(state: TaskExecutionContext | Dict[str, Any]) -> None:
@@ -1137,7 +1211,9 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
     tg_logger = state.get("tg_logger")
     log_handler = state.get("log_handler")
 
-    svc._account_last_run_end[account_name] = time.time()
+    # 跳过的执行没有真正操作 Telegram，不应触发账号冷却
+    if not state.get("skipped_today"):
+        svc._account_last_run_end[account_name] = time.time()
     if state.get("lock_acquired"):
         svc._update_run_phase(
             account_name,
@@ -1183,7 +1259,7 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
                 if not signer_last_recv.startswith("等待机器人回复确认超时"):
                     _set_ctx(state, "last_reply", signer_last_recv.strip())
 
-        if state.get("success"):
+        if state.get("success") and not state.get("skipped_today"):
             await _runner_fetch_target_message(state)
         elif not state.get("last_target_message"):
             combined_err = (
@@ -1205,12 +1281,12 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
                     if extracted:
                         _set_ctx(state, "last_target_message", extracted)
 
-        if not state.get("cancelled"):
+        if not state.get("cancelled") and not state.get("skipped_today"):
             with contextlib.suppress(Exception):
                 await _runner_adaptive_reschedule(state)
 
-        # 取消的任务不落历史、不通知：调用方已单独置为 CANCELLED 状态
-        if not state.get("cancelled"):
+        # 取消/因当日已成功而跳过的任务不落历史、不通知
+        if not state.get("cancelled") and not state.get("skipped_today"):
             try:
                 await _runner_record_artifact(state)
             except Exception as exc:
@@ -1291,7 +1367,7 @@ async def _runner_finalize(state: TaskExecutionContext | Dict[str, Any]) -> None
         ):
             svc._background_run_tasks.pop(task_key, None)
 
-        if not state.get("artifact_id"):
+        if not state.get("artifact_id") and not state.get("skipped_today"):
             try:
                 await _runner_record_artifact(state)
             except Exception:
@@ -1324,10 +1400,15 @@ async def execute_sign_task(
     task_name: str,
     run_id: Optional[str] = None,
     visited_chain: Optional[List[str]] = None,
+    *,
+    force: bool = True,
 ) -> Dict[str, Any]:
     """运行任务并实时捕获日志（In-Process）。
 
     按阶段拆分为独立 helper，每个阶段可独立单测。
+
+    force=True（默认）表示手动触发，保持原行为；force=False 用于定时/重试
+    等非手动路径，会跳过当天已成功执行过的账号。
     """
     from backend.services.sign_task_backend import BackendUserSigner, TaskLogHandler
     from backend.services.sign_tasks import settings
@@ -1402,13 +1483,18 @@ async def execute_sign_task(
         BackendUserSigner=BackendUserSigner,
         TaskLogHandler=TaskLogHandler,
         visited_chain=list(visited_chain or []),
+        force=force,
     )
     _set_ctx(ctx, "run_context_token", run_token)
 
     try:
         await _runner_load_config(ctx)
 
+        # 非手动触发：当天已成功的账号不再重复签到
         if not ctx.account_invalid_detected:
+            await _runner_skip_succeeded_today(ctx)
+
+        if not ctx.account_invalid_detected and not ctx.skipped_today:
             # 记录监听状态
             svc._append_active_log(
                 task_key,
@@ -1423,7 +1509,11 @@ async def execute_sign_task(
 
             await _runner_check_account(ctx)
 
-        if not ctx.account_invalid_detected and not ctx.flood_wait_cooling:
+        if (
+            not ctx.account_invalid_detected
+            and not ctx.skipped_today
+            and not ctx.flood_wait_cooling
+        ):
             await _runner_refresh_keyword_monitor(ctx)
             await _runner_acquire_lock(ctx)
 
@@ -1458,6 +1548,8 @@ async def execute_sign_task(
         "output": ctx.output_str,
         "error": ctx.error_msg,
         "timed_out": ctx.timed_out,
+        # 非手动触发因当日已成功而跳过时为 True；未真正执行时不应计入新历史
+        "skipped": ctx.skipped_today,
         "failure_category": ctx.failure_category,
         "workflow_path": ctx.workflow_path,
         "aggregate_status": ctx.aggregate_status,

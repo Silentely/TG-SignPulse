@@ -20,6 +20,7 @@ asyncio.sleep 默认替换为 no-op 加速，依赖真实超时的用例用 Even
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -1202,3 +1203,61 @@ async def test_concurrent_tasks_log_isolation_multithread():
         tg_logger.removeHandler(handler_b)
         svc._active_logs.pop(task_key_a, None)
         svc._active_logs.pop(task_key_b, None)
+
+
+class TestSkipSucceededToday:
+    """非手动触发时按账号跳过「今天已成功」"""
+
+    @pytest.mark.asyncio
+    async def test_non_force_skips_account_succeeded_today(self, runner_env):
+        today_iso = datetime.now().isoformat()
+        svc = FakeSvc(
+            task_cfg={
+                "name": "t",
+                "last_run": {"success": True, "time": today_iso},
+            }
+        )
+
+        result = await execute_sign_task(svc, "acc", "t", force=False)
+
+        assert result["success"] is True
+        assert result["skipped"] is True
+        # 跳过的账号不应被实例化 signer，也就不会向机器人重复签到
+        assert FakeSigner.instances == []
+        logs = "\n".join(svc._active_logs.get("acc::t", []))
+        assert "acc" in logs and "当日已成功" in logs
+        # 跳过不写新历史、不发通知
+        assert svc.saved == []
+        assert runner_env.success_notifications == []
+
+    @pytest.mark.asyncio
+    async def test_force_still_executes_account_succeeded_today(self, runner_env):
+        today_iso = datetime.now().isoformat()
+        svc = FakeSvc(
+            task_cfg={
+                "name": "t",
+                "last_run": {"success": True, "time": today_iso},
+            }
+        )
+
+        result = await execute_sign_task(svc, "acc", "t", force=True)
+
+        assert result["success"] is True
+        assert result["skipped"] is False
+        assert len(FakeSigner.instances) == 1
+        assert FakeSigner.instances[0].run_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_non_force_runs_when_last_success_was_yesterday(self, runner_env):
+        yesterday_iso = (datetime.now() - timedelta(days=1)).isoformat()
+        svc = FakeSvc(
+            task_cfg={
+                "name": "t",
+                "last_run": {"success": True, "time": yesterday_iso},
+            }
+        )
+
+        result = await execute_sign_task(svc, "acc", "t", force=False)
+
+        assert result["skipped"] is False
+        assert len(FakeSigner.instances) == 1

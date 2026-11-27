@@ -53,7 +53,7 @@ async def test_job_run_sign_task_does_not_apply_jitter_twice_in_cron_mode():
         mock_uniform.assert_not_called()
         mock_sleep.assert_not_called()
         mock_service.run_task_with_logs.assert_awaited_once_with(
-            "account1", "daily_task"
+            "account1", "daily_task", force=False
         )
 
 
@@ -104,7 +104,7 @@ async def test_job_run_sign_task_skips_jitter_when_zero():
 
         mock_sleep.assert_not_called()
         mock_service.run_task_with_logs.assert_awaited_once_with(
-            "account1", "daily_task"
+            "account1", "daily_task", force=False
         )
 
 
@@ -141,7 +141,7 @@ async def test_job_run_sign_task_range_mode_precedence():
         # Range mode performs exactly one sleep based on range delay, not jitter_seconds
         assert mock_sleep.await_count == 1
         mock_service.run_task_with_logs.assert_awaited_once_with(
-            "account1", "daily_task"
+            "account1", "daily_task", force=False
         )
 
 

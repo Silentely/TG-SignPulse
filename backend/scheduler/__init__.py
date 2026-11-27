@@ -409,8 +409,11 @@ async def _job_run_sign_task(
             # 错峰延迟由 CronTrigger 的 jitter 承担（见 create_cron_trigger），
             # 此处不再重复 sleep，避免实际延迟达到配置上限的两倍
 
-        # run_task_with_logs 是 async 的，我们使用它（service 已在上方获取）
-        result = await sign_task_service.run_task_with_logs(account_name, task_name)
+        # run_task_with_logs 是 async 的，我们使用它（service 已在上方获取）。
+        # 调度属于非手动触发：当天已成功的账号由执行器跳过，避免重复签到。
+        result = await sign_task_service.run_task_with_logs(
+            account_name, task_name, force=False
+        )
         if result.get("success"):
             logger.info("Scheduler: 任务 %s 执行成功", task_name)
         else:

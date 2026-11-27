@@ -2146,8 +2146,14 @@ class SignTaskService(SignTaskCrudMixin):
         task_name: str,
         run_id: Optional[str] = None,
         visited_chain: Optional[List[str]] = None,
+        *,
+        force: bool = True,
     ) -> Dict[str, Any]:
-        """运行任务并实时捕获日志 (In-Process)。实现见 sign_task_runner。"""
+        """运行任务并实时捕获日志 (In-Process)。实现见 sign_task_runner。
+
+        force=True 为手动触发（默认）；定时/重试等非手动路径传 force=False，
+        由执行器跳过当天已成功的账号。
+        """
         from backend.services.sign_task_runner import execute_sign_task
 
         # 登记当前协程为可取消句柄：调度器/ChatOps 直接调用本方法（不经 start_task_run），
@@ -2164,15 +2170,16 @@ class SignTaskService(SignTaskCrudMixin):
             import inspect
 
             sig = inspect.signature(execute_sign_task)
-            if "visited_chain" in sig.parameters:
-                return await execute_sign_task(
-                    self,
-                    account_name,
-                    task_name,
-                    run_id=run_id,
-                    visited_chain=visited_chain,
-                )
-            return await execute_sign_task(self, account_name, task_name, run_id=run_id)
+            params = sig.parameters
+            kwargs: Dict[str, Any] = {"run_id": run_id}
+            if "visited_chain" in params:
+                kwargs["visited_chain"] = visited_chain
+            # 兼容测试替身里的旧签名：只有目标函数接受 force 时才透传
+            if "force" in params or any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+            ):
+                kwargs["force"] = force
+            return await execute_sign_task(self, account_name, task_name, **kwargs)
         finally:
             self._unregister_background_run(task_key, current_task)
 
