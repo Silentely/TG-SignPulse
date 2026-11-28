@@ -2648,7 +2648,7 @@ onBeforeUnmount(() => {
           type="button"
           class="px-2 py-0.5 rounded text-[11px] transition-colors"
           :class="marketSelectedCategory === cat.key
-            ? 'bg-[var(--sp-surface-muted)] text-white dark:bg-[var(--sp-surface-muted)] dark:text-[var(--sp-text-secondary)] font-medium'
+            ? 'bg-[var(--sp-accent)] text-white font-medium'
             : 'text-[var(--sp-text-secondary)] hover:text-[var(--sp-text-secondary)] dark:text-[var(--sp-text-secondary)] dark:hover:text-[var(--sp-text-secondary)] hover:bg-[var(--sp-surface-muted)] dark:hover:bg-[var(--sp-surface-muted)]'"
           @click="marketSelectedCategory = cat.key"
         >
@@ -3962,8 +3962,8 @@ AUTHOR = "YourName"
             <span v-if="marketReadmePlugin.min_app_version">{{ t('settings.marketMinAppVersion', { v: marketReadmePlugin.min_app_version }) }}</span>
             <span v-if="marketReadmePlugin.updated_at">{{ t('settings.marketUpdatedAt', { d: marketReadmePlugin.updated_at }) }}</span>
             <a
-              v-if="marketReadmePlugin.homepage"
-              :href="marketReadmePlugin.homepage"
+              v-if="isValidHttpUrl(marketReadmePlugin.homepage)"
+              :href="marketReadmePlugin.homepage || undefined"
               target="_blank"
               rel="noopener noreferrer"
               class="text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-1 hover:underline"

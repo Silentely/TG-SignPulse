@@ -67,6 +67,8 @@ export function useLogsPage() {
   let loadGeneration = 0
   // 记录由分类深链强制设置的失败状态，清除深链时一并恢复默认筛选。
   let routeForcedFailureStatus = false
+  // 路由同步改写 filterAccount 且随后立即显式 loadLogs 时，跳过 [filterAccount, filterDate] watcher 的重复请求。
+  let suppressFilterWatch = false
 
   const accountOptions = computed(() => [
     { label: t('logs.allAccounts'), value: '' },
@@ -136,8 +138,8 @@ export function useLogsPage() {
     }
     if (filterCategory.value) {
       filtered = filtered.filter((l) => {
-        const raw = String(l.failure_category || "").trim()
-        const cat = raw || "unknown"
+        const raw = String(l.failure_category || '').trim()
+        const cat = raw || 'unknown'
         return !l.success && cat === filterCategory.value
       })
     }
@@ -237,6 +239,11 @@ export function useLogsPage() {
     detailLoading.value = false
   }
 
+  const closeLogDetail = () => {
+    selectedLog.value = null
+    invalidateLogDetail()
+  }
+
   const openLogDetail = async (log: TaskLogUiItem) => {
     // 切换选中项先作废上一条在途请求，旧响应回来时无法覆盖新选中的日志
     const seq = detailGuard.next()
@@ -319,6 +326,10 @@ export function useLogsPage() {
   })
 
   watch([filterAccount, filterDate], () => {
+    if (suppressFilterWatch) {
+      suppressFilterWatch = false
+      return
+    }
     loadLogs()
   })
 
@@ -341,10 +352,29 @@ export function useLogsPage() {
 
     if (match) {
       filterTask.value = taskQ
-      if (accountQ) {
+      if (accountQ && filterAccount.value !== accountQ) {
+        suppressFilterWatch = true
         filterAccount.value = accountQ
       }
       await openLogDetail(toTaskUi(match))
+    }
+  }
+
+  const clearAccountFilter = () => {
+    filterAccount.value = ''
+    if (route.query.account) {
+      const nextQuery = { ...route.query }
+      delete nextQuery.account
+      router.replace({ name: 'logs', query: nextQuery })
+    }
+  }
+
+  const clearTaskFilter = () => {
+    filterTask.value = ''
+    if (route.query.task) {
+      const nextQuery = { ...route.query }
+      delete nextQuery.task
+      router.replace({ name: 'logs', query: nextQuery })
     }
   }
 
@@ -372,13 +402,14 @@ export function useLogsPage() {
     await router.replace({ name: 'logs', query: nextQuery })
   }
 
-  const applyRouteQueryFilters = () => {
+  const applyRouteQueryFilters = (): boolean => {
     const queryAccount =
       typeof route.query.account === 'string' ? route.query.account.trim() : ''
     const queryTask = typeof route.query.task === 'string' ? route.query.task.trim() : ''
     const queryCategory =
       typeof route.query.category === 'string' ? route.query.category.trim() : ''
 
+    const accountFilterChanged = filterAccount.value !== queryAccount
     filterAccount.value = queryAccount
     filterTask.value = queryTask
 
@@ -393,10 +424,13 @@ export function useLogsPage() {
       }
       routeForcedFailureStatus = false
     }
+    return accountFilterChanged
   }
 
   onMounted(async () => {
-    applyRouteQueryFilters()
+    if (applyRouteQueryFilters()) {
+      suppressFilterWatch = true
+    }
     loadAccounts()
     await loadLogs()
     await tryOpenFromQuery()
@@ -405,7 +439,7 @@ export function useLogsPage() {
   watch(
     () => [route.query.category, route.query.account, route.query.task, route.query.at] as const,
     async (next, previous) => {
-      applyRouteQueryFilters()
+      const accountFilterChanged = applyRouteQueryFilters()
 
       const accountChanged = next[1] !== previous[1]
       const taskChanged = next[2] !== previous[2]
@@ -420,6 +454,9 @@ export function useLogsPage() {
       const atQ = typeof route.query.at === 'string' ? route.query.at.trim() : ''
       if (!taskQ || !atQ || activeTab.value !== 'tasks') return
 
+      if (accountFilterChanged) {
+        suppressFilterWatch = true
+      }
       await loadLogs()
       await tryOpenFromQuery()
     },
@@ -447,9 +484,12 @@ export function useLogsPage() {
     hasActiveFilters,
     loadLogs,
     openLogDetail,
+    closeLogDetail,
     handleClear,
     exportingAccountLogs,
     handleExportAccountLogs,
+    clearAccountFilter,
+    clearTaskFilter,
     clearCategoryFilter,
     clearFilters,
     rawTaskLogs,

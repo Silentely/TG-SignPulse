@@ -1,6 +1,10 @@
 import { mount } from '@vue/test-utils'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import VirtualLogViewer from '../components/common/VirtualLogViewer.vue'
+
+vi.mock('../composables/useI18n', () => ({
+  useI18n: () => ({ t: (key: string) => key }),
+}))
 
 describe('VirtualLogViewer', () => {
   it('renders only visible slice of lines plus buffer', () => {
@@ -9,6 +13,7 @@ describe('VirtualLogViewer', () => {
       props: { lines, itemHeight: 24, containerHeight: 240 },
     })
     expect(wrapper.findAll('.log-line').length).toBeLessThan(35)
+    expect(wrapper.find('.virtual-log-viewer').attributes('aria-label')).toBe('taskLogs.realtimeLogs')
   })
 
   it('calculates top and bottom spacers correctly for initial viewport', () => {
@@ -59,6 +64,29 @@ describe('VirtualLogViewer', () => {
     expect(linesRendered.length).toBe(14)
     expect(linesRendered[0].text()).toBe('line 48')
     expect(linesRendered[linesRendered.length - 1].text()).toBe('line 61')
+  })
+
+  it('continues auto-scrolling when sliding window keeps length fixed', async () => {
+    const initial = Array.from({ length: 100 }, (_, i) => `line ${i}`)
+    const wrapper = mount(VirtualLogViewer, {
+      props: { lines: initial, itemHeight: 20, containerHeight: 200, buffer: 2, autoScroll: true },
+    })
+
+    const el = wrapper.find('.virtual-log-viewer').element as HTMLElement
+    let scrollTopVal = 1800
+    Object.defineProperty(el, 'scrollHeight', { value: 2000, configurable: true })
+    Object.defineProperty(el, 'scrollTop', {
+      get: () => scrollTopVal,
+      set: (v: number) => {
+        scrollTopVal = v
+      },
+      configurable: true,
+    })
+
+    const shifted = [...initial.slice(1), 'line 100']
+    await wrapper.setProps({ lines: shifted })
+    await wrapper.vm.$nextTick()
+    expect(scrollTopVal).toBe(2000)
   })
 
   it('applies custom lineTone or default tones', () => {

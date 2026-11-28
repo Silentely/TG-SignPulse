@@ -109,7 +109,7 @@ const goToLogs = (log: DashboardLog) => {
 
 /** 日志行稳定 key：SSE 前插/轮询替换时避免 index 复用错位 */
 const logKey = (log: DashboardLog) =>
-  `${log.created_at || log.time}|${log.account}|${log.task}|${(log.text || '').length}`
+  `${log.created_at || log.time}|${log.account}|${log.task}|${log.status}|${log.text || ''}`
 
 const formatJobTime = (iso?: string | null) => formatShortDateTime(iso, true)
 const formatJobScheduleDisplay = (job: ScheduledJob) => {
@@ -160,8 +160,12 @@ const loadRunbookDiagnosis = async () => {
     : recent
       ? { account: recent.account, task: recent.task }
       : null
+  if (!source || !source.account || !source.task) {
+    runbookError.value = t('dashboard.runbookNoSource')
+    return
+  }
   const token = getAuthToken()
-  if (!source || !source.account || !source.task || !token) return
+  if (!token) return
   runbookLoading.value = true
   runbookError.value = ''
   try {
@@ -327,7 +331,7 @@ const loadRunbookDiagnosis = async () => {
             {{ runbookLoading ? t('common.loading') : t('dashboard.runbookDiagnose') }}
           </button>
         </div>
-        <p v-if="runbookError" class="text-xs text-rose-600 dark:text-rose-300">{{ runbookError }}</p>
+        <p v-if="runbookError" class="text-xs text-rose-600 dark:text-rose-300" role="status">{{ runbookError }}</p>
         <div v-else-if="runbookDiagnosis" class="text-xs text-[var(--sp-text-muted)] space-y-1">
           <div>{{ runbookDiagnosis.account_name }} / {{ runbookDiagnosis.task_name }}</div>
           <div>{{ t('dashboard.runbookConfidence') }}: {{ runbookDiagnosis.confidence }}</div>
@@ -425,11 +429,15 @@ const loadRunbookDiagnosis = async () => {
           <div
             v-for="job in upcomingJobs.slice(0, 4)"
             :key="job.id"
+            role="button"
+            tabindex="0"
             class="ui-list-row flex items-center gap-2.5 text-xs px-2.5 py-2 rounded-[var(--sp-radius-sm)] cursor-pointer"
-            @click="router.push({ name: 'tasks' })"
             :title="job.execution_mode === 'range' && job.range_start && job.range_end
               ? `${t('dashboard.modeRangeHint', { start: job.range_start, end: job.range_end })} · ${job.id}`
               : `${t('dashboard.nextRun')}: ${formatJobTime(job.next_run_time)} · ${jobKindLabel(job.kind)} · ${job.id}`"
+            @click="router.push({ name: 'tasks' })"
+            @keydown.enter="router.push({ name: 'tasks' })"
+            @keydown.space.prevent="router.push({ name: 'tasks' })"
           >
             <Clock class="w-3.5 h-3.5 text-[var(--sp-text-muted)] shrink-0" />
             <span class="font-mono text-[var(--sp-text-muted)] text-[11px] shrink-0 w-32 truncate">
@@ -610,46 +618,48 @@ const loadRunbookDiagnosis = async () => {
         <p class="ui-empty-title !text-[var(--sp-text-muted)] font-normal">{{ t('logs.empty') }}</p>
         <p class="ui-empty-desc">{{ t('logs.emptyHint') }}</p>
       </div>
-      <div v-else class="text-xs overflow-x-auto space-y-0.5">
-        <div
-          v-for="log in logs"
-          :key="logKey(log)"
-          class="ui-list-row flex items-center gap-3 px-2.5 py-2 cursor-pointer rounded-[var(--sp-radius-sm)]"
-          role="button"
-          tabindex="0"
-          :aria-label="`${log.account} ${log.task} ${log.time}`"
-          :title="t('dashboard.openInLogs')"
-          @click="selectedLog = log"
-          @dblclick="goToLogs(log)"
-          @keydown.enter="selectedLog = log"
-          @keydown.space.prevent="selectedLog = log"
-        >
-          <span class="font-mono text-[var(--sp-text-muted)] shrink-0 w-[140px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
-          <span class="text-[var(--sp-text)] shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
-          <span class="text-[var(--sp-text-secondary)] shrink-0 w-28 truncate">{{ log.task }}</span>
-          <span
-            class="ui-badge shrink-0"
-            :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+      <div v-else class="text-xs overflow-x-auto">
+        <div class="min-w-[640px] space-y-0.5">
+          <div
+            v-for="log in logs"
+            :key="logKey(log)"
+            class="ui-list-row flex items-center gap-3 px-2.5 py-2 cursor-pointer rounded-[var(--sp-radius-sm)]"
+            role="button"
+            tabindex="0"
+            :aria-label="`${log.account} ${log.task} ${log.time}`"
+            :title="t('dashboard.openInLogs')"
+            @click="selectedLog = log"
+            @dblclick="goToLogs(log)"
+            @keydown.enter="selectedLog = log"
+            @keydown.space.prevent="selectedLog = log"
           >
-            <span class="ui-badge-dot" />
-            {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
-          </span>
-          <button
-            v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
-            type="button"
-            class="ui-badge ui-badge-warn shrink-0 cursor-pointer hover:opacity-90"
-            :title="t('dashboard.openFailureInLogs')"
-            @click.stop="openFailureCategory(String(log.failure_category))"
-          >
-            {{ failureCategoryLabel(log.failure_category) }}
-          </button>
-          <span
-            class="truncate flex-1 min-w-0 font-mono text-[11px]"
-            :class="log.status === 'success' ? 'text-[var(--sp-text-secondary)]' : 'text-rose-600 dark:text-rose-400/90'"
-            :title="log.text"
-          >
-            {{ log.text }}
-          </span>
+            <span class="font-mono text-[var(--sp-text-muted)] shrink-0 w-[140px] text-[11px] truncate" :title="formatTime(log.created_at)">{{ log.time }}</span>
+            <span class="text-[var(--sp-text)] shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
+            <span class="text-[var(--sp-text-secondary)] shrink-0 w-28 truncate">{{ log.task }}</span>
+            <span
+              class="ui-badge shrink-0"
+              :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+            >
+              <span class="ui-badge-dot" />
+              {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
+            </span>
+            <button
+              v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
+              type="button"
+              class="ui-badge ui-badge-warn shrink-0 cursor-pointer hover:opacity-90"
+              :title="t('dashboard.openFailureInLogs')"
+              @click.stop="openFailureCategory(String(log.failure_category))"
+            >
+              {{ failureCategoryLabel(log.failure_category) }}
+            </button>
+            <span
+              class="truncate flex-1 min-w-0 font-mono text-[11px]"
+              :class="log.status === 'success' ? 'text-[var(--sp-text-secondary)]' : 'text-rose-600 dark:text-rose-400/90'"
+              :title="log.text"
+            >
+              {{ log.text }}
+            </span>
+          </div>
         </div>
       </div>
     </div>

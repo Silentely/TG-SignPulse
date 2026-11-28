@@ -23,6 +23,7 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
   const loading = ref(false)
   let pollHandle: ChainPollHandle | null = null
   let consumers = 0
+  let inflightRefresh: Promise<boolean> | null = null
 
   const hasAnyActive = computed(() =>
     runs.value.some((r) => isRunInProgress(r)),
@@ -35,20 +36,25 @@ export const useActiveRunsStore = defineStore('activeRuns', () => {
   }
 
   const refresh = async (): Promise<boolean> => {
+    if (inflightRefresh) return inflightRefresh
     const token = getAuthToken()
     if (!token) return false
     loading.value = true
-    try {
-      const res = await listActiveSignTaskRuns(token)
-      applyRuns(res.runs || [])
-      return true
-    } catch (e) {
-      devLog.error('Failed to refresh active runs', e)
-      // 保留上一轮结果，同时让上层知道本次刷新没有成功。
-      return false
-    } finally {
-      loading.value = false
-    }
+    inflightRefresh = (async () => {
+      try {
+        const res = await listActiveSignTaskRuns(token)
+        applyRuns(res.runs || [])
+        return true
+      } catch (e) {
+        devLog.error('Failed to refresh active runs', e)
+        // 保留上一轮结果，同时让上层知道本次刷新没有成功。
+        return false
+      } finally {
+        loading.value = false
+        inflightRefresh = null
+      }
+    })()
+    return inflightRefresh
   }
 
   const ensurePolling = () => {

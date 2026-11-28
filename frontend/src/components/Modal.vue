@@ -1,7 +1,23 @@
 <script lang="ts">
-// 模块级最顶层弹窗标识：跨 Modal 实例共享（script setup 内的变量每实例独立，
-// 无法实现"后打开的弹窗接管 Esc"），SFC 需用普通 script 块承载
-let topModalToken = 0
+// 模块级弹窗栈标识：跨 Modal 实例共享（script setup 内的变量每实例独立，
+// 无法实现"后打开的弹窗接管 Esc"），用栈结构避免乱序关闭时顶层指针失步
+let nextModalToken = 0
+const modalStack: number[] = []
+
+const pushModalToken = () => {
+  const token = ++nextModalToken
+  modalStack.push(token)
+  return token
+}
+
+const removeModalToken = (token: number) => {
+  if (!token) return
+  const idx = modalStack.lastIndexOf(token)
+  if (idx !== -1) modalStack.splice(idx, 1)
+}
+
+const isTopModalToken = (token: number) =>
+  token !== 0 && modalStack.length > 0 && modalStack[modalStack.length - 1] === token
 </script>
 
 <script setup lang="ts">
@@ -37,8 +53,7 @@ let previousActive: HTMLElement | null = null
 let scrollLocked = false
 
 // 嵌套弹窗（如确认框叠在业务弹窗上）时，Esc 应只关闭最顶层的弹窗：
-// 各 Modal 实例在 open 时登记为"当前最顶层"，关闭时释放；keydown 只响应
-// 仍是顶层的那一个，避免一次 Esc 同时关掉两层弹窗
+// 各 Modal 实例在 open 时压栈，关闭/卸载时从栈中移除；keydown 只响应位于栈顶的弹窗
 let currentToken = 0
 
 const FOCUSABLE =
@@ -49,20 +64,34 @@ const FOCUSABLE =
 const FORM_FIELD =
   'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([disabled]), textarea:not([disabled]), select:not([disabled])'
 
+const isElementVisible = (el: HTMLElement) => {
+  if (el.hidden || el.getAttribute('aria-hidden') === 'true') return false
+  if (el.closest('[hidden], [aria-hidden="true"]')) return false
+  if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+    const style = window.getComputedStyle(el)
+    if (style.display === 'none' || style.visibility === 'hidden') return false
+  }
+  return true
+}
+
 const getFocusable = () =>
   panelRef.value
     ? Array.from(panelRef.value.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => !el.hasAttribute('disabled') && el.tabIndex !== -1
+        (el) => !el.hasAttribute('disabled') && el.tabIndex !== -1 && isElementVisible(el)
       )
     : []
 
-const getPrimaryField = () => panelRef.value?.querySelector<HTMLElement>(FORM_FIELD) ?? null
+const getPrimaryField = () => {
+  if (!panelRef.value) return null
+  const candidates = Array.from(panelRef.value.querySelectorAll<HTMLElement>(FORM_FIELD))
+  return candidates.find((el) => isElementVisible(el)) ?? null
+}
 
 // Esc 关闭：非最顶层弹窗不响应，把关闭权留给上层（后打开的）弹窗
 useEscClose(
   () => props.isOpen,
   () => emit('close'),
-  { canClose: () => currentToken === topModalToken },
+  { canClose: () => isTopModalToken(currentToken) },
 )
 
 const onKeydown = (e: KeyboardEvent) => {
@@ -111,8 +140,10 @@ watch(
   () => props.isOpen,
   async (open) => {
     if (open) {
-      // 登记为最顶层：后打开的弹窗成为 Esc 的唯一响应者
-      currentToken = ++topModalToken
+      // 压栈登记为最顶层：后打开的弹窗成为 Esc 的唯一响应者
+      if (!currentToken) {
+        currentToken = pushModalToken()
+      }
       if (!scrollLocked) {
         lockBodyScroll()
         scrollLocked = true
@@ -122,8 +153,7 @@ watch(
       ;(getPrimaryField() ?? getFocusable()[0] ?? panelRef.value)?.focus({ preventScroll: true })
     } else {
       releaseScrollLock()
-      // 关闭的是当前最顶层时释放顶层标识，恢复下层弹窗的 Esc 响应权
-      if (currentToken === topModalToken) topModalToken -= 1
+      removeModalToken(currentToken)
       currentToken = 0
       if (previousActive?.focus) {
         try {
@@ -147,8 +177,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   document.removeEventListener('focusin', onFocusIn)
   releaseScrollLock()
-  // 未走关闭流程直接卸载（如父组件销毁）时释放顶层标识
-  if (currentToken === topModalToken) topModalToken -= 1
+  // 未走关闭流程直接卸载（如父组件销毁）时从弹窗栈移除
+  removeModalToken(currentToken)
   currentToken = 0
 })
 </script>

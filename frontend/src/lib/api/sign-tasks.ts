@@ -1,7 +1,7 @@
 /**
  * 签到任务管理 API：CRUD、执行、运行状态、历史、批量操作、聊天查询。
  */
-import { MEDIUM_TIMEOUT_MS, request, requestBlob } from "./core";
+import { MEDIUM_TIMEOUT_MS, getAuthToken, request, requestBlob } from "./core";
 import type { RawTaskAction, PreviewFlowResponse } from "../types";
 
 export interface SignTaskChat {
@@ -358,9 +358,16 @@ export const fetchChatAvatar = (
   );
 
 
-export async function previewFlow(chat: Partial<SignTaskChat>): Promise<PreviewFlowResponse> {
-  return request<PreviewFlowResponse>("/api/sign-tasks/preview-flow", {
-    method: "POST",
-    body: JSON.stringify(chat),
-  });
+export async function previewFlow(
+  chat: Partial<SignTaskChat>,
+  token?: string | null,
+): Promise<PreviewFlowResponse> {
+  return request<PreviewFlowResponse>(
+    "/sign-tasks/preview-flow",
+    {
+      method: "POST",
+      body: JSON.stringify(chat),
+    },
+    token ?? getAuthToken(),
+  );
 }

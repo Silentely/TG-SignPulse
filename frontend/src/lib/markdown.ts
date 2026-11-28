@@ -12,8 +12,25 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#39;')
 }
 
+function unescapeBasicHtml(str: string): string {
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
 function sanitizeUrl(rawUrl: string): string | null {
-  const trimmed = rawUrl.trim()
+  const rawTrimmed = rawUrl.trim()
+  // Disallow control characters and internal placeholder tokens (e.g. inline code inside URLs)
+  if (/[\x00-\x1f\x7f]/.test(rawTrimmed)) {
+    return null
+  }
+  const trimmed = unescapeBasicHtml(rawTrimmed).trim()
+  if (/[\x00-\x1f\x7f]/.test(trimmed)) {
+    return null
+  }
   if (trimmed.startsWith('#')) {
     const cleanAnchor = trimmed.replace(/[^a-zA-Z0-9_\-#]/g, '')
     return cleanAnchor || null
@@ -26,7 +43,7 @@ function sanitizeUrl(rawUrl: string): string | null {
   try {
     const parsed = new URL(trimmed)
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return trimmed
+      return parsed.href
     }
   } catch {
     // Relative or invalid
@@ -34,10 +51,23 @@ function sanitizeUrl(rawUrl: string): string | null {
   return null
 }
 
+function formatInlineFormatting(text: string): string {
+  text = text.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong class="font-semibold text-[var(--sp-text-primary)]"><em class="italic">$1</em></strong>')
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-[var(--sp-text-primary)]">$1</strong>')
+  text = text.replace(/__([^_]+)__/g, '<strong class="font-semibold text-[var(--sp-text-primary)]">$1</strong>')
+  text = text.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '<em class="italic">$1</em>')
+  text = text.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '<em class="italic">$1</em>')
+  text = text.replace(/~~([^~]+)~~/g, '<del class="line-through opacity-70">$1</del>')
+  return text
+}
+
 function renderInline(rawText: string): string {
+  // Strip null bytes so untrusted input cannot collide with internal placeholder tokens
+  let text = rawText.replace(/\x00/g, '')
+
   // 1. Preserve explicit anchor spans: <span id="..."></span>
   const spanPlaceholders: string[] = []
-  let text = rawText.replace(/<span\s+id=["']([a-zA-Z0-9_-]+)["']\s*><\/span>/gi, (_, id) => {
+  text = text.replace(/<span\s+id=["']([a-zA-Z0-9_-]+)["']\s*><\/span>/gi, (_, id) => {
     const idx = spanPlaceholders.length
     spanPlaceholders.push(`<span id="${escapeHtml(id)}"></span>`)
     return `\x00SPAN${idx}\x00`
@@ -56,30 +86,32 @@ function renderInline(rawText: string): string {
     return `\x00INLINECODE${idx}\x00`
   })
 
-  // 4. Links: [text](url) - match matching outer parens
+  // 4. Links: [text](url) extracted into placeholders BEFORE bold/italic/strikethrough
+  // so URLs containing `_`, `__`, or `~~` are never corrupted by inline formatting regexes
+  const linkPlaceholders: string[] = []
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|#[^\s)]+|[^\s)]+)\)/g, (_, linkText, url) => {
+    const formattedText = formatInlineFormatting(linkText)
     const safe = sanitizeUrl(url)
+    const idx = linkPlaceholders.length
     if (!safe) {
-      return linkText
+      linkPlaceholders.push(formattedText)
+    } else {
+      const isAnchor = safe.startsWith('#')
+      const targetAttrs = isAnchor ? '' : ' target="_blank" rel="noopener noreferrer"'
+      linkPlaceholders.push(
+        `<a href="${escapeHtml(safe)}"${targetAttrs} class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium">${formattedText}</a>`
+      )
     }
-    const isAnchor = safe.startsWith('#')
-    const targetAttrs = isAnchor ? '' : ' target="_blank" rel="noopener noreferrer"'
-    return `<a href="${safe}"${targetAttrs} class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium">${linkText}</a>`
+    return `\x00LINK${idx}\x00`
   })
   // Catch any remaining malicious [text](javascript:...) with parens
   text = text.replace(/\[([^\]]+)\]\(javascript:[^)]*\)/gi, '$1')
 
-  // 5. Bold & Italic (using ** and * or __ and _)
-  text = text.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong class="font-semibold text-[var(--sp-text-primary)]"><em class="italic">$1</em></strong>')
-  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-[var(--sp-text-primary)]">$1</strong>')
-  text = text.replace(/__([^_]+)__/g, '<strong class="font-semibold text-[var(--sp-text-primary)]">$1</strong>')
-  text = text.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '<em class="italic">$1</em>')
-  text = text.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '<em class="italic">$1</em>')
+  // 5. Bold, Italic & Strikethrough
+  text = formatInlineFormatting(text)
 
-  // 6. Strikethrough: ~~text~~
-  text = text.replace(/~~([^~]+)~~/g, '<del class="line-through opacity-70">$1</del>')
-
-  // 7. Restore placeholders
+  // 6. Restore placeholders
+  text = text.replace(/\x00LINK(\d+)\x00/g, (_, idx) => linkPlaceholders[Number(idx)] || '')
   text = text.replace(/\x00INLINECODE(\d+)\x00/g, (_, idx) => codePlaceholders[Number(idx)] || '')
   text = text.replace(/\x00SPAN(\d+)\x00/g, (_, idx) => spanPlaceholders[Number(idx)] || '')
 
@@ -139,8 +171,8 @@ export function renderMarkdown(markdown: string): string {
     return ''
   }
 
-  // Normalize line endings
-  let text = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  // Strip null bytes and normalize line endings
+  let text = markdown.replace(/\x00/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
   // 1. Extract fenced code blocks
   const codeBlocks: string[] = []

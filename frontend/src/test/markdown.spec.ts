@@ -37,11 +37,48 @@ describe('renderMarkdown', () => {
   it('renders safe links and sanitizes malicious ones', () => {
     const md = '[Safe Web](https://example.com) and [Anchor](#english) and [Malicious](javascript:alert(1))'
     const html = renderMarkdown(md)
-    expect(html).toContain('href="https://example.com"')
+    expect(html).toContain('href="https://example.com/"')
     expect(html).toContain('target="_blank"')
     expect(html).toContain('href="#english"')
     expect(html).not.toContain('javascript:alert(1)')
     expect(html).toContain('Malicious')
+  })
+
+  it('does not corrupt URLs containing double underscores, underscores, or tildes', () => {
+    const md = '[**Doc** Link](https://example.com/__init__/foo_bar/~~tilde~~)'
+    const html = renderMarkdown(md)
+    expect(html).toContain('href="https://example.com/__init__/foo_bar/~~tilde~~"')
+    expect(html).toContain('>Doc</strong> Link</a>')
+    expect(html).not.toContain('<strong class="font-semibold text-[var(--sp-text-primary)]">init</strong>')
+    expect(html).not.toContain('<del')
+  })
+
+  it('preserves query ampersands while escaping quotes and attribute injection payloads in URLs', () => {
+    const md =
+      '[Query](https://example.com/search?a=1&b=2) and ' +
+      '[QuoteInject](https://example.com/?q="onmouseover="1"><img/src=x>) and ' +
+      "[SingleQuote](https://example.com/'onfocus='1)"
+    const html = renderMarkdown(md)
+    expect(html).toContain('href="https://example.com/search?a=1&amp;b=2"')
+    expect(html).toContain('href="https://example.com/?q=%22onmouseover=%221%22%3E%3Cimg/src=x%3E"')
+    expect(html).toContain('href="https://example.com/&#39;onfocus=&#39;1"')
+    expect(html).not.toContain('onmouseover="1"')
+    expect(html).not.toContain('<img')
+  })
+
+  it('strips null-byte placeholder injection attempts', () => {
+    const md = 'hello \x00INLINECODE0\x00 and `real`'
+    const html = renderMarkdown(md)
+    expect(html).toContain('hello INLINECODE0 and <code')
+    expect(html).toContain('>real</code>')
+  })
+
+  it('blocks inline code placeholders from breaking out of href attributes', () => {
+    const md = '[click](https://example.com/`x`onmouseover=alert(1)//)'
+    const html = renderMarkdown(md)
+    expect(html).not.toContain('<a ')
+    expect(html).not.toContain('href=')
+    expect(html).toContain('click')
   })
 
   it('preserves anchor spans for multi-language navigation', () => {

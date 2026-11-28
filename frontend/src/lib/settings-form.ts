@@ -233,6 +233,8 @@ export function snapSection(
         webdavUsername: s.webdavUsername,
         webdavPassword: s.webdavPassword ? '***set***' : '',
         webdavRemoteDir: s.webdavRemoteDir,
+        webdavSkipSslVerify: !!s.webdavSkipSslVerify,
+        webdavAllowPrivate: !!s.webdavAllowPrivate,
         backupTarget: s.backupTarget || 'auto',
       })
     case 'tg':
@@ -358,10 +360,10 @@ export function applyGlobalSettingsToForm(
     require_proxy_for_telegram?: boolean
   },
 ): {
-    botTokenSet: boolean
-    webdavPasswordSet: boolean
-    proxySet: boolean
-  } {
+  botTokenSet: boolean
+  webdavPasswordSet: boolean
+  proxySet: boolean
+} {
   s.checkInterval = res.sign_interval ? String(res.sign_interval) : ''
   s.logDays = res.log_retention_days ?? 7
   s.dataDir = res.data_dir || ''

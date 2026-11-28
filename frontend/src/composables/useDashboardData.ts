@@ -100,13 +100,11 @@ export function useDashboardData() {
   }
 
   const scheduleSseReconnect = () => {
-    if (sseIntentionalClose) return
+    if (disposed || sseIntentionalClose) return
     clearSseReconnect()
     const delay = Math.min(30_000, 1000 * 2 ** Math.min(sseReconnectAttempt, 5))
     sseReconnectAttempt += 1
     sseReconnectTimer = setTimeout(() => {
-      // 换票是异步的：失败时 connect 内部已记录日志并直接返回，
-      // 由 onerror → scheduleSseReconnect 继续退避重试
       void connectSignHistorySSE()
     }, delay)
   }
@@ -122,6 +120,10 @@ export function useDashboardData() {
       ticket = res.ticket
     } catch (e: unknown) {
       devLog.error('issue SSE ticket failed', e)
+      liveConnected.value = false
+      if (!disposed && !sseIntentionalClose) {
+        scheduleSseReconnect()
+      }
       return
     }
     if (disposed || sseIntentionalClose) return

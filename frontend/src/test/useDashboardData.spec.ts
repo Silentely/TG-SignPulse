@@ -312,6 +312,32 @@ describe('useDashboardData (mount + SSE + poll)', () => {
     unmount()
   })
 
+  it('SSE ticket failure schedules reconnect with backoff and recovers', async () => {
+    vi.useFakeTimers()
+    api.issueStreamTicket
+      .mockRejectedValueOnce(new Error('ticket temporarily failed'))
+      .mockResolvedValueOnce({
+        ticket: 'tk-retry',
+        purpose: 'sign_history_sse',
+        expires_in: 60,
+      })
+
+    const { result, unmount } = mountComposable(() => useDashboardData())
+    await vi.waitFor(() => expect(result.pageLoading.value).toBe(false))
+    await flushPromises(10)
+
+    expect(result.liveConnected.value).toBe(false)
+    expect(MockEventSource.instances).toHaveLength(0)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises(10)
+
+    expect(api.issueStreamTicket).toHaveBeenCalledTimes(2)
+    expect(MockEventSource.instances).toHaveLength(1)
+    expect(MockEventSource.instances[0].url).toContain('ticket=tk-retry')
+    unmount()
+  })
+
   it('does not create an SSE connection after unmount while ticket issuance is pending', async () => {
     let resolveTicket!: (value: { ticket: string; purpose: string; expires_in: number }) => void
     api.issueStreamTicket.mockImplementationOnce(

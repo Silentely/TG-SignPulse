@@ -312,7 +312,7 @@ const hitLink = (hit: KeywordHitRecord) => safeHitUrl(hit.url)
           :class="panelTab === 'hits'
             ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
             : 'text-[var(--sp-text-muted)] hover:bg-[var(--sp-surface-subtle)] bg-[var(--sp-surface)]/[0.04]'"
-          @click="panelTab = 'hits'; loadHits()"
+          @click="panelTab = 'hits'"
         >
           {{ t('taskLogs.hitsTab') }}
           <span v-if="hitTotal" class="ml-1 font-mono opacity-80">{{ hitTotal }}</span>

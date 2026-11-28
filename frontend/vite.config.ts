@@ -37,8 +37,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
-            // 仅缓存常规 GET API；排除鉴权/SSE 流/运行时状态/命中记录等
-            // 敏感或动态数据，避免令牌过期后的旧响应与流式响应被缓存
+            // 仅缓存常规 GET API；排除鉴权/SSE 流/运行时状态/配置/任务/插件/命中记录等
+            // 敏感或动态数据，避免令牌过期后的旧响应、配置滞后与流式响应被缓存
             urlPattern: ({ url }) =>
               url.pathname.startsWith('/api/') &&
               !url.pathname.startsWith('/api/auth/') &&
@@ -47,6 +47,11 @@ export default defineConfig({
               !url.pathname.startsWith('/api/keyword-hits/') &&
               !url.pathname.startsWith('/api/accounts') &&
               !url.pathname.startsWith('/api/logs') &&
+              !url.pathname.startsWith('/api/user/') &&
+              !url.pathname.startsWith('/api/config/') &&
+              !url.pathname.startsWith('/api/sign-tasks') &&
+              !url.pathname.startsWith('/api/plugins') &&
+              !url.pathname.startsWith('/api/semantic') &&
               !url.pathname.includes('/run'),
             handler: 'NetworkFirst',
             options: {

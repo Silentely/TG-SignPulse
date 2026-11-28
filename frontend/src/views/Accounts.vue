@@ -6,6 +6,7 @@ import {
   fetchAccountAvatar,
 } from '../lib/api'
 import { getAuthToken } from '../lib/api/core'
+import { useLatestResponseGuard } from '../lib/latest-response'
 import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAccountsStore } from '../stores/accounts'
@@ -38,8 +39,9 @@ const accounts = ref<AccountUiItem[]>([])
 const pageLoading = ref(true)
 // 会话内头像 URL 缓存：避免每次刷新重复请求与重复创建 ObjectURL
 const avatarCache = new AvatarUrlCache()
-// 卸载标记：在途头像请求完成后不再创建 ObjectURL，避免 blob 泄漏
+// 卸载标记：在途头像/列表请求完成后不再写状态或创建 ObjectURL，避免 blob 泄漏
 let disposed = false
+const accountsGuard = useLatestResponseGuard()
 interface ReloginCredentialState {
   apiId: string
   apiHash: string
@@ -92,9 +94,11 @@ const loadAccounts = async () => {
   const token = getAuthToken()
   if (!token) return
 
+  const seq = accountsGuard.next()
   try {
     loadError.value = false
     const list = await accountsStore.refreshAccounts()
+    if (disposed || !accountsGuard.isCurrent(seq)) return
     const labels = {
       loginExpired: t('accounts.loginExpired'),
       checking: t('accounts.checking'),
@@ -110,11 +114,14 @@ const loadAccounts = async () => {
     // 限流加载头像，避免账号多时并发打满连接
     void loadAvatars(accounts.value)
   } catch (e: unknown) {
+    if (disposed || !accountsGuard.isCurrent(seq)) return
     devLog.error('Failed to fetch accounts', e)
     loadError.value = true
     notifyApiError(e, 'accounts.loadFailed')
   } finally {
-    pageLoading.value = false
+    if (!disposed && accountsGuard.isCurrent(seq)) {
+      pageLoading.value = false
+    }
   }
 }
 
@@ -152,6 +159,7 @@ watch(() => route.query.account, () => applyAccountQuery())
 
 onUnmounted(() => {
   disposed = true
+  accountsGuard.invalidate()
   // 离开页面时统一回收会话内头像 ObjectURL，避免 blob 泄漏
   avatarCache.release()
 })
@@ -167,12 +175,17 @@ const handleDelete = async (name: string) => {
     notifyApiError(e, 'accounts.deleteFailed')
   }
 }
+const closeImpactModal = () => {
+  changePlan.value = null
+  changeError.value = ''
+}
 const applyDelete = async () => {
   if (!changePlan.value) return
   changeLoading.value = true
   try {
     await applyAccountChange(getAuthToken(), changePlan.value)
     changePlan.value = null
+    changeError.value = ''
     toast.success(t('accounts.deleteSuccess'))
     await loadAccounts()
   } catch (e: unknown) {
@@ -183,7 +196,7 @@ const applyDelete = async () => {
 }
 
 const {
-  checkingAccount,
+  isCheckingAccount,
   batchChecking,
   batchJob,
   batchProgressPct,
@@ -207,6 +220,7 @@ const openEdit = (acc: AccountUiItem) => {
 
 /** 仪表盘健康卡深链：定位到指定账号并直接打开编辑弹窗（内含重新登录入口） */
 const applyAccountQuery = () => {
+  if (loadError.value) return
   const q = route.query.account
   const name = typeof q === 'string' ? q.trim() : ''
   if (!name) return
@@ -303,7 +317,7 @@ const goTasks = (name: string) => {
       <PageRetry
         :message="t('accounts.loadFailed')"
         :loading="pageLoading"
-        @retry="pageLoading = true; loadAccounts()"
+        @retry="pageLoading = true; loadAccounts().then(() => applyAccountQuery())"
       />
     </div>
 
@@ -474,8 +488,8 @@ const goTasks = (name: string) => {
 
       <!-- Actions：竖排布局保留，语义走 ui-row-action -->
       <div class="mt-auto pt-3 border-t border-[var(--sp-border)] grid grid-cols-7 gap-0.5">
-        <button type="button" class="ui-row-action ui-row-action--stack" :disabled="checkingAccount === acc.name" :title="t('accounts.checkStatus')" @click="handleCheck(acc.name)">
-          <span v-if="checkingAccount === acc.name" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
+        <button type="button" class="ui-row-action ui-row-action--stack" :disabled="batchChecking || isCheckingAccount(acc.name)" :title="t('accounts.checkStatus')" @click="handleCheck(acc.name)">
+          <span v-if="isCheckingAccount(acc.name)" class="ui-spinner !w-3.5 !h-3.5 !border-2" />
           <Play v-else class="w-3.5 h-3.5" />
           <span>{{ t('accounts.check') }}</span>
         </button>
@@ -522,7 +536,7 @@ const goTasks = (name: string) => {
     </div>
 
     <!-- Modals -->
-    <AccountImpactModal :isOpen="!!changePlan" :plan="changePlan" :loading="changeLoading" :error="changeError" @close="changePlan = null" @apply="applyDelete" />
+    <AccountImpactModal :isOpen="!!changePlan" :plan="changePlan" :loading="changeLoading" :error="changeError" @close="closeImpactModal" @apply="applyDelete" />
     <AddAccountModal
       :isOpen="showAddModal"
       :initialMethod="initialMethod"

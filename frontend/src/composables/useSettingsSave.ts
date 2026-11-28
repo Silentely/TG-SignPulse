@@ -11,7 +11,7 @@ import {
   runDeviceKeepalive,
   testBotNotification,
 } from '../lib/api'
-import { withToken, getAuthToken } from '../lib/api/core'
+import { withToken } from '../lib/api/core'
 import type { AiFormState, SettingsSection, TgFormState } from '../lib/settings-form'
 import { resolveApiErrorMessage } from '../lib/notify'
 import { devLog } from '../lib/devLog'
@@ -19,6 +19,13 @@ import { setPanelTimezone } from '../lib/datetime'
 import { useI18n } from './useI18n'
 import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
+
+const maskSecret = (raw: string) => {
+  const trimmed = raw.trim()
+  return trimmed.length > 8
+    ? trimmed.slice(0, 4) + '*'.repeat(Math.max(trimmed.length - 8, 0)) + trimmed.slice(-4)
+    : '****'
+}
 
 export function useSettingsSave(options: {
   tgConfig: Ref<TgFormState>
@@ -40,6 +47,9 @@ export function useSettingsSave(options: {
   loadBackupStatus: (token: string) => Promise<void>
   /** 服务端 AI 配置是否已成功加载；未加载时不得用空列表覆盖已保存的备用节点 */
   aiConfigLoaded?: Ref<boolean>
+  /** JEV 区块是否存在未保存改动，以及对应的全量保存钩子 */
+  jevDirty?: Ref<boolean>
+  saveJev?: () => Promise<boolean>
 }) {
   const { t } = useI18n()
   const toast = useToast()
@@ -56,6 +66,65 @@ export function useSettingsSave(options: {
   const aiRuntimeLoading = ref(false)
   const botTestLoading = ref(false)
   const keepaliveLoading = ref(false)
+
+  const hasPrimaryOrFallbackAiInput = () => {
+    const ai = options.aiConfig.value
+    const hasPrimary = !!(
+      ai.provider === 'cloudflare'
+        ? (ai.cloudflare_account_id || ai.api_key || ai.model)
+        : (ai.base_url || ai.model || ai.api_key)
+    )
+    const hasFallback = (ai.fallback_providers || []).some(
+      (p) => (p.base_url || '').trim() || (p.api_key || '').trim() || (p.model || '').trim(),
+    )
+    return hasPrimary || hasFallback
+  }
+
+  const submitAiConfig = async (token: string) => {
+    const ai = options.aiConfig.value
+    // 仅当服务端 AI 配置已成功加载时才提交备用节点，避免用空数组清空已保存的密钥
+    const fallbackPayload =
+      options.aiConfigLoaded?.value === false
+        ? undefined
+        : (ai.fallback_providers || [])
+            // 无 base_url 且无 api_key 的空行不提交
+            .filter((p) => (p.base_url || '').trim() || (p.api_key || '').trim())
+            .map((p) => ({
+              id: p.id,
+              base_url: p.base_url || undefined,
+              model: p.model || undefined,
+              // 留空表示沿用已保存密钥，不发送该字段
+              api_key: p.api_key || undefined,
+            }))
+
+    await saveAIConfig(token, {
+      provider: ai.provider || 'openai',
+      cloudflare_account_id: ai.cloudflare_account_id?.trim() || undefined,
+      base_url:
+        ai.provider === 'cloudflare'
+          ? undefined
+          : (ai.base_url || undefined),
+      model: ai.model || undefined,
+      api_key: ai.api_key || undefined,
+      fallback_providers: fallbackPayload,
+    })
+
+    if (ai.cloudflare_account_id) {
+      ai.cloudflare_account_id_masked = maskSecret(ai.cloudflare_account_id)
+      ai.cloudflare_account_id = ''
+    }
+    if (ai.api_key) {
+      options.aiKeyDecryptFailed.value = false
+      ai.api_key_masked = maskSecret(ai.api_key)
+    }
+    ai.api_key = ''
+    for (const p of ai.fallback_providers || []) {
+      if (p.api_key) {
+        p.api_key_masked = maskSecret(p.api_key)
+        p.api_key = ''
+      }
+    }
+  }
 
   const saveSettings = async () => {
     return withToken(async (token) => {
@@ -151,6 +220,11 @@ export function useSettingsSave(options: {
         options.markSectionClean('bot')
         options.markSectionClean('advanced')
         options.markSectionClean('runtime')
+        try {
+          await options.loadBackupStatus(token)
+        } catch {
+          /* ignore */
+        }
         // 任一字段有值即保存（与独立保存一致）：原来用 AND 守卫，
         // 只填一个字段时静默走 else 不保存，用户输入丢失且仍提示"全部已保存"
         if (options.tgConfig.value.api_id || options.tgConfig.value.api_hash) {
@@ -168,41 +242,10 @@ export function useSettingsSave(options: {
         } else {
           options.markSectionClean('tg')
         }
-        const hasAllAiInput = !!(
-          options.aiConfig.value.provider === 'cloudflare'
-            ? (options.aiConfig.value.cloudflare_account_id || options.aiConfig.value.api_key || options.aiConfig.value.model)
-            : (options.aiConfig.value.base_url ||
-               options.aiConfig.value.model ||
-               options.aiConfig.value.api_key)
-        )
+        const hasAllAiInput = hasPrimaryOrFallbackAiInput()
         if (hasAllAiInput) {
           try {
-            await saveAIConfig(token, {
-              provider: options.aiConfig.value.provider || 'openai',
-              cloudflare_account_id: options.aiConfig.value.cloudflare_account_id?.trim() || undefined,
-              base_url:
-                options.aiConfig.value.provider === 'cloudflare'
-                  ? undefined
-                  : (options.aiConfig.value.base_url || undefined),
-              model: options.aiConfig.value.model || undefined,
-              api_key: options.aiConfig.value.api_key || undefined,
-            })
-            if (options.aiConfig.value.cloudflare_account_id) {
-              const rawId = options.aiConfig.value.cloudflare_account_id.trim()
-              options.aiConfig.value.cloudflare_account_id_masked =
-                rawId.length > 8
-                  ? rawId.slice(0, 4) + '*'.repeat(Math.max(rawId.length - 8, 0)) + rawId.slice(-4)
-                  : '****'
-              options.aiConfig.value.cloudflare_account_id = ''
-            }
-            if (options.aiConfig.value.api_key) {
-              const rawKey = options.aiConfig.value.api_key.trim()
-              options.aiConfig.value.api_key_masked =
-                rawKey.length > 8
-                  ? rawKey.slice(0, 4) + '*'.repeat(Math.max(rawKey.length - 8, 0)) + rawKey.slice(-4)
-                  : '****'
-            }
-            options.aiConfig.value.api_key = ''
+            await submitAiConfig(token)
             options.markSectionClean('ai')
           } catch (e: unknown) {
             partial.push(t('settings.aiConfig'))
@@ -210,6 +253,15 @@ export function useSettingsSave(options: {
           }
         } else {
           options.markSectionClean('ai')
+        }
+        if (options.jevDirty?.value && options.saveJev) {
+          try {
+            const ok = await options.saveJev()
+            if (!ok) partial.push(t('settings.jevConfig'))
+          } catch (e: unknown) {
+            partial.push(t('settings.jevConfig'))
+            devLog.error('saveAll jev failed', e)
+          }
         }
         if (partial.length) {
           notifyError(`${t('settings.saveAllPartial')}: ${partial.join(', ')}`)
@@ -240,112 +292,68 @@ export function useSettingsSave(options: {
   }
 
   const saveTgConfig = async () => {
-    const token = getAuthToken()
-    tgLoading.value = true
-    try {
-      await saveTelegramConfig(token, {
-        api_id: options.tgConfig.value.api_id,
-        api_hash: options.tgConfig.value.api_hash,
-      })
-      options.afterTgSaved()
-      options.markSectionClean('tg')
-      notifySuccess(t('settings.tgConfigSaved'))
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
-    } finally {
-      tgLoading.value = false
-    }
+    return withToken(async (token) => {
+      tgLoading.value = true
+      try {
+        await saveTelegramConfig(token, {
+          api_id: options.tgConfig.value.api_id,
+          api_hash: options.tgConfig.value.api_hash,
+        })
+        options.afterTgSaved()
+        options.markSectionClean('tg')
+        notifySuccess(t('settings.tgConfigSaved'))
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
+      } finally {
+        tgLoading.value = false
+      }
+    })
   }
 
   const resetTgConfig = async () => {
-    const token = getAuthToken()
-    const ok = await confirm({
-      title: t('settings.resetDefault'),
-      message: t('settings.resetConfirm'),
-      confirmText: t('common.continue'),
-      danger: true,
+    return withToken(async (token) => {
+      const ok = await confirm({
+        title: t('settings.resetDefault'),
+        message: t('settings.resetConfirm'),
+        confirmText: t('common.continue'),
+        danger: true,
+      })
+      if (!ok) return
+      tgLoading.value = true
+      try {
+        await resetTelegramConfig(token)
+        options.tgConfig.value.api_id = ''
+        options.tgConfig.value.api_hash = ''
+        options.afterTgReset()
+        options.markSectionClean('tg')
+        notifySuccess(t('settings.resetSuccess'))
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.resetFailed'))
+      } finally {
+        tgLoading.value = false
+      }
     })
-    if (!ok) return
-    tgLoading.value = true
-    try {
-      await resetTelegramConfig(token)
-      options.tgConfig.value.api_id = ''
-      options.tgConfig.value.api_hash = ''
-      options.afterTgReset()
-      options.markSectionClean('tg')
-      notifySuccess(t('settings.resetSuccess'))
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.resetFailed'))
-    } finally {
-      tgLoading.value = false
-    }
   }
 
   const saveAiConfig = async () => {
-    const token = getAuthToken()
-    aiLoading.value = true
-    try {
-      const hasAiInput = !!(
-        options.aiConfig.value.provider === 'cloudflare'
-          ? (options.aiConfig.value.cloudflare_account_id || options.aiConfig.value.api_key || options.aiConfig.value.model)
-          : (options.aiConfig.value.base_url ||
-             options.aiConfig.value.model ||
-             options.aiConfig.value.api_key)
-      )
+    return withToken(async (token) => {
+      aiLoading.value = true
       try {
-        // 仅当服务端 AI 配置已成功加载时才提交备用节点，避免用空数组清空已保存的密钥
-        const fallbackPayload =
-          options.aiConfigLoaded?.value === false
-            ? undefined
-            : (options.aiConfig.value.fallback_providers || [])
-                // 无 base_url 的空行不提交
-                .filter((p) => (p.base_url || '').trim() || (p.api_key || '').trim())
-                .map((p) => ({
-                  id: p.id,
-                  base_url: p.base_url || undefined,
-                  model: p.model || undefined,
-                  // 留空表示沿用已保存密钥，不发送该字段
-                  api_key: p.api_key || undefined,
-                }))
-        await saveAIConfig(token, {
-          provider: options.aiConfig.value.provider || 'openai',
-          cloudflare_account_id: options.aiConfig.value.cloudflare_account_id?.trim() || undefined,
-          base_url:
-            options.aiConfig.value.provider === 'cloudflare'
-              ? undefined
-              : (options.aiConfig.value.base_url || undefined),
-          model: options.aiConfig.value.model || undefined,
-          api_key: options.aiConfig.value.api_key || undefined,
-          fallback_providers: fallbackPayload,
-        })
-        if (options.aiConfig.value.cloudflare_account_id) {
-          const rawId = options.aiConfig.value.cloudflare_account_id.trim()
-          options.aiConfig.value.cloudflare_account_id_masked =
-            rawId.length > 8
-              ? rawId.slice(0, 4) + '*'.repeat(Math.max(rawId.length - 8, 0)) + rawId.slice(-4)
-              : '****'
-          options.aiConfig.value.cloudflare_account_id = ''
+        const hasAiInput = hasPrimaryOrFallbackAiInput()
+        try {
+          await submitAiConfig(token)
+        } catch (e: unknown) {
+          if (hasAiInput) throw e
+          devLog.error('saveAi model skipped (no key yet)', e)
         }
-        if (options.aiConfig.value.api_key) {
-          options.aiKeyDecryptFailed.value = false
-          const rawKey = options.aiConfig.value.api_key.trim()
-          options.aiConfig.value.api_key_masked =
-            rawKey.length > 8
-              ? rawKey.slice(0, 4) + '*'.repeat(Math.max(rawKey.length - 8, 0)) + rawKey.slice(-4)
-              : '****'
-        }
-        options.aiConfig.value.api_key = ''
+        options.markSectionClean('ai')
+        notifySuccess(t('settings.aiConfigSaved'))
       } catch (e: unknown) {
-        if (hasAiInput) throw e
-        devLog.error('saveAi model skipped (no key yet)', e)
+        notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
+      } finally {
+        aiLoading.value = false
       }
-      options.markSectionClean('ai')
-      notifySuccess(t('settings.aiConfigSaved'))
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.saveFailed'))
-    } finally {
-      aiLoading.value = false
-    }
+    })
   }
 
   const saveAiRuntime = async () => {
@@ -364,20 +372,21 @@ export function useSettingsSave(options: {
   }
 
   const testAi = async () => {
-    const token = getAuthToken()
-    aiLoading.value = true
-    try {
-      const res = await testAIConnection(token)
-      if (res.success) {
-        notifySuccess(res.message || t('settings.testSuccess'))
-      } else {
-        notifyError(res.message || t('settings.testFailed'))
+    return withToken(async (token) => {
+      aiLoading.value = true
+      try {
+        const res = await testAIConnection(token)
+        if (res.success) {
+          notifySuccess(res.message || t('settings.testSuccess'))
+        } else {
+          notifyError(res.message || t('settings.testFailed'))
+        }
+      } catch (e: unknown) {
+        notifyError(resolveApiErrorMessage(e, 'settings.testFailed'))
+      } finally {
+        aiLoading.value = false
       }
-    } catch (e: unknown) {
-      notifyError(resolveApiErrorMessage(e, 'settings.testFailed'))
-    } finally {
-      aiLoading.value = false
-    }
+    })
   }
 
   return {

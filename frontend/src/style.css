@@ -30,7 +30,7 @@
   /* Typography */
   --sp-text-primary: #1e2029;
   --sp-text-secondary: #4b5262;
-  --sp-text-muted: #747c8c;
+  --sp-text-muted: #5f6777;
   --sp-text-disabled: #a5abba;
   --sp-fg: var(--sp-text-primary);
   --sp-fg-secondary: var(--sp-text-secondary);
@@ -62,6 +62,8 @@
   /* Radii Geometry (Linear standard: 6px controls, 12px cards, 4px tags) */
   --sp-radius: 0.375rem; /* 6px */
   --sp-radius-sm: 0.25rem; /* 4px */
+  --sp-radius-md: 0.5rem; /* 8px */
+  --sp-radius-lg: 0.75rem; /* 12px */
   --sp-radius-card: 0.75rem; /* 12px */
   --sp-radius-pill: 9999px;
 
@@ -1120,6 +1122,18 @@ textarea.ui-input {
   background: rgba(244, 63, 94, 0.12);
   border-color: rgba(244, 63, 94, 0.28);
 }
+.ui-alert-info {
+  font-size: 0.75rem;
+  color: var(--sp-accent-hover);
+  background: var(--sp-info-soft);
+  border: 1px solid color-mix(in srgb, var(--sp-info) 24%, transparent);
+  border-radius: var(--sp-radius);
+  padding: 0.5rem 0.625rem;
+}
+.dark .ui-alert-info {
+  color: var(--sp-accent);
+  border-color: color-mix(in srgb, var(--sp-info) 30%, transparent);
+}
 
 /* 开关 */
 .ui-switch {
@@ -1272,4 +1286,40 @@ textarea.ui-input {
 .ui-contain-log {
   content-visibility: auto;
   contain-intrinsic-size: auto 36px;
+}
+/* ── 滚动条与微动效工具类 ─────────────────────────────────────────── */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.dark .custom-scrollbar {
+  scrollbar-color: rgba(75, 85, 99, 0.55) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.55);
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: ui-fade-in 0.16s ease-out both;
 }

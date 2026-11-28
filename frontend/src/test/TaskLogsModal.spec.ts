@@ -198,8 +198,8 @@ describe('TaskLogsModal Component Tests', () => {
     const tabs = wrapper.findAll('button[role="tab"]')
     expect(tabs.length).toBe(2)
 
-    // Click hits tab
+    // Click hits tab — panelTab watch triggers loadHits once (no duplicate direct call)
     await tabs[1].trigger('click')
-    expect(hitsSpy.loadHits).toHaveBeenCalled()
+    expect(hitsSpy.loadHits).toHaveBeenCalledTimes(1)
   })
 })

@@ -157,7 +157,7 @@ watch(
 )
 
 const openGithub = () => {
-  window.open('https://github.com/Silentely/TG-SignPulse', '_blank')
+  window.open('https://github.com/Silentely/TG-SignPulse', '_blank', 'noopener,noreferrer')
 }
 
 const handleNavClick = () => {
@@ -166,7 +166,7 @@ const handleNavClick = () => {
 </script>
 
 <template>
-  <div class="flex min-h-screen w-full overflow-x-hidden text-[var(--sp-text)] font-sans antialiased">
+  <div class="flex min-h-screen w-full overflow-x-clip text-[var(--sp-text)] font-sans antialiased">
     <!-- 移动端遮罩：点击关闭侧栏 -->
     <div
       v-if="isMobileMenuOpen"
@@ -211,7 +211,7 @@ const handleNavClick = () => {
       <nav class="flex-1 py-4 flex flex-col gap-1 px-3 overflow-y-auto custom-scrollbar" :aria-label="t('nav.mainNav')">
         <router-link 
           v-for="nav in navigation" 
-          :key="nav.id"
+          :key="nav.id" 
           :to="{ name: nav.name }"
           class="flex items-center h-9 px-3 transition-colors whitespace-nowrap rounded-[var(--sp-radius)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sp-accent)]"
           :class="route.name === nav.name

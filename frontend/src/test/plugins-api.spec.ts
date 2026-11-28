@@ -121,33 +121,26 @@ describe('plugins api 扩展接口', () => {
     expect(requestSpy).toHaveBeenCalledWith('/plugins/diagnostics', {}, 'test-token')
     expect(result).toEqual(mockDiag)
   })
-  it('exportPlugin 发起 GET /api/plugins/:name/export 并返回 Blob', async () => {
+  it('exportPlugin 通过 requestBlob 发起 GET /plugins/:name/export 并返回 Blob', async () => {
     const mockBlob = new Blob(['code'], { type: 'text/x-python' })
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
-      ok: true,
-      blob: async () => mockBlob,
-    } as Response)
+    const blobSpy = vi.spyOn(coreApi, 'requestBlob').mockResolvedValueOnce(mockBlob)
 
     const blob = await exportPlugin('math_solver', 'test-token')
-    expect(fetchSpy).toHaveBeenCalledWith('/api/plugins/math_solver/export', {
-      headers: { Authorization: 'Bearer test-token' },
-    })
+    expect(blobSpy).toHaveBeenCalledWith('/plugins/math_solver/export', {}, 'test-token')
     expect(blob).toBe(mockBlob)
   })
 
-  it('uploadPlugin 发起 POST /api/plugins/upload 携带 FormData', async () => {
+  it('uploadPlugin 通过 requestFormData 发起 POST /plugins/upload 携带 FormData', async () => {
     const mockFile = new File(['content'], 'custom.py', { type: 'text/x-python' })
     const mockInfo = { name: 'custom', mode: 'reactive' as const, description: '' }
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockInfo,
-    } as Response)
+    const formSpy = vi.spyOn(coreApi, 'requestFormData').mockResolvedValueOnce(mockInfo)
 
     const result = await uploadPlugin(mockFile, 'test-token')
-    expect(fetchSpy).toHaveBeenCalledWith('/api/plugins/upload', expect.objectContaining({
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    }))
+    expect(formSpy).toHaveBeenCalledWith(
+      '/plugins/upload',
+      expect.any(FormData),
+      'test-token',
+    )
     expect(result).toEqual(mockInfo)
   })
 
@@ -249,39 +242,30 @@ describe('plugins api 扩展接口', () => {
 
   // 配置管理 API 函数（getPluginConfig/updatePluginConfig/resetPluginConfig）已随死代码清理移除
 
-  it('exportAllPlugins 发起 GET /plugins/export-all 并返回 Blob', async () => {
+  it('exportAllPlugins 通过 requestBlob 发起 GET /plugins/export-all 并返回 Blob', async () => {
     const mockBlob = new Blob(['zip content'], { type: 'application/zip' })
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
-      ok: true,
-      blob: async () => mockBlob,
-    } as Response)
+    const blobSpy = vi.spyOn(coreApi, 'requestBlob').mockResolvedValueOnce(mockBlob)
 
     const blob = await exportAllPlugins('test-token')
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining('/plugins/export-all'),
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
-      }),
+    expect(blobSpy).toHaveBeenCalledWith(
+      '/plugins/export-all',
+      {},
+      'test-token',
+      coreApi.LONG_TIMEOUT_MS,
     )
     expect(blob).toBe(mockBlob)
   })
 
-  it('importPluginsBundle 发起 POST /plugins/import-bundle 上传 FormData', async () => {
+  it('importPluginsBundle 通过 requestFormData 发起 POST /plugins/import-bundle 上传 FormData', async () => {
     const mockResult = { imported_count: 2, files: ['p1', 'p2'], errors: [] }
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockResult,
-    } as Response)
+    const formSpy = vi.spyOn(coreApi, 'requestFormData').mockResolvedValueOnce(mockResult)
 
     const mockFile = new File(['mock zip'], 'plugins.zip', { type: 'application/zip' })
     const result = await importPluginsBundle(mockFile, 'test-token')
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining('/plugins/import-bundle'),
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
-        body: expect.any(FormData),
-      }),
+    expect(formSpy).toHaveBeenCalledWith(
+      '/plugins/import-bundle',
+      expect.any(FormData),
+      'test-token',
     )
     expect(result).toEqual(mockResult)
   })

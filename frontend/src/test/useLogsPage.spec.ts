@@ -123,7 +123,7 @@ describe('useLogsPage (route + mount)', () => {
     api.clearTaskHistoryLogs.mockResolvedValue({ cleared: 3 })
   })
 
-  it('onMounted applies route filters, loads logs and opens deep-linked detail', async () => {
+  it('onMounted applies route filters, loads logs once and opens deep-linked detail', async () => {
     const { result, unmount } = mountComposable(() => useLogsPage())
     await flushPromises()
 
@@ -131,6 +131,7 @@ describe('useLogsPage (route + mount)', () => {
     expect(result.filterTask.value).toBe('task-q')
     expect(result.filterCategory.value).toBe('timeout')
     expect(result.filterStatus.value).toBe('error')
+    expect(api.getTaskHistoryLogs).toHaveBeenCalledTimes(1)
     expect(api.getTaskHistoryLogs).toHaveBeenCalledWith(
       'tok',
       expect.objectContaining({ account_name: 'acc-q' }),
@@ -181,11 +182,12 @@ describe('useLogsPage (route + mount)', () => {
     }
   })
 
-  it('reopens the selected detail when only the deep-link account changes', async () => {
+  it('reopens the selected detail without duplicate fetch when only the deep-link account changes', async () => {
     const { result, unmount } = mountComposable(() => useLogsPage())
     try {
       await flushPromises()
       expect(result.selectedLog.value?.account).toBe('acc-q')
+      expect(api.getTaskHistoryLogs).toHaveBeenCalledTimes(1)
 
       api.getTaskHistoryLogs.mockResolvedValue([
         {
@@ -214,6 +216,7 @@ describe('useLogsPage (route + mount)', () => {
       })
       await flushPromises()
 
+      expect(api.getTaskHistoryLogs).toHaveBeenCalledTimes(2)
       expect(result.selectedLog.value?.account).toBe('acc-2')
       expect(result.logDetail.value?.message).toBe('account two detail')
     } finally {
@@ -235,7 +238,7 @@ describe('useLogsPage (route + mount)', () => {
     unmount()
   })
 
-  it('clearCategoryFilter strips route category query', async () => {
+  it('clearCategoryFilter, clearAccountFilter, clearTaskFilter strip route queries', async () => {
     const { result, unmount } = mountComposable(() => useLogsPage())
     await flushPromises()
     result.clearCategoryFilter()
@@ -246,6 +249,16 @@ describe('useLogsPage (route + mount)', () => {
         query: expect.not.objectContaining({ category: 'timeout' }),
       }),
     )
+
+    result.clearAccountFilter()
+    await flushPromises()
+    expect(result.filterAccount.value).toBe('')
+    expect(routeMocks.state.query.account).toBeUndefined()
+
+    result.clearTaskFilter()
+    await flushPromises()
+    expect(result.filterTask.value).toBe('')
+    expect(routeMocks.state.query.task).toBeUndefined()
     unmount()
   })
 
@@ -509,23 +522,23 @@ describe('useLogsPage (route + mount)', () => {
     unmount()
   })
 
-  it("handleClear resets selectedLog and logDetail after confirm", async () => {
+  it('handleClear resets selectedLog and logDetail after confirm', async () => {
     const { result, unmount } = mountComposable(() => useLogsPage())
     await flushPromises()
 
     // 模拟打开并选中了日志详情
     const base = {
-      time: "x",
-      account: "acc-q",
-      status: "success" as const,
-      text: "a",
+      time: 'x',
+      account: 'acc-q',
+      status: 'success' as const,
+      text: 'a',
       flow_line_count: 1,
     }
     await result.openLogDetail({
       ...base,
       id: 1,
-      created_at: "2026-07-01T10:00:00",
-      task: "task-q",
+      created_at: '2026-07-01T10:00:00',
+      task: 'task-q',
     })
     await flushPromises()
     expect(result.selectedLog.value).not.toBeNull()
@@ -539,31 +552,31 @@ describe('useLogsPage (route + mount)', () => {
     unmount()
   })
 
-  it("tryOpenFromQuery matches both account and task when account is specified in route", async () => {
+  it('tryOpenFromQuery matches both account and task when account is specified in route', async () => {
     routeMocks.state.query = {
-      account: "acc-2",
-      task: "common-task",
-      at: "2026-07-01T12:00:00",
+      account: 'acc-2',
+      task: 'common-task',
+      at: '2026-07-01T12:00:00',
     }
     api.getTaskHistoryLogs.mockResolvedValue([
       {
         id: 1,
-        task_name: "common-task",
-        account_name: "acc-1",
-        created_at: "2026-07-01T12:00:00",
+        task_name: 'common-task',
+        account_name: 'acc-1',
+        created_at: '2026-07-01T12:00:00',
         success: true,
-        message: "acc-1",
-        failure_category: "",
+        message: 'acc-1',
+        failure_category: '',
         flow_line_count: 0,
       },
       {
         id: 2,
-        task_name: "common-task",
-        account_name: "acc-2",
-        created_at: "2026-07-01T12:00:00",
+        task_name: 'common-task',
+        account_name: 'acc-2',
+        created_at: '2026-07-01T12:00:00',
         success: true,
-        message: "acc-2",
-        failure_category: "",
+        message: 'acc-2',
+        failure_category: '',
         flow_line_count: 0,
       },
     ])
@@ -572,7 +585,7 @@ describe('useLogsPage (route + mount)', () => {
     await flushPromises()
 
     expect(result.selectedLog.value).not.toBeNull()
-    expect(result.selectedLog.value?.account).toBe("acc-2")
+    expect(result.selectedLog.value?.account).toBe('acc-2')
     unmount()
   })
 })

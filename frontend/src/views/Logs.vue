@@ -35,9 +35,12 @@ const {
   hasActiveFilters,
   loadLogs,
   openLogDetail,
+  closeLogDetail,
   handleClear,
   exportingAccountLogs,
   handleExportAccountLogs,
+  clearAccountFilter,
+  clearTaskFilter,
   clearCategoryFilter,
   clearFilters,
 } = useLogsPage()
@@ -123,7 +126,7 @@ const {
       </div>
       <!-- 激活筛选 chip：失败分类 / 状态 / 账号 / 任务名 / 日期 可一键清 -->
       <div
-        v-if="activeTab === 'tasks' && (filterCategory || filterTask.trim() || filterStatus === 'error' || filterAccount || filterDate)"
+        v-if="activeTab === 'tasks' && (filterCategory || filterTask.trim() || filterStatus || filterAccount || filterDate)"
         class="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-[var(--sp-border)]"
       >
         <span class="text-[10px] text-[var(--sp-text-muted)] shrink-0">{{ t('common.activeFilters') }}</span>
@@ -132,7 +135,7 @@ const {
           tone="sky"
           truncate
           :title="t('common.clearFilters')"
-          @clear="filterAccount = ''"
+          @clear="clearAccountFilter"
         >
           {{ t('logs.colAccount') }}: {{ filterAccount }}
         </FilterChip>
@@ -144,18 +147,18 @@ const {
           {{ failureCategoryLabel(filterCategory) || filterCategory }}
         </FilterChip>
         <FilterChip
-          v-if="filterStatus === 'error'"
-          tone="rose"
+          v-if="filterStatus"
+          :tone="filterStatus === 'success' ? 'emerald' : 'rose'"
           @clear="filterStatus = ''"
         >
-          {{ t('logs.failed') }}
+          {{ filterStatus === 'success' ? t('logs.success') : t('logs.failed') }}
         </FilterChip>
         <FilterChip
           v-if="filterTask.trim()"
           tone="sky"
           truncate
           :title="t('common.clearFilters')"
-          @clear="filterTask = ''"
+          @clear="clearTaskFilter"
         >
           {{ t('logs.colTask') }}: {{ filterTask.trim() }}
         </FilterChip>
@@ -183,7 +186,10 @@ const {
       </div>
 
       <!-- 首屏加载失败：错误态而非空列表，避免误导为暂无日志 -->
-      <div v-else-if="loadFailed && logs.length === 0" class="max-w-xl mx-auto my-8">
+      <div
+        v-else-if="loadFailed && (activeTab === 'login' ? loginLogs.length === 0 : logs.length === 0)"
+        class="max-w-xl mx-auto my-8"
+      >
         <PageRetry @retry="loadLogs" />
       </div>
 
@@ -203,54 +209,56 @@ const {
           </template>
         </div>
         <div v-else class="overflow-x-auto">
-          <!-- header -->
-          <div class="ui-table-head hidden sm:flex">
-            <span class="w-[140px] shrink-0">{{ t('logs.colTime') }}</span>
-            <span class="w-24 shrink-0">{{ t('logs.colAccount') }}</span>
-            <span class="w-28 shrink-0">{{ t('logs.colTask') }}</span>
-            <span class="w-16 shrink-0">{{ t('logs.colStatus') }}</span>
-            <span class="flex-1">{{ t('logs.colSummary') }}</span>
-          </div>
-          <div
-            v-for="log in logs"
-            :key="`${log.account}-${log.task}-${log.created_at}-${log.id}`"
-            class="ui-list-row ui-contain-log flex items-center gap-3 px-2.5 py-2 cursor-pointer rounded-[var(--sp-radius-sm)]"
-            role="button"
-            tabindex="0"
-            :aria-label="`${log.account} ${log.task} ${log.time}`"
-            @click="openLogDetail(log)"
-            @keydown.enter="openLogDetail(log)"
-            @keydown.space.prevent="openLogDetail(log)"
-          >
-            <span class="font-mono text-[var(--sp-text-muted)] shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
-            <span class="text-[var(--sp-text)] shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
-            <span class="text-[var(--sp-text-secondary)] shrink-0 w-28 truncate">{{ log.task }}</span>
-            <span
-              class="ui-badge shrink-0"
-              :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+          <div class="min-w-[640px]">
+            <!-- header -->
+            <div class="ui-table-head hidden sm:flex">
+              <span class="w-[140px] shrink-0">{{ t('logs.colTime') }}</span>
+              <span class="w-24 shrink-0">{{ t('logs.colAccount') }}</span>
+              <span class="w-28 shrink-0">{{ t('logs.colTask') }}</span>
+              <span class="w-16 shrink-0">{{ t('logs.colStatus') }}</span>
+              <span class="flex-1">{{ t('logs.colSummary') }}</span>
+            </div>
+            <div
+              v-for="log in logs"
+              :key="`${log.account}-${log.task}-${log.created_at}-${log.id}`"
+              class="ui-list-row ui-contain-log flex items-center gap-3 px-2.5 py-2 cursor-pointer rounded-[var(--sp-radius-sm)]"
+              role="button"
+              tabindex="0"
+              :aria-label="`${log.account} ${log.task} ${log.time}`"
+              @click="openLogDetail(log)"
+              @keydown.enter="openLogDetail(log)"
+              @keydown.space.prevent="openLogDetail(log)"
             >
-              <span class="ui-badge-dot" />
-              {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
-            </span>
-            <span
-              class="truncate flex-1 min-w-0 font-mono text-[11px]"
-              :class="log.status === 'success' ? 'text-[var(--sp-text-secondary)]' : 'text-rose-600 dark:text-rose-400/90'"
-              :title="log.text"
-            >
-              {{ log.text }}
-            </span>
-            <span
-              v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
-              class="ui-badge ui-badge-warn hidden md:inline-flex shrink-0"
-            >
-              {{ failureCategoryLabel(log.failure_category) }}
-            </span>
-            <span
-              v-if="log.flow_line_count > 0"
-              class="hidden sm:inline shrink-0 text-[10px] text-[var(--sp-text-muted)] font-mono"
-            >
-              {{ log.flow_line_count }}{{ t('logs.linesSuffix') }}
-            </span>
+              <span class="font-mono text-[var(--sp-text-muted)] shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
+              <span class="text-[var(--sp-text)] shrink-0 w-24 truncate font-medium">{{ log.account }}</span>
+              <span class="text-[var(--sp-text-secondary)] shrink-0 w-28 truncate">{{ log.task }}</span>
+              <span
+                class="ui-badge shrink-0"
+                :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+              >
+                <span class="ui-badge-dot" />
+                {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
+              </span>
+              <span
+                class="truncate flex-1 min-w-0 font-mono text-[11px]"
+                :class="log.status === 'success' ? 'text-[var(--sp-text-secondary)]' : 'text-rose-600 dark:text-rose-400/90'"
+                :title="log.text"
+              >
+                {{ log.text }}
+              </span>
+              <span
+                v-if="log.status === 'error' && failureCategoryLabel(log.failure_category)"
+                class="ui-badge ui-badge-warn hidden md:inline-flex shrink-0"
+              >
+                {{ failureCategoryLabel(log.failure_category) }}
+              </span>
+              <span
+                v-if="log.flow_line_count > 0"
+                class="hidden sm:inline shrink-0 text-[10px] text-[var(--sp-text-muted)] font-mono"
+              >
+                {{ log.flow_line_count }}{{ t('logs.linesSuffix') }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -262,34 +270,36 @@ const {
           <p class="ui-empty-desc">{{ t('logs.emptyLoginHint') }}</p>
         </div>
         <div v-else class="overflow-x-auto">
-          <div class="ui-table-head hidden sm:flex">
-            <span class="w-[140px] shrink-0">{{ t('logs.colTime') }}</span>
-            <span class="w-24 shrink-0">{{ t('logs.colUser') }}</span>
-            <span class="w-32 shrink-0">{{ t('logs.colIp') }}</span>
-            <span class="w-16 shrink-0">{{ t('logs.colStatus') }}</span>
-            <span class="flex-1">{{ t('logs.colSummary') }}</span>
-          </div>
-          <div
-            v-for="log in loginLogs"
-            :key="log.id"
-            class="ui-list-row flex items-center gap-3 px-2.5 py-2 rounded-[var(--sp-radius-sm)]"
-          >
-            <span class="font-mono text-[var(--sp-text-muted)] shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
-            <span class="text-[var(--sp-text)] shrink-0 w-24 truncate font-medium">{{ log.username }}</span>
-            <span class="text-[var(--sp-text-muted)] shrink-0 w-32 truncate font-mono text-[11px]">{{ log.ip }}</span>
-            <span
-              class="ui-badge shrink-0"
-              :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+          <div class="min-w-[640px]">
+            <div class="ui-table-head hidden sm:flex">
+              <span class="w-[140px] shrink-0">{{ t('logs.colTime') }}</span>
+              <span class="w-24 shrink-0">{{ t('logs.colUser') }}</span>
+              <span class="w-32 shrink-0">{{ t('logs.colIp') }}</span>
+              <span class="w-16 shrink-0">{{ t('logs.colStatus') }}</span>
+              <span class="flex-1">{{ t('logs.colSummary') }}</span>
+            </div>
+            <div
+              v-for="log in loginLogs"
+              :key="log.id"
+              class="ui-list-row flex items-center gap-3 px-2.5 py-2 rounded-[var(--sp-radius-sm)]"
             >
-              <span class="ui-badge-dot" />
-              {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
-            </span>
-            <span
-              class="truncate flex-1 font-mono text-[11px]"
-              :class="log.status === 'success' ? 'text-[var(--sp-text-secondary)]' : 'text-rose-600 dark:text-rose-400/90'"
-            >
-              {{ log.text }}
-            </span>
+              <span class="font-mono text-[var(--sp-text-muted)] shrink-0 w-[140px] text-[11px]">{{ log.time }}</span>
+              <span class="text-[var(--sp-text)] shrink-0 w-24 truncate font-medium">{{ log.username }}</span>
+              <span class="text-[var(--sp-text-muted)] shrink-0 w-32 truncate font-mono text-[11px]">{{ log.ip }}</span>
+              <span
+                class="ui-badge shrink-0"
+                :class="log.status === 'success' ? 'ui-badge-success' : 'ui-badge-error'"
+              >
+                <span class="ui-badge-dot" />
+                {{ log.status === 'success' ? t('logs.success') : t('logs.failed') }}
+              </span>
+              <span
+                class="truncate flex-1 font-mono text-[11px]"
+                :class="log.status === 'success' ? 'text-[var(--sp-text-secondary)]' : 'text-rose-600 dark:text-rose-400/90'"
+              >
+                {{ log.text }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -300,7 +310,7 @@ const {
       :isOpen="!!selectedLog"
       :title="t('logs.detailTitle')"
       maxWidthClass="max-w-2xl"
-      @close="selectedLog = null; logDetail = null"
+      @close="closeLogDetail"
     >
       <div v-if="selectedLog" class="space-y-3 text-sm">
         <div class="flex items-center gap-3 flex-wrap">

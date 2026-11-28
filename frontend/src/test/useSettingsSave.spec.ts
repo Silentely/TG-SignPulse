@@ -49,11 +49,15 @@ describe('useSettingsSave', () => {
     tg?: { api_id: string; api_hash: string }
     ai?: Partial<AiFormState>
     aiConfigLoaded?: boolean
+    aiKeyDecryptFailed?: boolean
+    jevDirty?: boolean
+    saveJev?: () => Promise<boolean>
   }) {
     const markSectionClean = vi.fn()
     const afterBotTokenSaved = vi.fn()
     const afterWebdavSettingsSaved = vi.fn()
     const loadBackupStatus = vi.fn(async () => {})
+    const aiKeyDecryptFailed = ref(over?.aiKeyDecryptFailed ?? false)
     const aiRef = ref<AiFormState>({
       provider: 'openai',
       cloudflare_account_id: '',
@@ -69,8 +73,10 @@ describe('useSettingsSave', () => {
       tgHasApiHash: ref(false),
       tgApiHashMasked: ref(''),
       aiConfig: aiRef,
-      aiKeyDecryptFailed: ref(false),
+      aiKeyDecryptFailed,
       aiConfigLoaded: ref(over?.aiConfigLoaded ?? true),
+      jevDirty: ref(over?.jevDirty ?? false),
+      saveJev: over?.saveJev,
       buildGeneralPayload: () => ({ general: 1 }),
       buildBotPayload: () => ({ bot: 1 }),
       buildAdvancedPayload: () => ({ adv: 1 }),
@@ -86,6 +92,7 @@ describe('useSettingsSave', () => {
     return {
       save,
       ai: aiRef,
+      aiKeyDecryptFailed,
       markSectionClean,
       afterBotTokenSaved,
       afterWebdavSettingsSaved,
@@ -133,13 +140,24 @@ describe('useSettingsSave', () => {
     expect(loadBackupStatus).toHaveBeenCalledWith('tok')
   })
 
-  it('saveAllSettings saves global and optional tg/ai', async () => {
+  it('saveAllSettings saves global, backup status, and optional tg/ai with fallback providers', async () => {
     api.saveGlobalSettings.mockResolvedValue({})
     api.saveTelegramConfig.mockResolvedValue({})
     api.saveAIConfig.mockResolvedValue({})
-    const { save, markSectionClean } = setup({
+    const saveJev = vi.fn(async () => true)
+    const { save, markSectionClean, loadBackupStatus, aiKeyDecryptFailed, ai } = setup({
       tg: { api_id: '1', api_hash: 'h' },
-      ai: { base_url: 'http://x', model: 'm', api_key: 'k', fallback_providers: [] },
+      aiKeyDecryptFailed: true,
+      jevDirty: true,
+      saveJev,
+      ai: {
+        base_url: 'http://x',
+        model: 'm',
+        api_key: 'sk-primary-1234',
+        fallback_providers: [
+          { base_url: 'https://fb.example.com/v1', model: 'm2', api_key: 'sk-fb-secret', api_key_masked: null },
+        ],
+      },
     })
     await save.saveAllSettings()
     expect(api.saveGlobalSettings).toHaveBeenCalledWith(
@@ -151,13 +169,34 @@ describe('useSettingsSave', () => {
         ai_rt: 1,
       }),
     )
+    expect(loadBackupStatus).toHaveBeenCalledWith('tok')
     expect(api.saveTelegramConfig).toHaveBeenCalled()
-    expect(api.saveAIConfig).toHaveBeenCalled()
+    expect(api.saveAIConfig).toHaveBeenCalledWith('tok', expect.objectContaining({
+      base_url: 'http://x',
+      model: 'm',
+      api_key: 'sk-primary-1234',
+      fallback_providers: [
+        { base_url: 'https://fb.example.com/v1', model: 'm2', api_key: 'sk-fb-secret' },
+      ],
+    }))
+    expect(aiKeyDecryptFailed.value).toBe(false)
+    expect(ai.value.fallback_providers[0].api_key).toBe('')
+    expect(ai.value.fallback_providers[0].api_key_masked).toBe('sk-f****cret')
+    expect(saveJev).toHaveBeenCalledTimes(1)
     expect(markSectionClean).toHaveBeenCalledWith('general')
     expect(markSectionClean).toHaveBeenCalledWith('tg')
     expect(markSectionClean).toHaveBeenCalledWith('ai')
     expect(markSectionClean).toHaveBeenCalledWith('runtime')
     expect(toastSpy.success).toHaveBeenCalled()
+  })
+
+  it('saveAllSettings reports partial failure when saveJev returns false', async () => {
+    api.saveGlobalSettings.mockResolvedValue({})
+    const saveJev = vi.fn(async () => false)
+    const { save } = setup({ jevDirty: true, saveJev })
+    await save.saveAllSettings()
+    expect(saveJev).toHaveBeenCalledTimes(1)
+    expect(toastSpy.error).toHaveBeenCalled()
   })
 
   it('saveAllSettings reports partial tg failure', async () => {

@@ -3,13 +3,17 @@
  * 仪表盘：签到运行历史趋势与成功率统计图表（SVG 纯前端渲染，零第三方图表库依赖）。
  */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { TrendingUp, Calendar } from 'lucide-vue-next'
+import { TrendingUp, Calendar, RefreshCw } from 'lucide-vue-next'
 import { getHistoryTrends, type TrendsResponse } from '../../lib/api'
 import { withToken } from '../../lib/api/core'
 import { useLatestResponseGuard } from '../../lib/latest-response'
+import { useI18n } from '../../composables/useI18n'
+
+const { t } = useI18n()
 
 const selectedDays = ref<number>(7)
 const loading = ref<boolean>(true)
+const loadError = ref<boolean>(false)
 const trendsData = ref<TrendsResponse | null>(null)
 const hoveredIndex = ref<number | null>(null)
 // 7/30 天快速切换会并发多个请求，慢的那个先返回会覆盖新数据
@@ -18,6 +22,7 @@ const trendsGuard = useLatestResponseGuard()
 const loadTrends = async () => {
   const seq = trendsGuard.next()
   loading.value = true
+  loadError.value = false
   try {
     const res = await withToken((token) => getHistoryTrends(token, selectedDays.value))
     if (!trendsGuard.isCurrent(seq)) return // 过期响应：已切换到其他天数
@@ -25,6 +30,7 @@ const loadTrends = async () => {
   } catch {
     if (!trendsGuard.isCurrent(seq)) return
     trendsData.value = null
+    loadError.value = true
   } finally {
     if (trendsGuard.isCurrent(seq)) loading.value = false
   }
@@ -39,13 +45,11 @@ onUnmounted(() => {
 })
 
 watch(selectedDays, () => {
+  hoveredIndex.value = null
   loadTrends()
 })
 
-const daysOptions = [
-  { label: '7 天', value: 7 },
-  { label: '30 天', value: 30 },
-]
+const daysOptions = [7, 30]
 
 const maxTotal = computed(() => {
   if (!trendsData.value?.trends?.length) return 10
@@ -103,22 +107,23 @@ const hoveredPoint = computed(() => {
         <span class="ui-section-icon">
           <TrendingUp class="w-3.5 h-3.5 text-[var(--sp-accent)]" stroke-width="2" />
         </span>
-        <span class="text-sm font-medium text-[var(--sp-text)]">签到执行与成功率趋势</span>
+        <span class="text-sm font-medium text-[var(--sp-text)]">{{ t('dashboard.trendsTitle') }}</span>
       </div>
 
       <!-- 7天 / 30天 切换 -->
       <div class="inline-flex items-center bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-0.5 rounded-[var(--sp-radius-sm)] text-xs">
         <button
-          v-for="opt in daysOptions"
-          :key="opt.value"
+          v-for="days in daysOptions"
+          :key="days"
           type="button"
-          class="px-2.5 py-1 rounded-[var(--sp-radius-sm)] font-medium transition-colors"
-          :class="selectedDays === opt.value
+          class="px-2.5 py-1 rounded-[var(--sp-radius-sm)] font-medium transition-colors cursor-pointer"
+          :class="selectedDays === days
             ? 'bg-[var(--sp-surface)] text-[var(--sp-accent)] shadow-xs'
             : 'text-[var(--sp-text-muted)] hover:text-[var(--sp-text)]'"
-          @click="selectedDays = opt.value"
+          :aria-pressed="selectedDays === days"
+          @click="selectedDays = days"
         >
-          {{ opt.label }}
+          {{ t('dashboard.trendsDaysOption', { n: days }) }}
         </button>
       </div>
     </div>
@@ -126,19 +131,19 @@ const hoveredPoint = computed(() => {
     <!-- 指标汇总一览 -->
     <div class="grid grid-cols-3 gap-2 sm:gap-3 py-1">
       <div class="bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-2.5 rounded-[var(--sp-radius)]">
-        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">期间执行总计</span>
+        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">{{ t('dashboard.trendsTotalRuns') }}</span>
         <span class="text-lg sm:text-xl font-mono font-semibold text-[var(--sp-text)]">
           {{ trendsData?.total_runs ?? 0 }}
         </span>
       </div>
       <div class="bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-2.5 rounded-[var(--sp-radius)]">
-        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">综合成功率</span>
+        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">{{ t('dashboard.trendsSuccessRate') }}</span>
         <span class="text-lg sm:text-xl font-mono font-semibold text-[var(--sp-success)]">
           {{ trendsData ? Math.round(trendsData.overall_success_rate * 100) : 100 }}%
         </span>
       </div>
       <div class="bg-[var(--sp-surface-muted)] border border-[var(--sp-border)] p-2.5 rounded-[var(--sp-radius)]">
-        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">失败或异常</span>
+        <span class="text-[11px] text-[var(--sp-text-muted)] block mb-1">{{ t('dashboard.trendsFailedRuns') }}</span>
         <span
           class="text-lg sm:text-xl font-mono font-semibold"
           :class="(trendsData?.total_failed ?? 0) > 0 ? 'text-[var(--sp-danger)]' : 'text-[var(--sp-text)]'"
@@ -149,13 +154,26 @@ const hoveredPoint = computed(() => {
     </div>
 
     <!-- SVG 趋势图表区 -->
-    <div v-if="loading" class="h-44 flex items-center justify-center">
+    <div v-if="loading" class="h-44 flex items-center justify-center" aria-busy="true">
       <div class="ui-skeleton h-36 w-full rounded-[var(--sp-radius)]" />
+    </div>
+
+    <div v-else-if="loadError" class="ui-empty !py-8" role="status">
+      <p class="ui-empty-desc text-rose-600 dark:text-rose-400">{{ t('dashboard.trendsLoadFailed') }}</p>
+      <button
+        type="button"
+        data-testid="trends-retry-btn"
+        class="ui-btn-secondary !px-3 !py-1.5 !text-xs mt-3 inline-flex items-center gap-1.5 cursor-pointer"
+        @click="loadTrends"
+      >
+        <RefreshCw class="w-3.5 h-3.5" />
+        {{ t('common.retry') }}
+      </button>
     </div>
 
     <div v-else-if="!trendsData || trendsData.trends.length === 0" class="ui-empty !py-8">
       <Calendar class="w-8 h-8 mx-auto text-[var(--sp-text-muted)] mb-2 opacity-50" />
-      <p class="ui-empty-desc">暂无近 {{ selectedDays }} 天签到数据</p>
+      <p class="ui-empty-desc">{{ t('dashboard.trendsEmpty', { days: selectedDays }) }}</p>
     </div>
 
     <div v-else class="relative w-full overflow-hidden">
@@ -165,16 +183,18 @@ const hoveredPoint = computed(() => {
         class="absolute top-1 left-1/2 -translate-x-1/2 bg-[var(--sp-terminal-bg)] dark:bg-[var(--sp-surface-muted)] text-white text-[11px] px-3 py-1.5 rounded-[var(--sp-radius)] shadow-lg backdrop-blur-xs flex items-center gap-3 pointer-events-none z-10 font-mono border border-[var(--sp-border)]"
       >
         <span class="text-[var(--sp-text-muted)]">{{ hoveredPoint.date }}</span>
-        <span>执行: <b>{{ hoveredPoint.total }}</b></span>
-        <span class="text-emerald-400">成功: <b>{{ hoveredPoint.success }}</b></span>
-        <span v-if="hoveredPoint.failed > 0" class="text-rose-400">失败: <b>{{ hoveredPoint.failed }}</b></span>
-        <span class="text-sky-300">成功率: <b>{{ Math.round(hoveredPoint.success_rate * 100) }}%</b></span>
+        <span>{{ t('dashboard.trendsExecCount') }}: <b>{{ hoveredPoint.total }}</b></span>
+        <span class="text-emerald-400">{{ t('dashboard.trendsSuccessCount') }}: <b>{{ hoveredPoint.success }}</b></span>
+        <span v-if="hoveredPoint.failed > 0" class="text-rose-400">{{ t('dashboard.trendsFailedCount') }}: <b>{{ hoveredPoint.failed }}</b></span>
+        <span class="text-sky-300">{{ t('dashboard.trendsRateLabel') }}: <b>{{ Math.round(hoveredPoint.success_rate * 100) }}%</b></span>
       </div>
 
       <!-- SVG 主体 -->
       <svg
         :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
         class="w-full h-44 overflow-visible select-none"
+        role="img"
+        :aria-label="t('dashboard.trendsChartAria', { days: selectedDays })"
         @mouseleave="hoveredIndex = null"
       >
         <!-- 背景辅助水平网格线 -->
@@ -271,15 +291,15 @@ const hoveredPoint = computed(() => {
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-1.5">
           <span class="w-2.5 h-2.5 rounded-xs bg-sky-400/60 dark:bg-sky-500/40" />
-          <span>执行总数</span>
+          <span>{{ t('dashboard.trendsLegendTotal') }}</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-2.5 h-1 rounded-full bg-emerald-500" />
-          <span>成功率趋势</span>
+          <span>{{ t('dashboard.trendsLegendRate') }}</span>
         </div>
       </div>
       <div v-if="trendsData?.categories && Object.keys(trendsData.categories).length > 0" class="hidden sm:flex items-center gap-2">
-        <span class="text-[var(--sp-text-muted)]">常见故障:</span>
+        <span class="text-[var(--sp-text-muted)]">{{ t('dashboard.trendsCommonFailures') }}:</span>
         <span
           v-for="(count, cat) in trendsData.categories"
           :key="cat"

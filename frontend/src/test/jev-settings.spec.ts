@@ -181,4 +181,39 @@ describe('JevSettings 组件测试', () => {
     const patchArg = updateSpy.mock.calls[0][0]
     expect(patchArg.enabled).toBe(false)
   })
+
+  it('tracks dirty state via update:dirty and clears after exposed save()', async () => {
+    vi.spyOn(semanticApi, 'updateSemanticConfig').mockResolvedValue({
+      enabled: false,
+      drift_enabled: false,
+      mode: 'official',
+      base_url: 'https://api.typesafe.ai/v1',
+      model: 'jev-1.13.0',
+      has_api_key: true,
+      api_key_masked: 'ah-****',
+      timeout_seconds: 8.0,
+      max_concurrency: 2,
+      max_calls_per_run: 6,
+      max_calls_per_minute: 60,
+      retain_evidence: false,
+      generation: 2,
+      monitor_keys_usage: { count: 0, capacity: 10000, is_full: false },
+    })
+
+    const wrapper = mount(JevSettings, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    expect((wrapper.vm as any).isDirty).toBe(false)
+    await wrapper.find('[data-testid="jev-enable-switch"]').trigger('click')
+    expect((wrapper.vm as any).isDirty).toBe(true)
+    const dirtyEvents = wrapper.emitted('update:dirty') || []
+    expect(dirtyEvents[dirtyEvents.length - 1]).toEqual([true])
+
+    const ok = await (wrapper.vm as any).save()
+    await flushPromises()
+    expect(ok).toBe(true)
+    expect((wrapper.vm as any).isDirty).toBe(false)
+  })
 })

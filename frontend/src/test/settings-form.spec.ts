@@ -53,6 +53,7 @@ const baseSettings = (): SettingsFormState => ({
   webdavPassword: '',
   webdavRemoteDir: 'tg-signpulse-backups',
   webdavSkipSslVerify: false,
+  webdavAllowPrivate: false,
   backupTarget: 'auto',
 })
 
@@ -285,6 +286,19 @@ describe('settings-form', () => {
     const curBackup = snapAllSections(sBackup, tg, ai)
     expect(curBackup.advanced).not.toBe(baseline.advanced)
     expect(curBackup.runtime).toBe(baseline.runtime)
+  })
+
+  it('webdav security flags dirty advanced section', () => {
+    const s = baseSettings()
+    const tg: TgFormState = { api_id: '', api_hash: '' }
+    const ai: AiFormState = { base_url: '', model: '', api_key: '', fallback_providers: [] }
+    const baseline = snapAllSections(s, tg, ai)
+
+    const curSsl = snapAllSections({ ...s, webdavSkipSslVerify: true }, tg, ai)
+    expect(curSsl.advanced).not.toBe(baseline.advanced)
+
+    const curPriv = snapAllSections({ ...s, webdavAllowPrivate: true }, tg, ai)
+    expect(curPriv.advanced).not.toBe(baseline.advanced)
   })
 
   it('secret fields mask in snapshot (bot token / ai key)', () => {

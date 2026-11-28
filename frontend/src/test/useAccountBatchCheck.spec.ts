@@ -160,24 +160,33 @@ describe('useAccountBatchCheck (job poll)', () => {
     unmount()
   })
 
-  it('handleCheck updates single account', async () => {
-    api.checkAccountsStatus.mockResolvedValue({
-      results: [{ account_name: 'a1', ok: false, status: 'invalid', message: 'bad' }],
-    })
-    const loadAccounts = vi.fn(async () => {})
-    const accounts = ref([makeAccountUi('a1')])
-    const { result, unmount } = mountComposable(() =>
-      useAccountBatchCheck({
-        accounts,
-        filteredAccounts: computed(() => accounts.value),
-        searchQuery: ref(''),
-        loadAccounts,
-      }),
-    )
+  it('handleCheck updates single account and tracks concurrent checks without clobbering', async () => {
+    let resolveA1!: (value: unknown) => void
+    let resolveA2!: (value: unknown) => void
+    api.checkAccountsStatus
+      .mockReturnValueOnce(new Promise((r) => { resolveA1 = r }))
+      .mockReturnValueOnce(new Promise((r) => { resolveA2 = r }))
+
+    const { result, unmount } = setup(['a1', 'a2'])
+    const p1 = result.handleCheck('a1')
+    const p2 = result.handleCheck('a2')
+    // Duplicate click on in-flight account is ignored
     await result.handleCheck('a1')
-    expect(api.checkAccountsStatus).toHaveBeenCalledWith('tok', { account_names: ['a1'] })
-    expect(toastSpy.error).toHaveBeenCalled()
+    expect(api.checkAccountsStatus).toHaveBeenCalledTimes(2)
+    expect(result.isCheckingAccount('a1')).toBe(true)
+    expect(result.isCheckingAccount('a2')).toBe(true)
+
+    resolveA1({ results: [{ account_name: 'a1', ok: false, status: 'invalid', message: 'bad' }] })
+    await p1
+    expect(result.isCheckingAccount('a1')).toBe(false)
+    expect(result.isCheckingAccount('a2')).toBe(true)
+
+    resolveA2({ results: [{ account_name: 'a2', ok: true, status: 'connected', message: 'ok' }] })
+    await p2
+    expect(result.isCheckingAccount('a2')).toBe(false)
     expect(result.checkingAccount.value).toBe('')
+    expect(toastSpy.error).toHaveBeenCalled()
+    expect(toastSpy.success).toHaveBeenCalled()
     unmount()
   })
 

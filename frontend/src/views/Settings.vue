@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import GeneralSettings from '../components/settings/GeneralSettings.vue'
 import TelegramApiSettings from '../components/settings/TelegramApiSettings.vue'
 import AiSettings from '../components/settings/AiSettings.vue'
@@ -36,6 +37,8 @@ const {
   revealSecrets,
   isDirty,
   dirtyLabels,
+  setJevDirty,
+  registerJevSave,
   appVersion,
   versionLoading,
   checkLoading,
@@ -74,6 +77,18 @@ const {
   toggleReveal,
   reload: reloadData,
 } = useSettingsPage()
+
+const jevSettingsRef = ref<InstanceType<typeof JevSettings> | null>(null)
+
+watch(
+  jevSettingsRef,
+  (inst) => {
+    registerJevSave?.(
+      inst && typeof inst.save === 'function' ? () => inst.save() : null,
+    )
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -171,7 +186,10 @@ const {
             @test-ai="testAi"
             @toggle-reveal="toggleReveal"
           />
-          <JevSettings />
+          <JevSettings
+            ref="jevSettingsRef"
+            @update:dirty="setJevDirty?.($event)"
+          />
           <BotNotifySettings
             v-model="settings"
             :bot-token-set="botTokenSet"

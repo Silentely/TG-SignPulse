@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { useI18n } from '../../composables/useI18n'
 
 const props = withDefaults(
   defineProps<{
@@ -20,6 +21,8 @@ const props = withDefaults(
     emptyText: '',
   }
 )
+
+const { t } = useI18n()
 
 const containerRef = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
@@ -71,9 +74,10 @@ const scrollToBottom = () => {
 }
 
 watch(
-  () => props.lines.length,
-  (_newLen, oldLen) => {
-    if (props.autoScroll && (isAtBottom.value || !oldLen)) {
+  [() => props.lines.length, () => props.lines[0], () => props.lines[props.lines.length - 1]],
+  ([newLen], oldVal) => {
+    const oldLen = oldVal?.[0] ?? 0
+    if (newLen > 0 && props.autoScroll && (isAtBottom.value || !oldLen)) {
       nextTick(() => {
         scrollToBottom()
       })
@@ -119,7 +123,7 @@ defineExpose({
     :style="{ height: `${containerHeight}px`, maxHeight: `${containerHeight}px` }"
     tabindex="0"
     role="region"
-    aria-label="Log viewer"
+    :aria-label="t('taskLogs.realtimeLogs')"
     @scroll="handleScroll"
   >
     <div

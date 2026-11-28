@@ -55,4 +55,29 @@ describe('Modal nested Esc', () => {
     outer.unmount()
     inner.unmount()
   })
+
+  it('3 层弹窗乱序关闭中间层后，最顶层与最底层 Esc 仍按栈序正常工作', async () => {
+    const first = mount(Modal, { props: { title: 'first', isOpen: true } })
+    const middle = mount(Modal, { props: { title: 'middle', isOpen: true } })
+    const top = mount(Modal, { props: { title: 'top', isOpen: true } })
+
+    // 中间层先关闭
+    await middle.setProps({ isOpen: false })
+
+    // Esc 仍只关闭最顶层
+    emitKeydown('Escape')
+    await Promise.all([first.vm.$nextTick(), top.vm.$nextTick()])
+    expect(top.emitted('close')).toBeTruthy()
+    expect(first.emitted('close')).toBeFalsy()
+
+    // 最顶层关闭后，最底层恢复响应
+    await top.setProps({ isOpen: false })
+    emitKeydown('Escape')
+    await first.vm.$nextTick()
+    expect(first.emitted('close')).toBeTruthy()
+
+    first.unmount()
+    middle.unmount()
+    top.unmount()
+  })
 })

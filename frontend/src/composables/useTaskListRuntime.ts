@@ -10,7 +10,7 @@ import {
   listAccounts,
 } from '../lib/api'
 import { withToken, getAuthToken } from '../lib/api/core'
-import type { ActiveRunSummary } from '../lib/api'
+import type { AccountInfo, ActiveRunSummary } from '../lib/api'
 import type { TaskUiItem } from '../lib/types'
 import { notifyApiError } from '../lib/notify'
 import { storageGet, storageSet, storageRemove, sessionSet } from '../lib/safe-storage'
@@ -19,6 +19,8 @@ import { useToast } from './useToast'
 import { useActiveRunsStore } from '../stores/activeRuns'
 import { devLog } from '../lib/devLog'
 import { resolveTaskAccountNames } from '../lib/task-list-map'
+import { classifyAccountHealth } from '../lib/account-list-map'
+import { useLatestResponseGuard } from '../lib/latest-response'
 import { AVATAR_FETCH_CONCURRENCY, mapPool } from '../lib/async-pool'
 import { startChainPoll, type ChainPollHandle } from '../lib/chain-poll'
 import {
@@ -62,6 +64,7 @@ export function useTaskListRuntime(options: {
   listenTaskCount: ComputedRef<number>
   accountFilter: ComputedRef<string>
   getTaskAccountName: (task: TaskUiItem | { account_name?: string; account_names?: string[] }) => string
+  fetchAccountsList?: () => Promise<AccountInfo[]>
 }) {
   const { t } = useI18n()
   const toast = useToast()
@@ -72,6 +75,8 @@ export function useTaskListRuntime(options: {
   const nowTick = ref(Date.now())
   let countdownTimer: ReturnType<typeof setInterval> | null = null
   let hitCountHandle: ChainPollHandle | null = null
+  let disposed = false
+  const hitCountsGuard = useLatestResponseGuard()
   const cancelBusyKey = ref('')
   const accountStatusMap = ref<Record<string, string>>({})
   const accountNeedsRelogin = ref<Record<string, boolean>>({})
@@ -140,12 +145,14 @@ export function useTaskListRuntime(options: {
     return withToken(async (token) => {
       const listenTasks = options.tasks.value.filter((t) => t.isListenMode)
       if (!listenTasks.length) return
+      const seq = hitCountsGuard.next()
       try {
         const res = await listKeywordHitGroups(token, {
           account_name: options.accountFilter.value || undefined,
           group_by: 'task',
           limit_per_group: 1,
         })
+        if (disposed || !hitCountsGuard.isCurrent(seq)) return
         const countByTask = new Map<string, number>()
         for (const g of res.groups || []) {
           countByTask.set(String(g.key), Number(g.count || 0))
@@ -155,6 +162,7 @@ export function useTaskListRuntime(options: {
           task.hitCount = countByTask.get(task.name) || 0
         }
       } catch (e: unknown) {
+        if (disposed || !hitCountsGuard.isCurrent(seq)) return
         devLog.error('Failed to load hit counts', e)
       }
     })
@@ -222,9 +230,13 @@ export function useTaskListRuntime(options: {
   }
 
   const isAccountInvalid = (accountName: string) => {
-    if (accountNeedsRelogin.value[accountName]) return true
-    const st = accountStatusMap.value[accountName] || ''
-    return st === 'invalid' || st === 'error' || /expired|offline|disconnected/i.test(st)
+    const status = accountStatusMap.value[accountName] || ''
+    const health = classifyAccountHealth({
+      status,
+      needs_relogin: !!accountNeedsRelogin.value[accountName],
+    })
+    if (health === 'relogin' || health === 'retry') return true
+    return /expired|offline|disconnected/i.test(status)
   }
 
   const taskHasInvalidAccount = (task: TaskUiItem): boolean => {
@@ -329,12 +341,13 @@ export function useTaskListRuntime(options: {
   }
 
   const loadChatAvatar = async (task: TaskUiItem, accountName: string, chatId: number) => {
+    if (disposed) return
     const token = getAuthToken()
     const cacheKey = `chat_avatar_${chatId}`
     const noAvatarKey = `chat_avatar_${chatId}_404`
 
     // 头像缓存 TTL：头像变更不频繁，7 天内复用本地 dataURL 减少重复请求；
-    // 值格式为 {v, ts}，兼容旧版纯 dataURL（无 ts 视为有效，下次刷新自然更新）
+    // 值格式为 {v, ts}，兼容旧版纯 dataURL 字符串（无 ts 视为有效，下次刷新自然更新）。
     const cached = storageGet(cacheKey)
     const cachedValue = cached ? parseAvatarCache(cached) : null
     if (cachedValue) {
@@ -350,6 +363,7 @@ export function useTaskListRuntime(options: {
 
     try {
       const blob = await fetchChatAvatar(token, accountName, chatId)
+      if (disposed) return // 组件已卸载：不再创建 ObjectURL，避免 blob 泄漏
       const url = URL.createObjectURL(blob)
       const prev = task.chatAvatarUrl
       task.chatAvatarUrl = url
@@ -368,6 +382,7 @@ export function useTaskListRuntime(options: {
         reader.readAsDataURL(blob)
       } catch { /* ignore */ }
     } catch (e: unknown) {
+      if (disposed) return
       if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 404) {
         storageSet(noAvatarKey, String(Date.now()))
       }
@@ -397,22 +412,28 @@ export function useTaskListRuntime(options: {
   const loadAccountStatusMap = async () => {
     return withToken(async (token) => {
       try {
-        const res = await listAccounts(token)
+        const list = options.fetchAccountsList
+          ? await options.fetchAccountsList()
+          : ((await listAccounts(token)).accounts || [])
+        if (disposed) return
         const map: Record<string, string> = {}
         const relogin: Record<string, boolean> = {}
-        for (const a of res.accounts || []) {
+        for (const a of list) {
           map[a.name] = String(a.status || '')
           relogin[a.name] = !!a.needs_relogin
         }
         accountStatusMap.value = map
         accountNeedsRelogin.value = relogin
       } catch (e: unknown) {
+        if (disposed) return
         devLog.error('Failed to load account status map', e)
       }
     })
   }
 
   const stopAll = () => {
+    disposed = true
+    hitCountsGuard.invalidate()
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
@@ -434,6 +455,7 @@ export function useTaskListRuntime(options: {
   return {
     cancelBusyKey,
     loadListenHitCounts,
+    refreshActiveRuns,
     taskActiveRuns,
     taskActiveRun,
     activeRunBadgeText,

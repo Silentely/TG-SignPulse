@@ -29,6 +29,7 @@ export function useTaskListActions(options: {
   selectedCount: ComputedRef<number>
   loadTasks: () => Promise<void>
   openLogsAfterRun: (task: TaskUiItem, accountName: string) => void
+  onRunStarted?: () => void
 }) {
   const { t } = useI18n()
   const toast = useToast()
@@ -194,6 +195,7 @@ export function useTaskListActions(options: {
     const token = getAuthToken()
     try {
       await startSignTaskRun(token, task.name, accountName)
+      options.onRunStarted?.()
       options.openLogsAfterRun(task, accountName)
     } catch (e: unknown) {
       toast.error(

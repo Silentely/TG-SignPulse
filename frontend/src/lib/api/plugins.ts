@@ -1,7 +1,7 @@
 /**
  * 插件管理 API：获取已加载插件列表、测试运行、重新加载、源码只读查看、模板创建与安全删除。
  */
-import { API_BASE, request } from './core'
+import { LONG_TIMEOUT_MS, request, requestBlob, requestFormData } from './core'
 
 export interface PluginParamSchema {
   name: string
@@ -355,32 +355,13 @@ export async function getPluginDiagnostics(token: string): Promise<PluginDiagnos
 }
 
 export async function exportPlugin(name: string, token: string): Promise<Blob> {
-  const url = `${API_BASE}/plugins/${encodeURIComponent(name)}/export`
-  const headers: Record<string, string> = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch(url, { headers })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || `Failed to export plugin: ${res.statusText}`)
-  }
-  return res.blob()
+  return requestBlob(`/plugins/${encodeURIComponent(name)}/export`, {}, token)
 }
 
 export async function uploadPlugin(file: File, token: string): Promise<PluginInfo> {
   const formData = new FormData()
   formData.append('file', file)
-  const headers: Record<string, string> = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch(`${API_BASE}/plugins/upload`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || 'Upload failed')
-  }
-  return res.json()
+  return requestFormData<PluginInfo>('/plugins/upload', formData, token)
 }
 
 export async function updatePluginSource(
@@ -448,14 +429,7 @@ export async function getPluginDependencies(
 }
 
 export async function exportAllPlugins(token: string): Promise<Blob> {
-  const headers: Record<string, string> = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch(`${API_BASE}/plugins/export-all`, { headers })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || 'Failed to export all plugins')
-  }
-  return res.blob()
+  return requestBlob('/plugins/export-all', {}, token, LONG_TIMEOUT_MS)
 }
 
 export async function importPluginsBundle(
@@ -464,18 +438,7 @@ export async function importPluginsBundle(
 ): Promise<ImportBundleResponse> {
   const formData = new FormData()
   formData.append('file', file)
-  const headers: Record<string, string> = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch(`${API_BASE}/plugins/import-bundle`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || 'Failed to import bundle')
-  }
-  return res.json()
+  return requestFormData<ImportBundleResponse>('/plugins/import-bundle', formData, token)
 }
 
 export async function checkPluginSyntax(

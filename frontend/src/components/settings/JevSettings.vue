@@ -7,7 +7,7 @@
  * - 保存调 PATCH /semantic/config；测试连接调 POST /semantic/test
  * - 渲染状态行：✅ 连接成功 · 3.9s / ❌ 连接失败 · 401 · Invalid api key
  */
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Cpu, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useI18n } from '../../composables/useI18n'
 import { useToast } from '../../composables/useToast'
@@ -19,6 +19,10 @@ import {
   type SemanticConfig,
 } from '../../lib/api/semantic'
 import SettingsFieldHint from './SettingsFieldHint.vue'
+
+const emit = defineEmits<{
+  (e: 'update:dirty', dirty: boolean): void
+}>()
 
 const { t } = useI18n()
 const toast = useToast()
@@ -57,6 +61,30 @@ interface TestResultState {
 }
 
 const testResult = ref<TestResultState | null>(null)
+const baselineSnap = ref<string | null>(null)
+
+const currentSnap = computed(() =>
+  JSON.stringify({
+    enabled: form.value.enabled,
+    mode: form.value.mode,
+    base_url: form.value.base_url,
+    model: form.value.model,
+    api_key: form.value.api_key ? '***set***' : '',
+    timeout_seconds: Number(form.value.timeout_seconds) || 8.0,
+  }),
+)
+
+const isDirty = computed(
+  () => baselineSnap.value !== null && currentSnap.value !== baselineSnap.value,
+)
+
+watch(
+  isDirty,
+  (val) => {
+    emit('update:dirty', val)
+  },
+  { immediate: true },
+)
 
 const setMode = (mode: 'official' | 'custom') => {
   form.value.mode = mode
@@ -80,7 +108,10 @@ const setMode = (mode: 'official' | 'custom') => {
 
 const loadConfig = async () => {
   const token = getAuthToken()
-  if (!token) return
+  if (!token) {
+    baselineSnap.value = currentSnap.value
+    return
+  }
   loading.value = true
   try {
     const data: SemanticConfig = await getSemanticConfig(token)
@@ -95,6 +126,7 @@ const loadConfig = async () => {
   } catch {
     // 忽略加载异常，采用默认值
   } finally {
+    baselineSnap.value = currentSnap.value
     loading.value = false
   }
 }
@@ -119,6 +151,7 @@ const handleSave = async (showSuccessToast = true): Promise<boolean> => {
     form.value.has_api_key = updated.has_api_key
     form.value.api_key_masked = updated.api_key_masked
     form.value.api_key = ''
+    baselineSnap.value = currentSnap.value
     if (showSuccessToast) {
       toast.success(t('settings.jevSaveSuccess'))
     }
@@ -187,6 +220,16 @@ const handleTest = async () => {
 
 onMounted(() => {
   loadConfig()
+})
+
+onUnmounted(() => {
+  emit('update:dirty', false)
+})
+
+defineExpose({
+  isDirty,
+  save: () => handleSave(false),
+  reload: loadConfig,
 })
 </script>
 

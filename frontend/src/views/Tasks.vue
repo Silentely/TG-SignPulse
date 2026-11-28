@@ -64,19 +64,21 @@ const modeFilter = ref<TaskListModeFilter>('all')
 const selectedCount = computed(() => selectedTaskIds.value.size)
 const showTemplateMenu = ref(false)
 
-// Esc 关闭空态模板菜单：焦点通常在触发按钮上，事件不经过菜单容器，
-// 需挂 window 级监听；与工具栏下拉的关闭语义一致。
-// 用 watch 统一挂载/卸载，任何置 false 的路径都会自动清理监听
+// Esc 关闭空态模板菜单：列表非空时由 TaskListToolbar 的 useEscClose 统一处理，
+// 这里仅在空态（TaskListToolbar 未挂载）时监听，避免双监听互相反转为重新打开。
 const closeTemplateMenuOnEsc = (e: KeyboardEvent) => {
   if (e.key !== 'Escape') return
   if (!showTemplateMenu.value) return
   e.stopPropagation()
   showTemplateMenu.value = false
 }
-watch(showTemplateMenu, (open) => {
-  if (open) window.addEventListener('keydown', closeTemplateMenuOnEsc)
-  else window.removeEventListener('keydown', closeTemplateMenuOnEsc)
-})
+watch(
+  [showTemplateMenu, () => tasks.value.length] as const,
+  ([open, count]) => {
+    if (open && count === 0) window.addEventListener('keydown', closeTemplateMenuOnEsc)
+    else window.removeEventListener('keydown', closeTemplateMenuOnEsc)
+  },
+)
 onUnmounted(() => window.removeEventListener('keydown', closeTemplateMenuOnEsc))
 
 const toggleTemplateMenu = (e?: Event) => {
@@ -88,7 +90,7 @@ const pickTemplate = (templateId: string) => {
   showTemplateMenu.value = false
   handleCreateFromTemplate(templateId)
 }
-const selectedTag = ref("")
+const selectedTag = ref('')
 const allTags = computed(() => {
   const set = new Set<string>()
   for (const t of tasks.value) {
@@ -144,6 +146,7 @@ const loadAllAccounts = async () => {
 const {
   cancelBusyKey,
   afterTasksLoaded,
+  refreshActiveRuns,
   runCardProps,
   handleCancelRun,
   loadAccountStatusMap,
@@ -153,6 +156,7 @@ const {
   listenTaskCount,
   accountFilter,
   getTaskAccountName: resolveTaskAccountName,
+  fetchAccountsList: () => accountsStore.ensureAccounts(),
 })
 
 // 请求序号守卫：丢弃过期响应，避免快速切换账号筛选时慢响应覆盖新结果
@@ -163,7 +167,7 @@ const loadFailed = ref(false)
 const loadTasks = async () => {
   return withToken(async (token) => {
     const seq = tasksGuard.next()
-    pageLoading.value = true
+    if (tasks.value.length === 0) pageLoading.value = true
     try {
       const accountName = route.query.account as string | undefined
       const res = await listSignTasks(token, accountName)
@@ -191,7 +195,7 @@ const loadTasks = async () => {
       devLog.error('Failed to fetch tasks', e)
       notifyApiError(e, 'tasks.loadFailed')
       loadFailed.value = true
-      tasks.value = []
+      if (tasks.value.length === 0) tasks.value = []
     } finally {
       if (tasksGuard.isCurrent(seq)) pageLoading.value = false
     }
@@ -224,6 +228,9 @@ const {
   allAccounts,
   selectedCount,
   loadTasks,
+  onRunStarted: () => {
+    void refreshActiveRuns()
+  },
   openLogsAfterRun: (task, accountName) => {
     logsRunAccount.value = accountName
     logsTask.value = task
@@ -306,7 +313,7 @@ const applyLogsDeepLink = () => {
   if (!found) return
   if (tab === 'hits' && !found.isListenMode) return
   const targetTab = tab === 'hits' ? 'hits' : 'history'
-  // 已对同一任务打开时不大断
+  // 已对同一任务打开时不打断
   if (
     showLogsModal.value
     && logsTask.value?.name === taskQ

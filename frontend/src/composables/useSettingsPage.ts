@@ -167,6 +167,16 @@ export function useSettingsPage() {
     botToken: false,
   })
 
+  /** JEV 独立组件脏状态与全量保存钩子 */
+  const jevDirty = ref(false)
+  let saveJevHandler: (() => Promise<boolean>) | null = null
+  const setJevDirty = (dirty: boolean) => {
+    jevDirty.value = dirty
+  }
+  const registerJevSave = (fn: (() => Promise<boolean>) | null) => {
+    saveJevHandler = fn
+  }
+
   /** 分段脏检查基线（分块保存只清对应段） */
   const sectionBaseline = ref<Record<SettingsSection, string> | null>(null)
 
@@ -192,11 +202,11 @@ export function useSettingsPage() {
     currentSectionSnaps()[section]
 
   const isDirty = computed(() =>
-    isAnySectionDirty(sectionBaseline.value, currentSectionSnaps()),
+    isAnySectionDirty(sectionBaseline.value, currentSectionSnaps()) || jevDirty.value,
   )
 
-  const dirtyLabels = computed(() =>
-    dirtySectionLabels(sectionBaseline.value, currentSectionSnaps(), {
+  const dirtyLabels = computed(() => {
+    const labels = dirtySectionLabels(sectionBaseline.value, currentSectionSnaps(), {
       general: t('settings.general'),
       bot: t('settings.botNotify'),
       // advanced 段仅含备份/WebDAV（数据管理）
@@ -204,8 +214,12 @@ export function useSettingsPage() {
       tg: t('settings.tgApi'),
       ai: t('settings.aiConfig'),
       runtime: t('settings.taskRuntime'),
-    }),
-  )
+    })
+    if (jevDirty.value) {
+      labels.push(t('settings.jevConfig'))
+    }
+    return labels
+  })
 
   const onBeforeUnload = (e: BeforeUnloadEvent) => {
     if (!isDirty.value) return
@@ -293,6 +307,8 @@ export function useSettingsPage() {
     aiConfig,
     aiKeyDecryptFailed,
     aiConfigLoaded,
+    jevDirty,
+    saveJev: () => (jevDirty.value && saveJevHandler ? saveJevHandler() : Promise.resolve(true)),
     buildGeneralPayload,
     buildBotPayload,
     buildAdvancedPayload,
@@ -447,6 +463,8 @@ export function useSettingsPage() {
     revealSecrets,
     isDirty,
     dirtyLabels,
+    setJevDirty,
+    registerJevSave,
     appVersion,
     versionLoading,
     checkLoading,

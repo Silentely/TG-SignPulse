@@ -52,4 +52,21 @@ describe('activeRunsStore 轮询生命周期', () => {
     await new Promise((r) => setTimeout(r, 20))
     expect(pollSpy.startChainPoll).not.toHaveBeenCalled()
   })
+
+  it('deduplicates concurrent refresh calls into one API request', async () => {
+    let resolveRefresh: (v: unknown) => void = () => {}
+    api.listActiveSignTaskRuns.mockImplementationOnce(
+      () => new Promise((res) => { resolveRefresh = res }),
+    )
+    const store = await freshStore()
+    const p1 = store.refresh()
+    const p2 = store.refresh()
+
+    expect(api.listActiveSignTaskRuns).toHaveBeenCalledTimes(1)
+    resolveRefresh({ runs: [{ task_name: 't1', account_name: 'a1', state: 'running', run_id: 'r1' }] })
+    const [r1, r2] = await Promise.all([p1, p2])
+    expect(r1).toBe(true)
+    expect(r2).toBe(true)
+    expect(store.runs).toHaveLength(1)
+  })
 })

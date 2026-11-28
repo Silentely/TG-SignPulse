@@ -58,6 +58,7 @@ describe('useTaskListActions', () => {
     const allAccounts = ref(['acc1', 'acc2'])
     const loadTasks = vi.fn(async () => {})
     const openLogsAfterRun = vi.fn()
+    const onRunStarted = vi.fn()
     const actions = useTaskListActions({
       tasks: tasksRef,
       selectedTaskIds,
@@ -65,6 +66,7 @@ describe('useTaskListActions', () => {
       selectedCount: computed(() => selectedTaskIds.value.size),
       loadTasks,
       openLogsAfterRun,
+      onRunStarted,
     })
     return {
       actions,
@@ -72,6 +74,7 @@ describe('useTaskListActions', () => {
       selectedTaskIds,
       loadTasks,
       openLogsAfterRun,
+      onRunStarted,
       deleteBusyKey: actions.deleteBusyKey,
     }
   }
@@ -271,21 +274,23 @@ describe('useTaskListActions', () => {
     expect(actions.runMenuAccounts.value).toEqual(['acc1', 'acc2'])
   })
 
-  it('doRun starts run and opens logs', async () => {
+  it('doRun starts run, notifies active runs refresh, and opens logs', async () => {
     api.startSignTaskRun.mockResolvedValue({})
     const task = makeTaskUi()
-    const { actions, openLogsAfterRun } = setup([task])
+    const { actions, openLogsAfterRun, onRunStarted } = setup([task])
     await actions.doRun(task, 'acc1')
     expect(api.startSignTaskRun).toHaveBeenCalledWith('tok', 'task-1', 'acc1')
+    expect(onRunStarted).toHaveBeenCalledTimes(1)
     expect(openLogsAfterRun).toHaveBeenCalledWith(task, 'acc1')
   })
 
   it('doRun surfaces API errors', async () => {
     api.startSignTaskRun.mockRejectedValue(new Error('boom'))
     const task = makeTaskUi()
-    const { actions, openLogsAfterRun } = setup([task])
+    const { actions, openLogsAfterRun, onRunStarted } = setup([task])
     await actions.doRun(task, 'acc1')
     expect(toastSpy.error).toHaveBeenCalled()
+    expect(onRunStarted).not.toHaveBeenCalled()
     expect(openLogsAfterRun).not.toHaveBeenCalled()
   })
 })

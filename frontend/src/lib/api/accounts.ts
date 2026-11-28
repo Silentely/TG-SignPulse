@@ -237,7 +237,7 @@ export const cancelAccountStatusCheckJob = (token: string, jobId: string) =>
   );
 
 export const deleteAccount = (token: string, accountName: string) =>
-  request<{ success: boolean; message: string }>(`/accounts/${accountName}`, {
+  request<{ success: boolean; message: string }>(`/accounts/${encodeURIComponent(accountName)}`, {
     method: "DELETE",
   }, token);
 
@@ -313,7 +313,7 @@ export const updateAccount = (
     device_profile?: DeviceProfile | null;
   }
 ) =>
-  request<{ success: boolean; message: string; account?: AccountInfo | null }>(`/accounts/${accountName}`, {
+  request<{ success: boolean; message: string; account?: AccountInfo | null }>(`/accounts/${encodeURIComponent(accountName)}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   }, token);
