@@ -337,7 +337,7 @@ const loadRunbookDiagnosis = async () => {
       </div>
     </div>
 
-    <!-- 运行状态与最近执行 + 失败分类 -->
+    <!-- 运行状态与最近执行 + 即将执行签到 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
@@ -406,39 +406,6 @@ const loadRunbookDiagnosis = async () => {
         </div>
       </div>
 
-      <!-- 失败分类 -->
-      <div class="ui-card p-5">
-        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
-          <span>{{ t('dashboard.failureBreakdown') }}</span>
-          <button
-            type="button"
-            class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
-            @click="router.push({ name: 'logs' })"
-          >
-            {{ t('dashboard.goLogs') }}
-          </button>
-        </div>
-        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-8 flex flex-col items-center gap-1.5">
-          <CheckCircle2 class="w-6 h-6 text-emerald-500" />
-          <p class="ui-empty-desc text-emerald-600 dark:text-emerald-400 font-medium">{{ t('dashboard.noFailures') }}</p>
-        </div>
-        <div v-else class="flex flex-wrap gap-2">
-          <button
-            v-for="item in failureBreakdown"
-            :key="item.category"
-            type="button"
-            class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90 transition-opacity"
-            :title="t('dashboard.openFailureInLogs')"
-            @click="openFailureCategory(item.category)"
-          >
-            {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 即将执行签到 + 账号健康预警 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <!-- 即将执行签到 -->
       <div class="ui-card p-5">
         <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
@@ -482,6 +449,39 @@ const loadRunbookDiagnosis = async () => {
             </span>
             <span class="truncate text-[var(--sp-text)] font-mono ml-auto" :title="job.id">{{ job.id }}</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 失败分类 + 账号健康预警 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- 失败分类 -->
+      <div class="ui-card p-5">
+        <div class="ui-section-label mb-4 flex items-center justify-between gap-2">
+          <span>{{ t('dashboard.failureBreakdown') }}</span>
+          <button
+            type="button"
+            class="text-[11px] text-[var(--sp-accent)] hover:underline cursor-pointer"
+            @click="router.push({ name: 'logs' })"
+          >
+            {{ t('dashboard.goLogs') }}
+          </button>
+        </div>
+        <div v-if="failureBreakdown.length === 0" class="ui-empty !py-8 flex flex-col items-center gap-1.5">
+          <CheckCircle2 class="w-6 h-6 text-emerald-500" />
+          <p class="ui-empty-desc text-emerald-600 dark:text-emerald-400 font-medium">{{ t('dashboard.noFailures') }}</p>
+        </div>
+        <div v-else class="flex flex-wrap gap-2">
+          <button
+            v-for="item in failureBreakdown"
+            :key="item.category"
+            type="button"
+            class="ui-badge ui-badge-error !text-[11px] cursor-pointer hover:opacity-90 transition-opacity"
+            :title="t('dashboard.openFailureInLogs')"
+            @click="openFailureCategory(item.category)"
+          >
+            {{ failureCategoryLabel(item.category) || item.category }}: {{ item.count }}
+          </button>
         </div>
       </div>
 

@@ -65,6 +65,20 @@ describe('Dashboard Refactored Core Cards', () => {
     mockUpcomingJobs.value = []
   })
 
+  it('orders upcomingRuns alongside runStatusAndRecent before failureBreakdown', () => {
+    const wrapper = mount(Dashboard)
+    const text = wrapper.text()
+    const runStatusIdx = text.indexOf('dashboard.runStatusAndRecent')
+    const upcomingIdx = text.indexOf('dashboard.upcomingRuns')
+    const failureIdx = text.indexOf('dashboard.failureBreakdown')
+    const healthIdx = text.indexOf('dashboard.accountHealth')
+
+    expect(runStatusIdx).toBeGreaterThan(-1)
+    expect(upcomingIdx).toBeGreaterThan(runStatusIdx)
+    expect(failureIdx).toBeGreaterThan(upcomingIdx)
+    expect(healthIdx).toBeGreaterThan(failureIdx)
+  })
+
   it('Card 1: displays recent completed runs when active runs is empty', () => {
     mockLogs.value = [
       {
